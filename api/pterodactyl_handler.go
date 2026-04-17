@@ -295,6 +295,128 @@ func (h *PterodactylHandler) SendCommand(w http.ResponseWriter, r *http.Request)
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
+func (h *PterodactylHandler) WhitelistAdd(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	serverName := vars["serverName"]
+	player := r.FormValue("player")
+
+	if player == "" {
+		http.Error(w, "Player name is required", http.StatusBadRequest)
+		return
+	}
+
+	server, err := h.Store.GetServerByName(serverName)
+	if err != nil {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+	if server == nil {
+		http.Error(w, "Server not found", http.StatusNotFound)
+		return
+	}
+
+	link, err := h.Store.GetPterodactylLink(server.ID)
+	if err != nil || link == nil {
+		http.Error(w, "Server not linked to Pterodactyl", http.StatusNotFound)
+		return
+	}
+
+	if !isActionAllowed(link.AllowedActions, "whitelist") {
+		http.Error(w, "Whitelist action not permitted for this server", http.StatusForbidden)
+		return
+	}
+
+	c := h.client()
+	if c == nil {
+		http.Error(w, "Pterodactyl not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	cmd := whitelistAddCommand(server.GameType, player)
+	if cmd == "" {
+		http.Error(w, "Whitelist not supported for game type: "+server.GameType, http.StatusBadRequest)
+		return
+	}
+
+	if err := c.SendCommand(link.PteroServerID, cmd); err != nil {
+		http.Error(w, "Whitelist add failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+func (h *PterodactylHandler) WhitelistRemove(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	serverName := vars["serverName"]
+	player := r.FormValue("player")
+
+	if player == "" {
+		http.Error(w, "Player name is required", http.StatusBadRequest)
+		return
+	}
+
+	server, err := h.Store.GetServerByName(serverName)
+	if err != nil {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+	if server == nil {
+		http.Error(w, "Server not found", http.StatusNotFound)
+		return
+	}
+
+	link, err := h.Store.GetPterodactylLink(server.ID)
+	if err != nil || link == nil {
+		http.Error(w, "Server not linked to Pterodactyl", http.StatusNotFound)
+		return
+	}
+
+	if !isActionAllowed(link.AllowedActions, "whitelist") {
+		http.Error(w, "Whitelist action not permitted for this server", http.StatusForbidden)
+		return
+	}
+
+	c := h.client()
+	if c == nil {
+		http.Error(w, "Pterodactyl not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	cmd := whitelistRemoveCommand(server.GameType, player)
+	if cmd == "" {
+		http.Error(w, "Whitelist not supported for game type: "+server.GameType, http.StatusBadRequest)
+		return
+	}
+
+	if err := c.SendCommand(link.PteroServerID, cmd); err != nil {
+		http.Error(w, "Whitelist remove failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+func whitelistAddCommand(gameType, player string) string {
+	switch gameType {
+	case "minecraft":
+		return fmt.Sprintf("whitelist add %s", player)
+	default:
+		return ""
+	}
+}
+
+func whitelistRemoveCommand(gameType, player string) string {
+	switch gameType {
+	case "minecraft":
+		return fmt.Sprintf("whitelist remove %s", player)
+	default:
+		return ""
+	}
+}
+
 func isActionAllowed(allowedActionsJSON string, action string) bool {
 	var actions []string
 	if err := json.Unmarshal([]byte(allowedActionsJSON), &actions); err != nil {

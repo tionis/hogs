@@ -145,6 +145,17 @@
            {{if inList "stop" .AllowedActions}}<form action="/servers/{{.Server.Name}}/action" method="POST" class="d-inline"><input type="hidden" name="action" value="stop"><button type="submit" class="btn btn-danger btn-sm">Stop</button></form>{{end}}
            {{if inList "restart" .AllowedActions}}<form action="/servers/{{.Server.Name}}/action" method="POST" class="d-inline"><input type="hidden" name="action" value="restart"><button type="submit" class="btn btn-warning btn-sm">Restart</button></form>{{end}}
          </div>
+         {{if inList "whitelist" .AllowedActions}}
+         <h6 class="mt-3">Whitelist</h6>
+         <form action="/servers/{{.Server.Name}}/whitelist/add" method="POST" class="input-group input-group-sm mb-2">
+           <input type="text" name="player" class="form-control" placeholder="Player name" required>
+           <button type="submit" class="btn btn-outline-success">Add</button>
+         </form>
+         <form action="/servers/{{.Server.Name}}/whitelist/remove" method="POST" class="input-group input-group-sm">
+           <input type="text" name="player" class="form-control" placeholder="Player name" required>
+           <button type="submit" class="btn btn-outline-danger">Remove</button>
+         </form>
+         {{end}}
          {{if .PteroCommands}}
          <h6>Commands</h6>
          {{range .PteroCommands}}
