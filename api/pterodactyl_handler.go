@@ -30,6 +30,14 @@ func (h *PterodactylHandler) client() *pterodactyl.Client {
 	return c
 }
 
+func (h *PterodactylHandler) resolveIdentifier(c *pterodactyl.Client, uuid string) (string, error) {
+	srv, err := c.GetServer(uuid)
+	if err != nil {
+		return "", err
+	}
+	return srv.Identifier, nil
+}
+
 func (h *PterodactylHandler) ListPteroServers(w http.ResponseWriter, r *http.Request) {
 	c := h.client()
 	if c == nil {
@@ -296,8 +304,13 @@ func (h *PterodactylHandler) SendCommand(w http.ResponseWriter, r *http.Request)
 	}
 
 	if link.PteroIdentifier == "" {
-		http.Error(w, "Pterodactyl server identifier not set. Re-link the server with identifier.", http.StatusBadRequest)
-		return
+		identifier, err := h.resolveIdentifier(c, link.PteroServerID)
+		if err != nil {
+			http.Error(w, "Failed to resolve Pterodactyl server identifier: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		link.PteroIdentifier = identifier
+		h.Store.UpdatePterodactylLink(link)
 	}
 
 	if err := c.SendCommand(link.PteroIdentifier, command); err != nil {
@@ -349,6 +362,16 @@ func (h *PterodactylHandler) WhitelistSet(w http.ResponseWriter, r *http.Request
 	if c.ClientKey == "" {
 		http.Error(w, "Pterodactyl client key not configured. Set PTERODACTYL_CLIENT_KEY to send commands.", http.StatusServiceUnavailable)
 		return
+	}
+
+	if link.PteroIdentifier == "" {
+		identifier, err := h.resolveIdentifier(c, link.PteroServerID)
+		if err != nil {
+			http.Error(w, "Failed to resolve Pterodactyl server identifier: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		link.PteroIdentifier = identifier
+		h.Store.UpdatePterodactylLink(link)
 	}
 
 	userEmail := r.FormValue("user_email")
