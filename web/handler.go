@@ -625,13 +625,78 @@ func (h *WebHandler) Settings(w http.ResponseWriter, r *http.Request) {
 		BackgroundURLs: h.pickBackgrounds(""),
 	}
 
-	var buf bytes.Buffer
 	tmpl, err := template.New("base.html").Funcs(sharedFuncMap()).ParseFS(templateFS, "templates/base.html", "templates/settings.html")
 	if err != nil {
 		http.Error(w, "Template error: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, data); err != nil {
+		http.Error(w, "Render error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	buf.WriteTo(w)
+}
+
+type MyServerRow struct {
+	Server         database.Server
+	PteroLink      *database.PterodactylLink
+	PteroCommands  []database.PterodactylCommand
+	AllowedActions []string
+}
+
+func (h *WebHandler) MyServers(w http.ResponseWriter, r *http.Request) {
+	servers, err := h.Store.ListServers()
+	if err != nil {
+		http.Error(w, "Failed to load servers", http.StatusInternalServerError)
+		return
+	}
+
+	var rows []MyServerRow
+	for _, srv := range servers {
+		link, _ := h.Store.GetPterodactylLink(srv.ID)
+		if link == nil {
+			continue
+		}
+		var actions []string
+		json.Unmarshal([]byte(link.AllowedActions), &actions)
+		if len(actions) == 0 {
+			continue
+		}
+		commands, _ := h.Store.ListPterodactylCommands(srv.ID)
+		if commands == nil {
+			commands = []database.PterodactylCommand{}
+		}
+		rows = append(rows, MyServerRow{
+			Server:         srv,
+			PteroLink:      link,
+			PteroCommands:  commands,
+			AllowedActions: actions,
+		})
+	}
+
+	data := struct {
+		Servers        []MyServerRow
+		Authenticated  bool
+		UserRole       string
+		SiteName       string
+		BackgroundURLs BackgroundURLs
+	}{
+		Servers:        rows,
+		Authenticated:  true,
+		UserRole:       h.userRole(r),
+		SiteName:       h.siteName(),
+		BackgroundURLs: h.pickBackgrounds(""),
+	}
+
+	tmpl, err := template.New("base.html").Funcs(sharedFuncMap()).ParseFS(templateFS, "templates/base.html", "templates/my_servers.html")
+	if err != nil {
+		http.Error(w, "Template error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, data); err != nil {
 		http.Error(w, "Render error: "+err.Error(), http.StatusInternalServerError)
 		return

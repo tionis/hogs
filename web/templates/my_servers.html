@@ -1,0 +1,37 @@
+{{define "title"}}My Servers{{end}}
+
+{{define "content"}}
+<div class="pt-3 pb-2 mb-3 border-bottom">
+  <h1 class="h2">My Servers</h1>
+  <p class="text-muted">Servers you have actions on (linked to Pterodactyl with permissions for your role).</p>
+</div>
+
+{{if .Servers}}
+<div class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-4">
+  {{range .Servers}}
+  <div class="col">
+    <div class="card h-100">
+      <div class="card-body">
+        <h5 class="card-title">
+          <a href="/{{.Server.Name}}" class="text-decoration-none">{{.Server.Name}}</a>
+          <span class="badge game-badge-{{.Server.GameType}} ms-1" style="font-size:0.6em;">{{.Server.GameType | gameIcon}}{{.Server.GameType | title}}</span>
+        </h5>
+        <div class="server-status-poller small mb-2" data-server="{{.Server.Name}}" data-game-type="{{.Server.GameType}}">Checking...</div>
+        {{if .PteroLink}}
+        <div class="d-flex flex-wrap gap-1">
+          {{if inList "start" .AllowedActions}}<span class="badge bg-success">Start</span>{{end}}
+          {{if inList "stop" .AllowedActions}}<span class="badge bg-danger">Stop</span>{{end}}
+          {{if inList "restart" .AllowedActions}}<span class="badge bg-warning text-dark">Restart</span>{{end}}
+          {{if inList "whitelist" .AllowedActions}}<span class="badge bg-info text-dark">Whitelist</span>{{end}}
+          {{range .PteroCommands}}{{if inList (printf "command:%s" .Command) $.AllowedActions}}<span class="badge bg-secondary">{{.DisplayName}}</span>{{end}}{{end}}
+        </div>
+        {{end}}
+      </div>
+    </div>
+  </div>
+  {{end}}
+</div>
+{{else}}
+<div class="alert alert-info">No servers with actions available. Contact an admin to get permissions assigned.</div>
+{{end}}
+{{end}}

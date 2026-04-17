@@ -103,6 +103,8 @@ func main() {
 		router.Handle("/admin/pterodactyl/unlink", authenticator.RequireRole("admin")(http.HandlerFunc(pteroHandler.UnlinkServer))).Methods("POST")
 		router.Handle("/admin/pterodactyl/commands/add", authenticator.RequireRole("admin")(http.HandlerFunc(pteroHandler.AddCommand))).Methods("POST")
 		router.Handle("/admin/pterodactyl/commands/delete", authenticator.RequireRole("admin")(http.HandlerFunc(pteroHandler.DeleteCommand))).Methods("POST")
+
+		router.Handle("/my-servers", authenticator.RequireRole("admin", "user")(http.HandlerFunc(webHandler.MyServers))).Methods("GET")
 	}
 	router.PathPrefix("/{serverName}/map/").HandlerFunc(serverHandler.MapProxy)
 	router.PathPrefix("/files/{serverName}/mods/").Handler(http.HandlerFunc(serverHandler.ServeModFiles))
