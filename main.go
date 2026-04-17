@@ -107,6 +107,8 @@ func main() {
 		router.Handle("/admin/pterodactyl/commands/add", authenticator.RequireRole("admin")(http.HandlerFunc(pteroHandler.AddCommand))).Methods("POST")
 		router.Handle("/admin/pterodactyl/commands/delete", authenticator.RequireRole("admin")(http.HandlerFunc(pteroHandler.DeleteCommand))).Methods("POST")
 
+		router.Handle("/api/pterodactyl/servers", authenticator.RequireRole("admin")(http.HandlerFunc(pteroHandler.ListPteroServers))).Methods("GET")
+
 		router.Handle("/my-servers", authenticator.RequireRole("admin", "user")(http.HandlerFunc(webHandler.MyServers))).Methods("GET")
 	}
 	router.PathPrefix("/{serverName}/map/").HandlerFunc(serverHandler.MapProxy)

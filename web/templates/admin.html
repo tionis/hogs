@@ -70,6 +70,7 @@
 {{if .PteroConfigured}}
 <div class="mt-4">
   <h3>Pterodactyl Integration</h3>
+  <p class="text-muted small">Link servers to your Pterodactyl panel for power actions, whitelisting, and approved commands.</p>
   {{range .Servers}}
   <div class="card mb-3">
     <div class="card-header">{{.Server.Name}}</div>
@@ -83,7 +84,8 @@
           <div class="row g-2 align-items-end">
             <div class="col-md-4">
               <label class="form-label">Pterodactyl Server UUID</label>
-              <input type="text" class="form-control form-control-sm" name="ptero_server_id" value="{{.PteroLink.PteroServerID}}">
+              <input type="text" class="form-control form-control-sm" name="ptero_server_id" value="{{.PteroLink.PteroServerID}}" list="ptero-server-list" required>
+              <datalist id="ptero-server-list"></datalist>
             </div>
             <div class="col-md-6">
               <label class="form-label">Allowed Actions</label>
@@ -141,7 +143,7 @@
         <input type="hidden" name="allowed_actions" value="">
         <div class="col-md-4">
           <label class="form-label">Pterodactyl Server UUID</label>
-          <input type="text" class="form-control form-control-sm" name="ptero_server_id" placeholder="abc-123-def" required>
+          <input type="text" class="form-control form-control-sm" name="ptero_server_id" placeholder="abc-123-def" list="ptero-server-list" required>
         </div>
         <div class="col-md-5">
           <label class="form-label">Allowed Actions</label>
@@ -376,5 +378,19 @@
     form.querySelector('input[name="allowed_actions"]').value = JSON.stringify(actions);
     return true;
   }
+
+  fetch('/api/pterodactyl/servers')
+    .then(r => { if (!r.ok) throw new Error('Not configured'); return r.json(); })
+    .then(servers => {
+      const dl = document.getElementById('ptero-server-list');
+      if (!dl) return;
+      servers.forEach(s => {
+        const opt = document.createElement('option');
+        opt.value = s.uuid;
+        opt.label = s.name + ' (' + s.identifier + ')';
+        dl.appendChild(opt);
+      });
+    })
+    .catch(() => {});
 </script>
 {{end}}
