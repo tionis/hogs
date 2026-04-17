@@ -321,10 +321,17 @@ func (s *Store) UpdateBackground(bg *Background) error {
 }
 
 func (s *Store) GetRandomBackground(theme, gameType string) (*Background, error) {
-	row := s.DB.QueryRow(
-		"SELECT id, filename, theme_mode, game_type, enabled FROM backgrounds WHERE enabled = 1 AND (theme_mode = ? OR theme_mode = 'all') AND (game_type = ? OR game_type = 'all') ORDER BY RANDOM() LIMIT 1",
-		theme, gameType,
-	)
+	query := "SELECT id, filename, theme_mode, game_type, enabled FROM backgrounds WHERE enabled = 1 AND (theme_mode = ? OR theme_mode = 'all')"
+	args := []interface{}{theme}
+
+	if gameType != "all" {
+		query += " AND (game_type = ? OR game_type = 'all')"
+		args = append(args, gameType)
+	}
+
+	query += " ORDER BY RANDOM() LIMIT 1"
+
+	row := s.DB.QueryRow(query, args...)
 	var bg Background
 	var enabled int
 	err := row.Scan(&bg.ID, &bg.Filename, &bg.ThemeMode, &bg.GameType, &enabled)
