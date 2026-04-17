@@ -357,18 +357,41 @@ func (h *WebHandler) ServerDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := struct {
-		Server         *database.Server
-		Authenticated  bool
-		UserRole       string
-		SiteName       string
-		BackgroundURLs BackgroundURLs
+		Server          *database.Server
+		Authenticated   bool
+		UserRole        string
+		SiteName        string
+		BackgroundURLs  BackgroundURLs
+		PteroConfigured bool
+		PteroLink       *database.PterodactylLink
+		PteroCommands   []database.PterodactylCommand
+		AllowedActions  []string
 	}{
-		Server:         server,
-		Authenticated:  isAuthenticated,
-		UserRole:       h.userRole(r),
-		SiteName:       h.siteName(),
-		BackgroundURLs: h.pickBackgrounds(server.GameType),
+		Server:          server,
+		Authenticated:   isAuthenticated,
+		UserRole:        h.userRole(r),
+		SiteName:        h.siteName(),
+		BackgroundURLs:  h.pickBackgrounds(server.GameType),
+		PteroConfigured: h.Config.PterodactylURL != "",
+		PteroLink:       nil,
+		PteroCommands:   nil,
+		AllowedActions:  nil,
 	}
+
+	if h.Config.PterodactylURL != "" {
+		link, _ := h.Store.GetPterodactylLink(server.ID)
+		data.PteroLink = link
+		if link != nil {
+			commands, _ := h.Store.ListPterodactylCommands(server.ID)
+			data.PteroCommands = commands
+		}
+	}
+
+	var allowedActions []string
+	if data.PteroLink != nil {
+		json.Unmarshal([]byte(data.PteroLink.AllowedActions), &allowedActions)
+	}
+	data.AllowedActions = allowedActions
 
 	tmpl, err := template.New("base.html").Funcs(sharedFuncMap()).ParseFS(templateFS, "templates/base.html", "templates/server.html")
 	if err != nil {

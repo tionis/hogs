@@ -221,6 +221,11 @@ func (h *PterodactylHandler) ServerAction(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	if !isActionAllowed(link.AllowedActions, action) {
+		http.Error(w, "Action not permitted for this server", http.StatusForbidden)
+		return
+	}
+
 	c := h.client()
 	if c == nil {
 		http.Error(w, "Pterodactyl not configured", http.StatusServiceUnavailable)
@@ -270,6 +275,11 @@ func (h *PterodactylHandler) SendCommand(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	if !isActionAllowed(link.AllowedActions, "command:"+command) {
+		http.Error(w, "Command not permitted for this server", http.StatusForbidden)
+		return
+	}
+
 	c := h.client()
 	if c == nil {
 		http.Error(w, "Pterodactyl not configured", http.StatusServiceUnavailable)
@@ -283,4 +293,17 @@ func (h *PterodactylHandler) SendCommand(w http.ResponseWriter, r *http.Request)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+func isActionAllowed(allowedActionsJSON string, action string) bool {
+	var actions []string
+	if err := json.Unmarshal([]byte(allowedActionsJSON), &actions); err != nil {
+		return false
+	}
+	for _, a := range actions {
+		if a == action {
+			return true
+		}
+	}
+	return false
 }

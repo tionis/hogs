@@ -129,13 +129,41 @@
          {{end}}
          {{end}}
          <li class="list-group-item">
-            <strong>Online Players</strong>
-            <div id="player-list-{{.Server.Name}}" class="small mt-1" style="color: var(--text-secondary);">No players online</div>
-         </li>
-      </ul>
-    </div>
-  </div>
-</div>
+             <strong>Online Players</strong>
+             <div id="player-list-{{.Server.Name}}" class="small mt-1" style="color: var(--text-secondary);">No players online</div>
+          </li>
+       </ul>
+     </div>
+
+     {{if and .PteroConfigured .PteroLink}}
+     <div class="card mb-4">
+       <div class="card-header">Server Actions</div>
+       <div class="card-body">
+         {{if .Authenticated}}
+         <div class="d-flex flex-wrap gap-2 mb-3">
+           {{if inList "start" .AllowedActions}}<form action="/servers/{{.Server.Name}}/action" method="POST" class="d-inline"><input type="hidden" name="action" value="start"><button type="submit" class="btn btn-success btn-sm">Start</button></form>{{end}}
+           {{if inList "stop" .AllowedActions}}<form action="/servers/{{.Server.Name}}/action" method="POST" class="d-inline"><input type="hidden" name="action" value="stop"><button type="submit" class="btn btn-danger btn-sm">Stop</button></form>{{end}}
+           {{if inList "restart" .AllowedActions}}<form action="/servers/{{.Server.Name}}/action" method="POST" class="d-inline"><input type="hidden" name="action" value="restart"><button type="submit" class="btn btn-warning btn-sm">Restart</button></form>{{end}}
+         </div>
+         {{if .PteroCommands}}
+         <h6>Commands</h6>
+         {{range .PteroCommands}}
+         {{if inList (printf "command:%s" .Command) $.AllowedActions}}
+         <form action="/servers/{{$.Server.Name}}/command" method="POST" class="d-inline mb-2">
+           <input type="hidden" name="command" value="{{.Command}}">
+           <button type="submit" class="btn btn-outline-primary btn-sm">{{.DisplayName}}</button>
+         </form>
+         {{end}}
+         {{end}}
+         {{end}}
+         {{else}}
+         <p class="text-muted small mb-0">Log in to access server actions.</p>
+         {{end}}
+       </div>
+     </div>
+     {{end}}
+   </div>
+ </div>
 
 <script>
 document.addEventListener("DOMContentLoaded", function() {
