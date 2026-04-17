@@ -64,6 +64,13 @@ func (h *WebHandler) pickBackgrounds(gameType string) BackgroundURLs {
 	return urls
 }
 
+func (h *WebHandler) userRole(r *http.Request) string {
+	if h.Auth == nil {
+		return ""
+	}
+	return h.Auth.GetUserRole(r)
+}
+
 func (h *WebHandler) siteName() string {
 	name, err := h.Store.GetSetting("site_name")
 	if err != nil || name == "" {
@@ -99,6 +106,7 @@ func (h *WebHandler) FileManager(w http.ResponseWriter, r *http.Request) {
 	data := struct {
 		Server         *database.Server
 		Authenticated  bool
+		UserRole       string
 		SiteName       string
 		UserEmail      string
 		Files          *modmanager.ModItem
@@ -106,6 +114,7 @@ func (h *WebHandler) FileManager(w http.ResponseWriter, r *http.Request) {
 	}{
 		Server:         server,
 		Authenticated:  true,
+		UserRole:       "admin",
 		SiteName:       h.siteName(),
 		UserEmail:      h.Auth.GetUserEmail(r),
 		Files:          modTree,
@@ -261,12 +270,14 @@ func (h *WebHandler) Home(w http.ResponseWriter, r *http.Request) {
 		Servers        []database.Server
 		GameTypes      []string
 		Authenticated  bool
+		UserRole       string
 		SiteName       string
 		BackgroundURLs BackgroundURLs
 	}{
 		Servers:        visibleServers,
 		GameTypes:      gameTypes,
 		Authenticated:  isAuthenticated,
+		UserRole:       h.userRole(r),
 		SiteName:       h.siteName(),
 		BackgroundURLs: h.pickBackgrounds(""),
 	}
@@ -311,11 +322,13 @@ func (h *WebHandler) ServerDetail(w http.ResponseWriter, r *http.Request) {
 	data := struct {
 		Server         *database.Server
 		Authenticated  bool
+		UserRole       string
 		SiteName       string
 		BackgroundURLs BackgroundURLs
 	}{
 		Server:         server,
 		Authenticated:  isAuthenticated,
+		UserRole:       h.userRole(r),
 		SiteName:       h.siteName(),
 		BackgroundURLs: h.pickBackgrounds(server.GameType),
 	}
@@ -345,12 +358,14 @@ func (h *WebHandler) Admin(w http.ResponseWriter, r *http.Request) {
 	data := struct {
 		Servers        []database.Server
 		Authenticated  bool
+		UserRole       string
 		SiteName       string
 		UserEmail      string
 		BackgroundURLs BackgroundURLs
 	}{
 		Servers:        servers,
 		Authenticated:  true,
+		UserRole:       "admin",
 		SiteName:       h.siteName(),
 		UserEmail:      h.Auth.GetUserEmail(r),
 		BackgroundURLs: h.pickBackgrounds(""),
@@ -484,12 +499,14 @@ func (h *WebHandler) BackgroundManager(w http.ResponseWriter, r *http.Request) {
 	data := struct {
 		Backgrounds    []database.Background
 		Authenticated  bool
+		UserRole       string
 		SiteName       string
 		UserEmail      string
 		BackgroundURLs BackgroundURLs
 	}{
 		Backgrounds:    backgrounds,
 		Authenticated:  true,
+		UserRole:       "admin",
 		SiteName:       h.siteName(),
 		UserEmail:      h.Auth.GetUserEmail(r),
 		BackgroundURLs: h.pickBackgrounds(""),
@@ -535,11 +552,13 @@ func (h *WebHandler) Settings(w http.ResponseWriter, r *http.Request) {
 	data := struct {
 		SiteName       string
 		Authenticated  bool
+		UserRole       string
 		UserEmail      string
 		BackgroundURLs BackgroundURLs
 	}{
 		SiteName:       siteName,
 		Authenticated:  true,
+		UserRole:       "admin",
 		UserEmail:      h.Auth.GetUserEmail(r),
 		BackgroundURLs: h.pickBackgrounds(""),
 	}

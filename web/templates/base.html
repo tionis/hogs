@@ -332,12 +332,12 @@
             <button type="button" data-theme="light" title="Light mode">&#9728;</button>
             <button type="button" data-theme="dark" title="Dark mode">&#9790;</button>
           </div>
-          {{if .Authenticated}}
-           <a href="/admin" class="btn btn-outline-light btn-sm">Admin</a>
-           <a href="/logout" class="btn btn-outline-danger btn-sm">Logout</a>
-          {{else}}
-           <a href="/login" class="btn btn-primary btn-sm">Login</a>
-          {{end}}
+{{if .Authenticated}}
+            {{if eq .UserRole "admin"}}<a href="/admin" class="btn btn-outline-light btn-sm">Admin</a>{{end}}
+            <a href="/logout" class="btn btn-outline-danger btn-sm">Logout</a>
+           {{else}}
+            <a href="/login" class="btn btn-primary btn-sm">Login</a>
+           {{end}}
         </div>
       </div>
     </nav>

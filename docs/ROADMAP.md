@@ -253,9 +253,9 @@ Ideas for later phases, prioritized by likely demand.
 Suggested sequence based on dependencies and impact:
 
 ```
-1. Phase 2a — users table + OIDC groups + role middleware
-2. Phase 1  — Valheim querier (quick win, tests extensibility)
-3. Phase 2b — role-based UI (hide/show elements by role)
+1. Phase 2a — users table + OIDC groups + role middleware        ✅ DONE
+2. Phase 1  — Valheim querier + registry refactor                ✅ DONE
+3. Phase 2b — role-based UI (hide/show elements by role)         ✅ DONE
 4. Phase 3a — pterodactyl/ client + DB tables + admin link UI
 5. Phase 3b — user-facing server actions (power, whitelist, commands)
 6. Phase 4  — pick based on demand (Discord webhooks likely first)
