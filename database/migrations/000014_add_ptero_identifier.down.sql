@@ -1,0 +1,1 @@
+ALTER TABLE pterodactyl_servers DROP COLUMN ptero_identifier;

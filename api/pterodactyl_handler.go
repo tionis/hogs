@@ -25,7 +25,9 @@ func (h *PterodactylHandler) client() *pterodactyl.Client {
 	if h.Config.PterodactylURL == "" || h.Config.PterodactylAppKey == "" {
 		return nil
 	}
-	return pterodactyl.NewClient(h.Config.PterodactylURL, h.Config.PterodactylAppKey)
+	c := pterodactyl.NewClient(h.Config.PterodactylURL, h.Config.PterodactylAppKey)
+	c.ClientKey = h.Config.PterodactylClientKey
+	return c
 }
 
 func (h *PterodactylHandler) ListPteroServers(w http.ResponseWriter, r *http.Request) {
@@ -96,15 +98,17 @@ func (h *PterodactylHandler) LinkServer(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	pteroIdentifier := r.FormValue("ptero_identifier")
 	allowedActions := r.FormValue("allowed_actions")
 	if allowedActions == "" {
 		allowedActions = "[]"
 	}
 
 	link := &database.PterodactylLink{
-		ServerID:       serverID,
-		PteroServerID:  pteroServerID,
-		AllowedActions: allowedActions,
+		ServerID:        serverID,
+		PteroServerID:   pteroServerID,
+		PteroIdentifier: pteroIdentifier,
+		AllowedActions:  allowedActions,
 	}
 
 	existing, err := h.Store.GetPterodactylLink(serverID)
@@ -286,7 +290,17 @@ func (h *PterodactylHandler) SendCommand(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if err := c.SendCommand(link.PteroServerID, command); err != nil {
+	if c.ClientKey == "" {
+		http.Error(w, "Pterodactyl client key not configured. Set PTERODACTYL_CLIENT_KEY to send commands.", http.StatusServiceUnavailable)
+		return
+	}
+
+	if link.PteroIdentifier == "" {
+		http.Error(w, "Pterodactyl server identifier not set. Re-link the server with identifier.", http.StatusBadRequest)
+		return
+	}
+
+	if err := c.SendCommand(link.PteroIdentifier, command); err != nil {
 		http.Error(w, "Pterodactyl command failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -332,6 +346,11 @@ func (h *PterodactylHandler) WhitelistSet(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	if c.ClientKey == "" {
+		http.Error(w, "Pterodactyl client key not configured. Set PTERODACTYL_CLIENT_KEY to send commands.", http.StatusServiceUnavailable)
+		return
+	}
+
 	userEmail := r.FormValue("user_email")
 
 	existing, _ := h.Store.GetUserWhitelist(userEmail, server.ID)
@@ -344,7 +363,7 @@ func (h *PterodactylHandler) WhitelistSet(w http.ResponseWriter, r *http.Request
 	if existing != nil && existing.Username != "" {
 		removeCmd := whitelistRemoveCommand(server.GameType, existing.Username)
 		if removeCmd != "" {
-			c.SendCommand(link.PteroServerID, removeCmd)
+			c.SendCommand(link.PteroIdentifier, removeCmd)
 		}
 	}
 
@@ -354,7 +373,7 @@ func (h *PterodactylHandler) WhitelistSet(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	if err := c.SendCommand(link.PteroServerID, addCmd); err != nil {
+	if err := c.SendCommand(link.PteroIdentifier, addCmd); err != nil {
 		http.Error(w, "Whitelist add failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}

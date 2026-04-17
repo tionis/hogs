@@ -60,8 +60,3 @@ func (c *Client) StopServer(uuid string) error {
 func (c *Client) RestartServer(uuid string) error {
 	return c.post(fmt.Sprintf("/api/application/servers/%s/restart", uuid), nil, nil)
 }
-
-func (c *Client) SendCommand(uuid, command string) error {
-	body := map[string]string{"command": command}
-	return c.post(fmt.Sprintf("/api/application/servers/%s/command", uuid), body, nil)
-}

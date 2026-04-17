@@ -12,6 +12,7 @@ import (
 type Client struct {
 	BaseURL    string
 	APIToken   string
+	ClientKey  string
 	HTTPClient *http.Client
 }
 

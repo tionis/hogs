@@ -88,13 +88,18 @@ func TestPterodactylConfigDefaults(t *testing.T) {
 	if cfg.PterodactylAppKey != "" {
 		t.Errorf("PterodactylAppKey = %q, want empty default", cfg.PterodactylAppKey)
 	}
+	if cfg.PterodactylClientKey != "" {
+		t.Errorf("PterodactylClientKey = %q, want empty default", cfg.PterodactylClientKey)
+	}
 }
 
 func TestPterodactylConfigFromEnv(t *testing.T) {
 	os.Setenv("PTERODACTYL_URL", "https://panel.example.com")
 	os.Setenv("PTERODACTYL_APP_KEY", "ptla_xxxxxxxx")
+	os.Setenv("PTERODACTYL_CLIENT_KEY", "ptlc_yyyyyyyy")
 	defer os.Unsetenv("PTERODACTYL_URL")
 	defer os.Unsetenv("PTERODACTYL_APP_KEY")
+	defer os.Unsetenv("PTERODACTYL_CLIENT_KEY")
 
 	cfg := LoadConfig()
 	if cfg.PterodactylURL != "https://panel.example.com" {
@@ -102,5 +107,8 @@ func TestPterodactylConfigFromEnv(t *testing.T) {
 	}
 	if cfg.PterodactylAppKey != "ptla_xxxxxxxx" {
 		t.Errorf("PterodactylAppKey = %q, want %q", cfg.PterodactylAppKey, "ptla_xxxxxxxx")
+	}
+	if cfg.PterodactylClientKey != "ptlc_yyyyyyyy" {
+		t.Errorf("PterodactylClientKey = %q, want %q", cfg.PterodactylClientKey, "ptlc_yyyyyyyy")
 	}
 }

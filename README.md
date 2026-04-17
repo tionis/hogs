@@ -62,6 +62,7 @@ podman run -d --name hogs \
     -e OIDC_CLIENT_SECRET="" \
     -e PTERODACTYL_URL="" \
     -e PTERODACTYL_APP_KEY="" \
+    -e PTERODACTYL_CLIENT_KEY="" \
     ghcr.io/tionis/hogs:latest
 ```
 *Note: Refer to the [Configuration Reference](#configuration-reference) below for OIDC details required for admin access.*
@@ -94,6 +95,7 @@ export OIDC_GROUPS_CLAIM=groups
 # Pterodactyl Integration (optional - start/stop/restart/commands from HOGS)
 export PTERODACTYL_URL=https://panel.example.com
 export PTERODACTYL_APP_KEY=ptla_xxxxxxxxxxxxxx
+export PTERODACTYL_CLIENT_KEY=ptlc_xxxxxxxxxxxxxx
     ```
 
 2.  **Run the binary:**
@@ -131,6 +133,7 @@ The repository includes helper scripts for development/testing:
 | `OIDC_GROUPS_CLAIM`    | `groups`                        | The OIDC claim path to extract group memberships from.                     |
 | `PTERODACTYL_URL`      | *(Empty)*                       | Pterodactyl panel URL (e.g. `https://panel.example.com`). **Both this and `PTERODACTYL_APP_KEY` must be set to enable Pterodactyl features.** |
 | `PTERODACTYL_APP_KEY`  | *(Empty)*                       | Pterodactyl **Application** API key (starts with `ptla_`). Get it from your panel's Admin > API section. |
+| `PTERODACTYL_CLIENT_KEY` | *(Empty)*                     | Pterodactyl **Client** API key (starts with `ptlc_`). Required for commands and whitelisting. Get it from your panel's Settings > API section. |
 
 ## Usage Guide
 

@@ -459,10 +459,11 @@ func (s *Store) ListUsers() ([]User, error) {
 }
 
 type PterodactylLink struct {
-	ID             int    `json:"id"`
-	ServerID       int    `json:"serverId"`
-	PteroServerID  string `json:"pteroServerId"`
-	AllowedActions string `json:"allowedActions"`
+	ID              int    `json:"id"`
+	ServerID        int    `json:"serverId"`
+	PteroServerID   string `json:"pteroServerId"`
+	PteroIdentifier string `json:"pteroIdentifier"`
+	AllowedActions  string `json:"allowedActions"`
 }
 
 type PterodactylCommand struct {
@@ -473,9 +474,9 @@ type PterodactylCommand struct {
 }
 
 func (s *Store) GetPterodactylLink(serverID int) (*PterodactylLink, error) {
-	row := s.DB.QueryRow("SELECT id, server_id, ptero_server_id, allowed_actions FROM pterodactyl_servers WHERE server_id = ?", serverID)
+	row := s.DB.QueryRow("SELECT id, server_id, ptero_server_id, ptero_identifier, allowed_actions FROM pterodactyl_servers WHERE server_id = ?", serverID)
 	var link PterodactylLink
-	err := row.Scan(&link.ID, &link.ServerID, &link.PteroServerID, &link.AllowedActions)
+	err := row.Scan(&link.ID, &link.ServerID, &link.PteroServerID, &link.PteroIdentifier, &link.AllowedActions)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
@@ -486,8 +487,8 @@ func (s *Store) GetPterodactylLink(serverID int) (*PterodactylLink, error) {
 }
 
 func (s *Store) CreatePterodactylLink(link *PterodactylLink) error {
-	result, err := s.DB.Exec("INSERT INTO pterodactyl_servers (server_id, ptero_server_id, allowed_actions) VALUES (?, ?, ?)",
-		link.ServerID, link.PteroServerID, link.AllowedActions)
+	result, err := s.DB.Exec("INSERT INTO pterodactyl_servers (server_id, ptero_server_id, ptero_identifier, allowed_actions) VALUES (?, ?, ?, ?)",
+		link.ServerID, link.PteroServerID, link.PteroIdentifier, link.AllowedActions)
 	if err != nil {
 		return err
 	}
@@ -497,8 +498,8 @@ func (s *Store) CreatePterodactylLink(link *PterodactylLink) error {
 }
 
 func (s *Store) UpdatePterodactylLink(link *PterodactylLink) error {
-	_, err := s.DB.Exec("UPDATE pterodactyl_servers SET ptero_server_id = ?, allowed_actions = ? WHERE server_id = ?",
-		link.PteroServerID, link.AllowedActions, link.ServerID)
+	_, err := s.DB.Exec("UPDATE pterodactyl_servers SET ptero_server_id = ?, ptero_identifier = ?, allowed_actions = ? WHERE server_id = ?",
+		link.PteroServerID, link.PteroIdentifier, link.AllowedActions, link.ServerID)
 	return err
 }
 

@@ -1,0 +1,1 @@
+ALTER TABLE pterodactyl_servers ADD COLUMN ptero_identifier TEXT NOT NULL DEFAULT '';
