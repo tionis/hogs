@@ -212,7 +212,7 @@ Uses the standard Minecraft query protocol (port 25565). No additional configura
 Queries the Satisfactory Dedicated Server REST API. Add `api_token` to server metadata with your API bearer token. Set the address to `host:api_port` (default API port is 15777).
 
 #### Factorio
-Uses RCON to query the Factorio server. Add `rcon_password` to server metadata with your RCON password. Set the address to `host:rcon_port`. Without an RCON password, only basic TCP connectivity check is performed.
+Uses RCON to query the Factorio server. Add `rcon_password` to server metadata with your RCON password. Optionally add `rcon_address` to specify a different host:port for RCON (defaults to `server.Address`). Without an RCON password, only basic TCP connectivity check is performed.
 
 #### Valheim
 Uses the Steam A2S query protocol. Set the address to `host:port` (default query port is 2457). No additional metadata required.
