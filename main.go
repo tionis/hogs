@@ -35,7 +35,7 @@ func main() {
 
 	cache := query.NewServerStatusCache()
 
-	authenticator, err := auth.NewAuthenticator(cfg)
+	authenticator, err := auth.NewAuthenticator(cfg, store)
 	if err != nil {
 		log.Printf("Warning: OIDC authentication could not be initialized: %v", err)
 	} else if authenticator == nil {
@@ -56,15 +56,15 @@ func main() {
 		router.HandleFunc("/logout", authenticator.HandleLogout).Methods("GET")
 		router.HandleFunc("/auth/callback", authenticator.HandleCallback).Methods("GET")
 
-		router.Handle("/admin", authenticator.Middleware(http.HandlerFunc(webHandler.Admin))).Methods("GET")
-		router.Handle("/admin/servers/add", authenticator.Middleware(http.HandlerFunc(webHandler.HandleServerCreate))).Methods("POST")
-		router.Handle("/admin/servers/update", authenticator.Middleware(http.HandlerFunc(webHandler.HandleServerUpdate))).Methods("POST")
-		router.Handle("/admin/servers/delete", authenticator.Middleware(http.HandlerFunc(webHandler.HandleServerDelete))).Methods("POST")
+		router.Handle("/admin", authenticator.RequireRole("admin")(http.HandlerFunc(webHandler.Admin))).Methods("GET")
+		router.Handle("/admin/servers/add", authenticator.RequireRole("admin")(http.HandlerFunc(webHandler.HandleServerCreate))).Methods("POST")
+		router.Handle("/admin/servers/update", authenticator.RequireRole("admin")(http.HandlerFunc(webHandler.HandleServerUpdate))).Methods("POST")
+		router.Handle("/admin/servers/delete", authenticator.RequireRole("admin")(http.HandlerFunc(webHandler.HandleServerDelete))).Methods("POST")
 
-		router.Handle("/admin/files/{serverName}", authenticator.Middleware(http.HandlerFunc(webHandler.FileManager))).Methods("GET")
-		router.Handle("/admin/files/upload", authenticator.Middleware(http.HandlerFunc(webHandler.HandleFileUpload))).Methods("POST")
-		router.Handle("/admin/files/delete", authenticator.Middleware(http.HandlerFunc(webHandler.HandleFileDelete))).Methods("POST")
-		router.Handle("/admin/files/mkdir", authenticator.Middleware(http.HandlerFunc(webHandler.HandleMkdir))).Methods("POST")
+		router.Handle("/admin/files/{serverName}", authenticator.RequireRole("admin")(http.HandlerFunc(webHandler.FileManager))).Methods("GET")
+		router.Handle("/admin/files/upload", authenticator.RequireRole("admin")(http.HandlerFunc(webHandler.HandleFileUpload))).Methods("POST")
+		router.Handle("/admin/files/delete", authenticator.RequireRole("admin")(http.HandlerFunc(webHandler.HandleFileDelete))).Methods("POST")
+		router.Handle("/admin/files/mkdir", authenticator.RequireRole("admin")(http.HandlerFunc(webHandler.HandleMkdir))).Methods("POST")
 	} else {
 		router.HandleFunc("/login", func(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Authentication is not configured", http.StatusServiceUnavailable)
@@ -85,11 +85,11 @@ func main() {
 	router.HandleFunc("/healthz", serverHandler.Healthz).Methods("GET")
 
 	if authenticator != nil {
-		router.Handle("/admin/backgrounds", authenticator.Middleware(http.HandlerFunc(webHandler.BackgroundManager))).Methods("GET")
-		router.Handle("/admin/backgrounds/upload", authenticator.Middleware(http.HandlerFunc(serverHandler.UploadBackground))).Methods("POST")
-		router.Handle("/admin/backgrounds/update", authenticator.Middleware(http.HandlerFunc(serverHandler.UpdateBackground))).Methods("POST")
-		router.Handle("/admin/backgrounds/delete", authenticator.Middleware(http.HandlerFunc(serverHandler.DeleteBackground))).Methods("POST")
-		router.Handle("/admin/settings", authenticator.Middleware(http.HandlerFunc(webHandler.Settings))).Methods("GET", "POST")
+		router.Handle("/admin/backgrounds", authenticator.RequireRole("admin")(http.HandlerFunc(webHandler.BackgroundManager))).Methods("GET")
+		router.Handle("/admin/backgrounds/upload", authenticator.RequireRole("admin")(http.HandlerFunc(serverHandler.UploadBackground))).Methods("POST")
+		router.Handle("/admin/backgrounds/update", authenticator.RequireRole("admin")(http.HandlerFunc(serverHandler.UpdateBackground))).Methods("POST")
+		router.Handle("/admin/backgrounds/delete", authenticator.RequireRole("admin")(http.HandlerFunc(serverHandler.DeleteBackground))).Methods("POST")
+		router.Handle("/admin/settings", authenticator.RequireRole("admin")(http.HandlerFunc(webHandler.Settings))).Methods("GET", "POST")
 	}
 	router.PathPrefix("/{serverName}/map/").HandlerFunc(serverHandler.MapProxy)
 	router.PathPrefix("/files/{serverName}/mods/").Handler(http.HandlerFunc(serverHandler.ServeModFiles))

@@ -17,6 +17,11 @@ type Config struct {
 	OIDCClientSecret string
 	OIDCRedirectURL  string
 	SessionSecret    string
+
+	// OIDC Role Configuration
+	OIDCAdminGroup  string
+	OIDCUserGroup   string
+	OIDCGroupsClaim string
 }
 
 // LoadConfig reads configuration from environment variables or sets defaults.
@@ -39,6 +44,10 @@ func LoadConfig() *Config {
 		OIDCClientSecret: getEnv("OIDC_CLIENT_SECRET", ""),
 		OIDCRedirectURL:  getEnv("OIDC_REDIRECT_URL", "http://localhost:8080/auth/callback"),
 		SessionSecret:    getEnv("SESSION_SECRET", "super-secret-key-change-me"),
+
+		OIDCAdminGroup:  getEnv("OIDC_ADMIN_GROUP", "admins"),
+		OIDCUserGroup:   getEnv("OIDC_USER_GROUP", ""),
+		OIDCGroupsClaim: getEnv("OIDC_GROUPS_CLAIM", "groups"),
 	}
 }
 

@@ -182,3 +182,99 @@ func TestToPublic(t *testing.T) {
 		t.Error("visible key should be preserved in ToPublic")
 	}
 }
+
+func TestCreateAndGetUser(t *testing.T) {
+	store := testStore(t)
+
+	user, err := store.CreateUser("alice@example.com", "admin")
+	if err != nil {
+		t.Fatalf("CreateUser failed: %v", err)
+	}
+	if user.Email != "alice@example.com" {
+		t.Errorf("Email = %q, want %q", user.Email, "alice@example.com")
+	}
+	if user.Role != "admin" {
+		t.Errorf("Role = %q, want %q", user.Role, "admin")
+	}
+
+	got, err := store.GetUserByEmail("alice@example.com")
+	if err != nil {
+		t.Fatalf("GetUserByEmail failed: %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected user, got nil")
+	}
+	if got.Email != "alice@example.com" {
+		t.Errorf("Email = %q, want %q", got.Email, "alice@example.com")
+	}
+	if got.Role != "admin" {
+		t.Errorf("Role = %q, want %q", got.Role, "admin")
+	}
+}
+
+func TestCreateUserDefaultRole(t *testing.T) {
+	store := testStore(t)
+
+	user, err := store.CreateUser("bob@example.com", "")
+	if err != nil {
+		t.Fatalf("CreateUser failed: %v", err)
+	}
+	if user.Role != "user" {
+		t.Errorf("Role = %q, want default %q", user.Role, "user")
+	}
+}
+
+func TestGetUserByEmailNotFound(t *testing.T) {
+	store := testStore(t)
+
+	got, err := store.GetUserByEmail("nonexistent@example.com")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != nil {
+		t.Error("expected nil for nonexistent user")
+	}
+}
+
+func TestUpdateUserRole(t *testing.T) {
+	store := testStore(t)
+
+	user, _ := store.CreateUser("charlie@example.com", "user")
+	if err := store.UpdateUserRole(user.ID, "admin"); err != nil {
+		t.Fatalf("UpdateUserRole failed: %v", err)
+	}
+
+	got, _ := store.GetUserByEmail("charlie@example.com")
+	if got.Role != "admin" {
+		t.Errorf("Role = %q, want %q after update", got.Role, "admin")
+	}
+}
+
+func TestListUsers(t *testing.T) {
+	store := testStore(t)
+
+	store.CreateUser("user1@example.com", "user")
+	store.CreateUser("user2@example.com", "admin")
+
+	users, err := store.ListUsers()
+	if err != nil {
+		t.Fatalf("ListUsers failed: %v", err)
+	}
+	if len(users) != 2 {
+		t.Errorf("len(ListUsers) = %d, want 2", len(users))
+	}
+}
+
+func TestTouchUserLastLogin(t *testing.T) {
+	store := testStore(t)
+
+	user, _ := store.CreateUser("login@example.com", "user")
+	if err := store.TouchUserLastLogin(user.ID); err != nil {
+		t.Fatalf("TouchUserLastLogin failed: %v", err)
+	}
+
+	got, _ := store.GetUserByEmail("login@example.com")
+	if got == nil {
+		t.Fatal("expected user, got nil")
+	}
+}

@@ -367,6 +367,67 @@ func (s *Store) SetSetting(key, value string) error {
 	return err
 }
 
+type User struct {
+	ID        int    `json:"id"`
+	Email     string `json:"email"`
+	Role      string `json:"role"`
+	FirstSeen string `json:"firstSeen"`
+	LastLogin string `json:"lastLogin"`
+}
+
+func (s *Store) CreateUser(email, role string) (*User, error) {
+	if role == "" {
+		role = "user"
+	}
+	result, err := s.DB.Exec("INSERT INTO users (email, role) VALUES (?, ?)", email, role)
+	if err != nil {
+		return nil, err
+	}
+	id, _ := result.LastInsertId()
+	return &User{ID: int(id), Email: email, Role: role}, nil
+}
+
+func (s *Store) GetUserByEmail(email string) (*User, error) {
+	row := s.DB.QueryRow("SELECT id, email, role, first_seen, last_login FROM users WHERE email = ?", email)
+	var u User
+	err := row.Scan(&u.ID, &u.Email, &u.Role, &u.FirstSeen, &u.LastLogin)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &u, nil
+}
+
+func (s *Store) UpdateUserRole(id int, role string) error {
+	_, err := s.DB.Exec("UPDATE users SET role = ? WHERE id = ?", role, id)
+	return err
+}
+
+func (s *Store) TouchUserLastLogin(id int) error {
+	_, err := s.DB.Exec("UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?", id)
+	return err
+}
+
+func (s *Store) ListUsers() ([]User, error) {
+	rows, err := s.DB.Query("SELECT id, email, role, first_seen, last_login FROM users ORDER BY id")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var users []User
+	for rows.Next() {
+		var u User
+		if err := rows.Scan(&u.ID, &u.Email, &u.Role, &u.FirstSeen, &u.LastLogin); err != nil {
+			return nil, err
+		}
+		users = append(users, u)
+	}
+	return users, nil
+}
+
 func (bg *Background) URL() string {
 	if bg.ContentHash != "" {
 		return "/backgrounds/" + bg.ContentHash + "/" + bg.Filename
