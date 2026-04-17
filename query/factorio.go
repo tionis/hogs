@@ -32,8 +32,12 @@ func (q *FactorioQuerier) Query(server *database.Server) (*ServerStatus, error) 
 	}
 
 	password, hasPassword := server.Metadata["rcon_password"]
+	rconAddr := server.Address
+	if addr, ok := server.Metadata["rcon_address"]; ok && addr != "" {
+		rconAddr = addr
+	}
 	if !hasPassword {
-		conn, err := net.DialTimeout("tcp", server.Address, 3*time.Second)
+		conn, err := net.DialTimeout("tcp", rconAddr, 3*time.Second)
 		if err != nil {
 			serverStatus.Error = err.Error()
 			return serverStatus, fmt.Errorf("failed to connect to factorio server: %w", err)
@@ -44,7 +48,7 @@ func (q *FactorioQuerier) Query(server *database.Server) (*ServerStatus, error) 
 	}
 
 	var d net.Dialer
-	conn, err := d.DialContext(ctx, "tcp", server.Address)
+	conn, err := d.DialContext(ctx, "tcp", rconAddr)
 	if err != nil {
 		serverStatus.Error = err.Error()
 		return serverStatus, fmt.Errorf("failed to connect to factorio RCON: %w", err)
