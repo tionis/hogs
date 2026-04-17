@@ -73,10 +73,11 @@ func (h *WebHandler) userRole(r *http.Request) string {
 }
 
 type PterodactylLinkData struct {
-	ServerID       int                           `json:"serverId"`
-	PteroServerID  string                        `json:"pteroServerId"`
-	AllowedActions []string                      `json:"allowedActions"`
-	Commands       []database.PterodactylCommand `json:"commands"`
+	ServerID        int                           `json:"serverId"`
+	PteroServerID   string                        `json:"pteroServerId"`
+	PteroIdentifier string                        `json:"pteroIdentifier"`
+	AllowedActions  []string                      `json:"allowedActions"`
+	Commands        []database.PterodactylCommand `json:"commands"`
 }
 
 type AdminServerRow struct {
@@ -97,10 +98,11 @@ func (h *WebHandler) adminServerRows(servers []database.Server) []AdminServerRow
 				commands = []database.PterodactylCommand{}
 			}
 			row.PteroLink = &PterodactylLinkData{
-				ServerID:       srv.ID,
-				PteroServerID:  link.PteroServerID,
-				AllowedActions: actions,
-				Commands:       commands,
+				ServerID:        srv.ID,
+				PteroServerID:   link.PteroServerID,
+				PteroIdentifier: link.PteroIdentifier,
+				AllowedActions:  actions,
+				Commands:        commands,
 			}
 		}
 		rows[i] = row
