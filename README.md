@@ -4,17 +4,22 @@ A modern web interface for managing and showcasing game servers (Minecraft, Sati
 
 ## Features
 
-*   **Multi-Game Support:** Query Minecraft, Satisfactory, and Factorio servers with game-specific status protocols.
+*   **Multi-Game Support:** Query Minecraft, Satisfactory, Factorio, and Valheim servers with game-specific status protocols. New games can be added via the querier registry.
 *   **Real-time Server Status:** Live player counts, version info, and online status using efficient caching (60s TTL).
+*   **Role-Based Access Control:** OIDC groups map to admin/user roles. Admins get full dashboard access; users can interact with servers based on per-server permissions.
+*   **Pterodactyl Integration:** Link servers to a Pterodactyl panel for start/stop/restart, whitelist management, and approved command execution — all configurable per-server.
 *   **Admin Dashboard:** Complete web-based management interface for adding, editing, and deleting servers without touching the database.
-*   **File Browser:** Automatically scans and serves mod files, modpacks, and documentation from a structured directory. Supports downloading files, rendering `.md` files, and `.url` redirects.
-*   **Map Proxy:** Securely proxies web map instances (e.g., BlueMap for Minecraft) through the main web server, unifying access.
+*   **Background Images:** Customizable, theme-aware background images with hash-addressed caching for performance.
+*   **File Browser:** Automatically scans and serves mod files, modpacks, and documentation from a structured directory.
+*   **Map Proxy:** Securely proxies web map instances (e.g., BlueMap for Minecraft) through the main web server.
 *   **OIDC Authentication:** Secure login via OpenID Connect (e.g., Keycloak, Google) for administrative access.
 *   **Modern Architecture:**
     *   **Backend:** Go (1.24+) with `gorilla/mux` and `database/sql`.
     *   **Database:** SQLite with `golang-migrate` for robust schema management.
     *   **Frontend:** Server-side rendered HTML (Go templates) with Bootstrap 5.
     *   **Config:** 12-factor app design using environment variables.
+    *   **Auth:** OIDC via `go-oidc` with `gorilla/sessions`.
+    *   **Container:** Podman/Docker via Containerfile.
 
 ## Getting Started
 
@@ -101,16 +106,21 @@ The repository includes helper scripts for development/testing:
 
 ## Configuration Reference
 
-| Variable             | Default                         | Description                                                                 |
-| -------------------- | ------------------------------- | --------------------------------------------------------------------------- |
-| `PORT`               | `8080`                          | The HTTP port to listen on.                                                 |
-| `DB_PATH`            | `./hogs.db`                     | Path to the SQLite database file. Created automatically if missing.         |
-| `GAME_DATA_PATH`     | `data/game`                     | Root directory for storing server mod/game files.                            |
-| `OIDC_PROVIDER_URL`  | *(Empty)*                       | The OIDC Issuer URL (e.g., Keycloak realm URL). Login disabled if empty.    |
-| `OIDC_CLIENT_ID`     | *(Empty)*                       | The Client ID registered with your IDP.                                     |
-| `OIDC_CLIENT_SECRET` | *(Empty)*                       | The Client Secret for the application.                                      |
-| `OIDC_REDIRECT_URL`  | `.../auth/callback`             | The callback URL whitelisted in your IDP.                                   |
-| `SESSION_SECRET`     | `super-secret...`               | Random string used to encrypt session cookies. **Change in production!**    |
+| Variable               | Default                         | Description                                                                 |
+| ---------------------- | ------------------------------- | --------------------------------------------------------------------------- |
+| `PORT`                 | `8080`                          | The HTTP port to listen on.                                                 |
+| `DB_PATH`              | `./hogs.db`                     | Path to the SQLite database file. Created automatically if missing.         |
+| `GAME_DATA_PATH`       | `data/game`                     | Root directory for storing server mod/game files and backgrounds.            |
+| `OIDC_PROVIDER_URL`    | *(Empty)*                       | The OIDC Issuer URL (e.g., Keycloak realm URL). Login disabled if empty.    |
+| `OIDC_CLIENT_ID`       | *(Empty)*                       | The Client ID registered with your IDP.                                     |
+| `OIDC_CLIENT_SECRET`   | *(Empty)*                       | The Client Secret for the application.                                      |
+| `OIDC_REDIRECT_URL`    | `.../auth/callback`             | The callback URL whitelisted in your IDP.                                   |
+| `SESSION_SECRET`        | `super-secret...`               | Random string used to encrypt session cookies. **Change in production!**    |
+| `OIDC_ADMIN_GROUP`     | `admins`                        | OIDC group claim value that grants the admin role.                           |
+| `OIDC_USER_GROUP`      | *(Empty)*                       | OIDC group claim value that grants the user role. Empty = any authenticated user is a user. |
+| `OIDC_GROUPS_CLAIM`    | `groups`                        | The OIDC claim path to extract group memberships from.                     |
+| `PTERODACTYL_URL`      | *(Empty)*                       | Pterodactyl panel URL (e.g. `https://panel.example.com`). Empty = disabled. |
+| `PTERODACTYL_APP_KEY`  | *(Empty)*                       | Pterodactyl Application API key. Required if `PTERODACTYL_URL` is set.      |
 
 ## Usage Guide
 
@@ -170,16 +180,18 @@ Queries the Satisfactory Dedicated Server REST API. Add `api_token` to server me
 #### Factorio
 Uses RCON to query the Factorio server. Add `rcon_password` to server metadata with your RCON password. Set the address to `host:rcon_port`. Without an RCON password, only basic TCP connectivity check is performed.
 
+#### Valheim
+Uses the Steam A2S query protocol. Set the address to `host:port` (default query port is 2457). No additional metadata required.
+
 ## Architecture
 
-*   **`main.go`**: Entry point. Wires dependencies (Config, Store, Auth) and starts the server.
-*   **`api/`**: Contains API handlers (`ServerHandler`) for JSON endpoints and proxy logic.
-*   **`web/`**: Contains the `WebHandler` and embedded HTML `templates/`.
-*   **`auth/`**: Handles OIDC flow and session management.
-*   **`database/`**:
-    *   `database.go`: Connection pooling and repository pattern implementation.
-    *   `migrations/`: SQL migration files embedded into the binary.
-*   **`query/`**: Game-specific server query implementations (Minecraft, Satisfactory, Factorio) with status caching.
+*   **`main.go`**: Entry point. Wires dependencies (Config, Store, Auth, Pterodactyl) and starts the server.
+*   **`api/`**: API handlers (`ServerHandler`, `PterodactylHandler`) for JSON endpoints, proxy logic, and Pterodactyl integration.
+*   **`web/`**: `WebHandler` and embedded HTML `templates/`.
+*   **`auth/`**: OIDC authentication with role-based access control (admin/user from OIDC groups).
+*   **`database/`**: SQLite repository pattern and schema migrations (embedded).
+*   **`query/`**: Game querier interface with registry pattern (Minecraft, Satisfactory, Factorio, Valheim).
+*   **`pterodactyl/`**: Pterodactyl Application API client for server power actions and commands.
 *   **`modmanager/`**: Secure filesystem scanning for mod/game files.
 *   **`config/`**: Environment variable loading.
 

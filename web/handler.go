@@ -3,6 +3,7 @@ package web
 import (
 	"bytes"
 	"embed"
+	"encoding/json"
 	"github.com/tionis/hogs/auth"
 	"github.com/tionis/hogs/config"
 	"github.com/tionis/hogs/database"
@@ -69,6 +70,42 @@ func (h *WebHandler) userRole(r *http.Request) string {
 		return ""
 	}
 	return h.Auth.GetUserRole(r)
+}
+
+type PterodactylLinkData struct {
+	ServerID       int                           `json:"serverId"`
+	PteroServerID  string                        `json:"pteroServerId"`
+	AllowedActions []string                      `json:"allowedActions"`
+	Commands       []database.PterodactylCommand `json:"commands"`
+}
+
+type AdminServerRow struct {
+	Server    database.Server
+	PteroLink *PterodactylLinkData
+}
+
+func (h *WebHandler) adminServerRows(servers []database.Server) []AdminServerRow {
+	rows := make([]AdminServerRow, len(servers))
+	for i, srv := range servers {
+		row := AdminServerRow{Server: srv}
+		link, err := h.Store.GetPterodactylLink(srv.ID)
+		if err == nil && link != nil {
+			var actions []string
+			json.Unmarshal([]byte(link.AllowedActions), &actions)
+			commands, _ := h.Store.ListPterodactylCommands(srv.ID)
+			if commands == nil {
+				commands = []database.PterodactylCommand{}
+			}
+			row.PteroLink = &PterodactylLinkData{
+				ServerID:       srv.ID,
+				PteroServerID:  link.PteroServerID,
+				AllowedActions: actions,
+				Commands:       commands,
+			}
+		}
+		rows[i] = row
+	}
+	return rows
 }
 
 func (h *WebHandler) siteName() string {
@@ -356,19 +393,21 @@ func (h *WebHandler) Admin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := struct {
-		Servers        []database.Server
-		Authenticated  bool
-		UserRole       string
-		SiteName       string
-		UserEmail      string
-		BackgroundURLs BackgroundURLs
+		Servers         []AdminServerRow
+		Authenticated   bool
+		UserRole        string
+		SiteName        string
+		UserEmail       string
+		BackgroundURLs  BackgroundURLs
+		PteroConfigured bool
 	}{
-		Servers:        servers,
-		Authenticated:  true,
-		UserRole:       "admin",
-		SiteName:       h.siteName(),
-		UserEmail:      h.Auth.GetUserEmail(r),
-		BackgroundURLs: h.pickBackgrounds(""),
+		Servers:         h.adminServerRows(servers),
+		Authenticated:   true,
+		UserRole:        "admin",
+		SiteName:        h.siteName(),
+		UserEmail:       h.Auth.GetUserEmail(r),
+		BackgroundURLs:  h.pickBackgrounds(""),
+		PteroConfigured: h.Config.PterodactylURL != "",
 	}
 
 	tmpl, err := template.New("base.html").Funcs(sharedFuncMap()).ParseFS(templateFS, "templates/base.html", "templates/admin.html")

@@ -46,6 +46,7 @@ func main() {
 
 	serverHandler := api.NewServerHandler(store, cfg, cache, authenticator)
 	webHandler := web.NewWebHandler(store, cfg, authenticator)
+	pteroHandler := api.NewPterodactylHandler(store, cfg)
 
 	router := mux.NewRouter()
 
@@ -85,11 +86,21 @@ func main() {
 	router.HandleFunc("/healthz", serverHandler.Healthz).Methods("GET")
 
 	if authenticator != nil {
+		router.Handle("/servers/{serverName}/action", authenticator.RequireRole("admin", "user")(http.HandlerFunc(pteroHandler.ServerAction))).Methods("POST")
+		router.Handle("/servers/{serverName}/command", authenticator.RequireRole("admin", "user")(http.HandlerFunc(pteroHandler.SendCommand))).Methods("POST")
+	}
+
+	if authenticator != nil {
 		router.Handle("/admin/backgrounds", authenticator.RequireRole("admin")(http.HandlerFunc(webHandler.BackgroundManager))).Methods("GET")
 		router.Handle("/admin/backgrounds/upload", authenticator.RequireRole("admin")(http.HandlerFunc(serverHandler.UploadBackground))).Methods("POST")
 		router.Handle("/admin/backgrounds/update", authenticator.RequireRole("admin")(http.HandlerFunc(serverHandler.UpdateBackground))).Methods("POST")
 		router.Handle("/admin/backgrounds/delete", authenticator.RequireRole("admin")(http.HandlerFunc(serverHandler.DeleteBackground))).Methods("POST")
 		router.Handle("/admin/settings", authenticator.RequireRole("admin")(http.HandlerFunc(webHandler.Settings))).Methods("GET", "POST")
+
+		router.Handle("/admin/pterodactyl/link", authenticator.RequireRole("admin")(http.HandlerFunc(pteroHandler.LinkServer))).Methods("POST")
+		router.Handle("/admin/pterodactyl/unlink", authenticator.RequireRole("admin")(http.HandlerFunc(pteroHandler.UnlinkServer))).Methods("POST")
+		router.Handle("/admin/pterodactyl/commands/add", authenticator.RequireRole("admin")(http.HandlerFunc(pteroHandler.AddCommand))).Methods("POST")
+		router.Handle("/admin/pterodactyl/commands/delete", authenticator.RequireRole("admin")(http.HandlerFunc(pteroHandler.DeleteCommand))).Methods("POST")
 	}
 	router.PathPrefix("/{serverName}/map/").HandlerFunc(serverHandler.MapProxy)
 	router.PathPrefix("/files/{serverName}/mods/").Handler(http.HandlerFunc(serverHandler.ServeModFiles))

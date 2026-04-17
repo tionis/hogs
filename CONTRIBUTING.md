@@ -42,21 +42,19 @@ Use `server.Metadata` to access any credentials or config the admin stored (e.g.
 
 ### 2. Register the querier
 
-Add your game type to the switch in `query/querier.go`:
+Add your game type to the registry map in `query/querier.go`:
 
 ```go
-func NewQuerier(gameType string) GameQuerier {
-    switch gameType {
-    case "minecraft":
-        return &MinecraftQuerier{}
-    // ... existing cases ...
-    case "mygame":
-        return &MyGameQuerier{}
-    default:
-        return &MinecraftQuerier{}
-    }
+var queriers = map[string]GameQuerier{
+    "minecraft":    &MinecraftQuerier{},
+    "satisfactory": &SatisfactoryQuerier{},
+    "factorio":     &FactorioQuerier{},
+    "valheim":      &ValheimQuerier{},
+    "mygame":       &MyGameQuerier{},  // Add here
 }
 ```
+
+Or use `RegisterQuerier("mygame", &MyGameQuerier{})` at init time.
 
 ### 3. Add the database migration
 
@@ -72,7 +70,7 @@ Add a CSS class in `web/templates/base.html`:
 
 ### 5. Add the game icon
 
-Add an SVG icon entry to the `gameIcon` template function in `web/handler.go` (there are two occurrences — Home and ServerDetail handlers):
+Add an SVG icon entry to the `gameIcon` template function in `web/funcmap.go`:
 
 ```go
 "mygame": `<svg class="game-icon" viewBox="0 0 16 16" fill="currentColor">...</svg>`,

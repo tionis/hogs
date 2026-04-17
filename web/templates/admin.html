@@ -27,36 +27,36 @@
     <tbody>
       {{range .Servers}}
       <tr>
-        <td>{{.ID}}</td>
-        <td>{{.Name}}</td>
-        <td>{{.Address}}</td>
-        <td><span class="badge game-badge-{{.GameType}}">{{.GameType}}</span></td>
+        <td>{{.Server.ID}}</td>
+        <td>{{.Server.Name}}</td>
+        <td>{{.Server.Address}}</td>
+        <td><span class="badge game-badge-{{.Server.GameType}}">{{.Server.GameType}}</span></td>
         <td>
-          {{if eq .State "online"}}<span class="badge bg-success">Online</span>{{end}}
-          {{if eq .State "offline"}}<span class="badge bg-danger">Offline</span>{{end}}
-          {{if eq .State "planned"}}<span class="badge bg-warning me-1">Planned</span>{{end}}
-          {{if eq .State "maintenance"}}<span class="badge bg-warning me-1">Maintenance</span>{{end}}
-          {{if eq .State "auto"}}<span class="badge bg-secondary">Auto</span>{{end}}
+          {{if eq .Server.State "online"}}<span class="badge bg-success">Online</span>{{end}}
+          {{if eq .Server.State "offline"}}<span class="badge bg-danger">Offline</span>{{end}}
+          {{if eq .Server.State "planned"}}<span class="badge bg-warning me-1">Planned</span>{{end}}
+          {{if eq .Server.State "maintenance"}}<span class="badge bg-warning me-1">Maintenance</span>{{end}}
+          {{if eq .Server.State "auto"}}<span class="badge bg-secondary">Auto</span>{{end}}
         </td>
         <td>
-          <a href="/admin/files/{{.Name}}" class="btn btn-sm btn-outline-info me-1">Files</a>
-          <button class="btn btn-sm btn-outline-primary" 
-            data-bs-toggle="modal" 
+          <a href="/admin/files/{{.Server.Name}}" class="btn btn-sm btn-outline-info me-1">Files</a>
+          <button class="btn btn-sm btn-outline-primary"
+            data-bs-toggle="modal"
             data-bs-target="#editServerModal"
-            data-id="{{.ID}}"
-            data-name="{{.Name}}"
-            data-address="{{.Address}}"
-            data-description="{{.Description}}"
-            data-mapurl="{{.MapURL}}"
-            data-modurl="{{.ModURL}}"
-            data-gametype="{{.GameType}}"
-            data-state="{{.State}}"
-            data-showmotd="{{.ShowMOTD}}"
-            data-metadata='{{.Metadata | json}}'>
+            data-id="{{.Server.ID}}"
+            data-name="{{.Server.Name}}"
+            data-address="{{.Server.Address}}"
+            data-description="{{.Server.Description}}"
+            data-mapurl="{{.Server.MapURL}}"
+            data-modurl="{{.Server.ModURL}}"
+            data-gametype="{{.Server.GameType}}"
+            data-state="{{.Server.State}}"
+            data-showmotd="{{.Server.ShowMOTD}}"
+            data-metadata='{{.Server.Metadata | json}}'>
             Edit
           </button>
-          <form action="/admin/servers/delete" method="POST" class="d-inline" onsubmit="return confirm('Are you sure you want to delete {{.Name}}?');">
-            <input type="hidden" name="id" value="{{.ID}}">
+          <form action="/admin/servers/delete" method="POST" class="d-inline" onsubmit="return confirm('Are you sure you want to delete {{.Server.Name}}?');">
+            <input type="hidden" name="id" value="{{.Server.ID}}">
             <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
           </form>
         </td>
@@ -65,6 +65,88 @@
     </tbody>
   </table>
 </div>
+
+{{if .PteroConfigured}}
+<div class="mt-4">
+  <h3>Pterodactyl Integration</h3>
+  {{range .Servers}}
+  <div class="card mb-3">
+    <div class="card-header">{{.Server.Name}}</div>
+    <div class="card-body">
+      {{if .PteroLink}}
+      <p><strong>Linked:</strong> <code>{{.PteroLink.PteroServerID}}</code></p>
+      <div class="d-flex gap-2 mb-3">
+        <form action="/admin/pterodactyl/link" method="POST" class="row g-2 align-items-end flex-grow-1">
+          <input type="hidden" name="server_id" value="{{.Server.ID}}">
+          <div class="col-md-4">
+            <label class="form-label">Pterodactyl Server UUID</label>
+            <input type="text" class="form-control form-control-sm" name="ptero_server_id" value="{{.PteroLink.PteroServerID}}">
+          </div>
+          <div class="col-md-5">
+            <label class="form-label">Allowed Actions (JSON)</label>
+            <input type="text" class="form-control form-control-sm" name="allowed_actions" value='{{json .PteroLink.AllowedActions}}'>
+            <div class="form-text">e.g. ["start","stop","restart","whitelist"]</div>
+          </div>
+          <div class="col-md-3"><button type="submit" class="btn btn-sm btn-primary">Update</button></div>
+        </form>
+        <form action="/admin/pterodactyl/unlink" method="POST" onsubmit="return confirm('Unlink this server from Pterodactyl?');">
+          <input type="hidden" name="server_id" value="{{.Server.ID}}">
+          <button type="submit" class="btn btn-sm btn-outline-danger">Unlink</button>
+        </form>
+      </div>
+      {{if .PteroLink.Commands}}
+      <h6>Approved Commands</h6>
+      <table class="table table-sm">
+        <thead><tr><th>Command</th><th>Display Name</th><th></th></tr></thead>
+        <tbody>
+          {{range .PteroLink.Commands}}
+          <tr>
+            <td><code>{{.Command}}</code></td>
+            <td>{{.DisplayName}}</td>
+            <td>
+              <form action="/admin/pterodactyl/commands/delete" method="POST" class="d-inline">
+                <input type="hidden" name="command_id" value="{{.ID}}">
+                <button type="submit" class="btn btn-sm btn-outline-danger">Remove</button>
+              </form>
+            </td>
+          </tr>
+          {{end}}
+        </tbody>
+      </table>
+      {{end}}
+      <form action="/admin/pterodactyl/commands/add" method="POST" class="row g-2 align-items-end">
+        <input type="hidden" name="server_id" value="{{.Server.ID}}">
+        <div class="col-md-4">
+          <input type="text" class="form-control form-control-sm" name="command" placeholder="Command (e.g. seed)">
+        </div>
+        <div class="col-md-4">
+          <input type="text" class="form-control form-control-sm" name="display_name" placeholder="Display name (e.g. Random Seed)">
+        </div>
+        <div class="col-md-2">
+          <button type="submit" class="btn btn-sm btn-outline-primary">Add Command</button>
+        </div>
+      </form>
+      {{else}}
+      <form action="/admin/pterodactyl/link" method="POST" class="row g-2 align-items-end">
+        <input type="hidden" name="server_id" value="{{.Server.ID}}">
+        <div class="col-md-4">
+          <label class="form-label">Pterodactyl Server UUID</label>
+          <input type="text" class="form-control form-control-sm" name="ptero_server_id" placeholder="abc-123-def" required>
+        </div>
+        <div class="col-md-5">
+          <label class="form-label">Allowed Actions</label>
+          <input type="text" class="form-control form-control-sm" name="allowed_actions" value='["start","stop","restart"]'>
+        </div>
+        <div class="col-md-3">
+          <button type="submit" class="btn btn-sm btn-primary">Link</button>
+        </div>
+      </form>
+      {{end}}
+    </div>
+  </div>
+  {{end}}
+</div>
+{{end}}
 
 <div class="mt-5 text-muted small">
   <p>Logged in as: <strong>{{.UserEmail}}</strong></p>
