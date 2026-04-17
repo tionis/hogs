@@ -90,11 +90,11 @@
             <div class="col-md-6">
               <label class="form-label">Allowed Actions</label>
               <div class="d-flex flex-wrap gap-3">
-                <div class="form-check"><input class="form-check-input" type="checkbox" name="action_start" id="action-start-{{.Server.ID}}" {{if inList "start" .AllowedActions}}checked{{end}}><label class="form-check-label" for="action-start-{{.Server.ID}}">Start</label></div>
-                <div class="form-check"><input class="form-check-input" type="checkbox" name="action_stop" id="action-stop-{{.Server.ID}}" {{if inList "stop" .AllowedActions}}checked{{end}}><label class="form-check-label" for="action-stop-{{.Server.ID}}">Stop</label></div>
-                <div class="form-check"><input class="form-check-input" type="checkbox" name="action_restart" id="action-restart-{{.Server.ID}}" {{if inList "restart" .AllowedActions}}checked{{end}}><label class="form-check-label" for="action-restart-{{.Server.ID}}">Restart</label></div>
-                <div class="form-check"><input class="form-check-input" type="checkbox" name="action_whitelist" id="action-whitelist-{{.Server.ID}}" {{if inList "whitelist" .AllowedActions}}checked{{end}}><label class="form-check-label" for="action-whitelist-{{.Server.ID}}">Whitelist</label></div>
-                {{range .PteroLink.Commands}}<div class="form-check"><input class="form-check-input" type="checkbox" name="action_command_{{.Command}}" id="action-cmd-{{.ID}}" {{if inList (printf "command:%s" .Command) $.AllowedActions}}checked{{end}}><label class="form-check-label" for="action-cmd-{{.ID}}">{{.DisplayName}}</label></div>{{end}}
+                <div class="form-check"><input class="form-check-input" type="checkbox" name="action_start" id="action-start-{{.Server.ID}}" {{if inList "start" .PteroLink.AllowedActions}}checked{{end}}><label class="form-check-label" for="action-start-{{.Server.ID}}">Start</label></div>
+                <div class="form-check"><input class="form-check-input" type="checkbox" name="action_stop" id="action-stop-{{.Server.ID}}" {{if inList "stop" .PteroLink.AllowedActions}}checked{{end}}><label class="form-check-label" for="action-stop-{{.Server.ID}}">Stop</label></div>
+                <div class="form-check"><input class="form-check-input" type="checkbox" name="action_restart" id="action-restart-{{.Server.ID}}" {{if inList "restart" .PteroLink.AllowedActions}}checked{{end}}><label class="form-check-label" for="action-restart-{{.Server.ID}}">Restart</label></div>
+                <div class="form-check"><input class="form-check-input" type="checkbox" name="action_whitelist" id="action-whitelist-{{.Server.ID}}" {{if inList "whitelist" .PteroLink.AllowedActions}}checked{{end}}><label class="form-check-label" for="action-whitelist-{{.Server.ID}}">Whitelist</label></div>
+                {{range .PteroLink.Commands}}<div class="form-check"><input class="form-check-input" type="checkbox" name="action_command_{{.Command}}" id="action-cmd-{{.ID}}" {{if inList (printf "command:%s" .Command) $.PteroLink.AllowedActions}}checked{{end}}><label class="form-check-label" for="action-cmd-{{.ID}}">{{.DisplayName}}</label></div>{{end}}
               </div>
             </div>
             <div class="col-md-2"><button type="submit" class="btn btn-sm btn-primary">Update</button></div>
