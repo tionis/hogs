@@ -368,7 +368,7 @@
         }
         const url = new URL('/api/backgrounds', window.location.origin);
         url.searchParams.set('theme', effectiveTheme);
-        const gameType = document.documentElement.getAttribute('data-game-type');
+        const gameType = document.body.getAttribute('data-game-type');
         if (gameType) {
           url.searchParams.set('game', gameType);
         }

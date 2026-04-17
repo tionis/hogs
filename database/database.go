@@ -324,7 +324,7 @@ func (s *Store) GetRandomBackground(theme, gameType string) (*Background, error)
 	query := "SELECT id, filename, theme_mode, game_type, enabled FROM backgrounds WHERE enabled = 1 AND (theme_mode = ? OR theme_mode = 'all')"
 	args := []interface{}{theme}
 
-	if gameType != "all" {
+	if gameType != "" && gameType != "all" {
 		query += " AND (game_type = ? OR game_type = 'all')"
 		args = append(args, gameType)
 	}

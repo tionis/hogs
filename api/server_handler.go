@@ -250,9 +250,6 @@ func (h *ServerHandler) GetBackground(w http.ResponseWriter, r *http.Request) {
 		theme = "all"
 	}
 	gameType := r.URL.Query().Get("game")
-	if gameType == "" {
-		gameType = "all"
-	}
 
 	bg, err := h.Store.GetRandomBackground(theme, gameType)
 	if err != nil {
