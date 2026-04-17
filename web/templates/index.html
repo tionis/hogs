@@ -18,35 +18,35 @@
     {{range $.Servers}}
     {{if eq .GameType $gameType}}
     <div class="col">
-      <div class="card h-100 shadow-sm server-card position-relative">
+      <div class="card h-100 server-card position-relative">
         <div class="card-body">
           <h5 class="card-title d-flex justify-content-between align-items-center">
-            <a href="/{{.Name}}" class="text-decoration-none text-dark stretched-link">{{.Name}}</a>
+            <a href="/{{.Name}}" class="text-decoration-none stretched-link">{{.Name}}</a>
             <div>
               {{if eq .State "online"}}<span class="badge bg-success me-1">Online</span>{{end}}
-              {{if eq .State "planned"}}<span class="badge bg-info text-dark me-1">Planned</span>{{end}}
-              {{if eq .State "maintenance"}}<span class="badge bg-warning text-dark me-1">Maintenance</span>{{end}}
+              {{if eq .State "planned"}}<span class="badge bg-warning me-1">Planned</span>{{end}}
+              {{if eq .State "maintenance"}}<span class="badge bg-warning me-1">Maintenance</span>{{end}}
               {{if eq .State "offline"}}<span class="badge bg-danger me-1">Offline</span>{{end}}
               {{if eq .State "auto"}}<span class="badge bg-secondary me-1" id="status-badge-{{.Name}}">Checking...</span>{{end}}
               <span class="badge bg-secondary">{{.Address}}</span>
             </div>
           </h5>
-          <h6 class="card-subtitle mb-2 text-muted server-status-poller" data-server="{{.Name}}" data-game-type="{{.GameType}}">
+          <h6 class="card-subtitle mb-2 server-status-poller" data-server="{{.Name}}" data-game-type="{{.GameType}}">
             Checking status...
           </h6>
           
           <p class="card-text">{{.Description | firstLine}}</p>
           
           {{if and .ShowMOTD (eq .GameType "minecraft")}}
-          <p class="card-text small text-muted font-monospace border-start ps-2" style="display: none;" id="live-motd-{{.Name}}"></p>
+          <p class="card-text small font-monospace border-start ps-2" style="display: none; color: var(--text-secondary);" id="live-motd-{{.Name}}"></p>
           {{end}}
 
-          <div id="player-list-{{.Name}}" class="mb-3 small"></div>
+          <div id="player-list-{{.Name}}" class="mb-3 small" style="color: var(--text-secondary);"></div>
 
           {{if .Metadata}}
           <div class="mb-3">
             {{range $k, $v := .Metadata}}
-              <span class="badge bg-light text-dark border me-1 mb-1" title="{{$k}}">{{$k}}: {{$v}}</span>
+              <span class="badge me-1 mb-1" style="background: var(--badge-bg); color: var(--badge-text);" title="{{$k}}">{{$k}}: {{$v}}</span>
             {{end}}
           </div>
           {{end}}

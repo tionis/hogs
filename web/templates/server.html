@@ -10,7 +10,7 @@
 
 <div class="row">
   <div class="col-md-8">
-    <div class="card mb-4 shadow-sm">
+    <div class="card mb-4">
       <div class="card-body">
         <div class="d-flex justify-content-between align-items-center mb-3">
           <h1 class="card-title mb-0">
@@ -19,7 +19,7 @@
           </h1>
           <div class="server-status-poller h5 mb-0" data-server="{{.Server.Name}}" data-game-type="{{.Server.GameType}}">Checking status...</div>
         </div>
-        <h6 class="text-muted">{{.Server.Address}}</h6>
+        <h6 style="color: var(--text-secondary);">{{.Server.Address}}</h6>
         <p class="card-text lead">{{.Server.Description | nl2br}}</p>
 
         {{if .Server.ModURL}}
@@ -28,7 +28,7 @@
 
         {{if .Server.MapURL}}
         <h4 class="mt-4">Live Map</h4>
-        <div class="ratio ratio-16x9 border rounded">
+        <div class="ratio ratio-16x9 border rounded" style="border-color: var(--border-color) !important;">
           <iframe src="/{{.Server.Name}}/map/" title="Server Map" allowfullscreen></iframe>
         </div>
         {{end}}
@@ -37,18 +37,18 @@
         <div id="game-detail-minecraft" style="display:none;" class="mt-3">
           <div class="row">
             <div class="col-md-6">
-              <div class="card bg-transparent border-0">
+              <div class="card border-0" style="background: var(--badge-bg);">
                 <div class="card-body p-2">
                   <h6>Server Version</h6>
-                  <p id="mc-version" class="mb-0 text-muted small">Loading...</p>
+                  <p id="mc-version" class="mb-0 small" style="color: var(--text-secondary);">Loading...</p>
                 </div>
               </div>
             </div>
             <div class="col-md-6">
-              <div class="card bg-transparent border-0">
+              <div class="card border-0" style="background: var(--badge-bg);">
                 <div class="card-body p-2">
                   <h6>Server Message</h6>
-                  <p id="mc-motd" class="mb-0 text-muted small font-monospace">Loading...</p>
+                  <p id="mc-motd" class="mb-0 small font-monospace" style="color: var(--text-secondary);">Loading...</p>
                 </div>
               </div>
             </div>
@@ -60,18 +60,18 @@
         <div id="game-detail-satisfactory" style="display:none;" class="mt-3">
           <div class="row">
             <div class="col-md-6">
-              <div class="card bg-transparent border-0">
+              <div class="card border-0" style="background: var(--badge-bg);">
                 <div class="card-body p-2">
                   <h6>Active Session</h6>
-                  <p id="sf-session" class="mb-0 text-muted small">Loading...</p>
+                  <p id="sf-session" class="mb-0 small" style="color: var(--text-secondary);">Loading...</p>
                 </div>
               </div>
             </div>
             <div class="col-md-6">
-              <div class="card bg-transparent border-0">
+              <div class="card border-0" style="background: var(--badge-bg);">
                 <div class="card-body p-2">
                   <h6>Server Name</h6>
-                  <p id="sf-servername" class="mb-0 text-muted small">Loading...</p>
+                  <p id="sf-servername" class="mb-0 small" style="color: var(--text-secondary);">Loading...</p>
                 </div>
               </div>
             </div>
@@ -83,10 +83,10 @@
         <div id="game-detail-factorio" style="display:none;" class="mt-3">
           <div class="row">
             <div class="col-md-6">
-              <div class="card bg-transparent border-0">
+              <div class="card border-0" style="background: var(--badge-bg);">
                 <div class="card-body p-2">
                   <h6>Game Version</h6>
-                  <p id="fa-version" class="mb-0 text-muted small">Loading...</p>
+                  <p id="fa-version" class="mb-0 small" style="color: var(--text-secondary);">Loading...</p>
                 </div>
               </div>
             </div>
@@ -96,7 +96,7 @@
       </div>
     </div>
     
-    <div class="card shadow-sm mb-4">
+    <div class="card mb-4">
       <div class="card-header">
         File Browser
       </div>
@@ -107,7 +107,7 @@
   </div>
 
   <div class="col-md-4">
-    <div class="card shadow-sm mb-4">
+    <div class="card mb-4">
       <div class="card-header">
         Server Info
       </div>
@@ -129,7 +129,7 @@
          {{end}}
          <li class="list-group-item">
             <strong>Online Players</strong>
-            <div id="player-list-{{.Server.Name}}" class="small mt-1 text-muted">No players online</div>
+            <div id="player-list-{{.Server.Name}}" class="small mt-1" style="color: var(--text-secondary);">No players online</div>
          </li>
       </ul>
     </div>
@@ -219,10 +219,10 @@ function renderChildren(children, serverName) {
                 </div>
             </details>`;
         } else if (child.type === 'url') {
-            content = `<a href="${child.url}" target="_blank" class="list-group-item list-group-item-action text-primary">${icon} ${child.name}</a>`;
+            content = `<a href="${child.url}" target="_blank" class="list-group-item list-group-item-action">${icon} ${child.name}</a>`;
         } else {
              const downloadPath = `/files/${serverName}/mods/${child.path}`;
-             content = `<a href="${downloadPath}" target="_blank" class="list-group-item list-group-item-action">${icon} ${child.name} <span class="badge bg-light text-dark float-end">${formatBytes(child.size)}</span></a>`;
+             content = `<a href="${downloadPath}" target="_blank" class="list-group-item list-group-item-action">${icon} ${child.name} <span class="badge float-end" style="background: var(--badge-bg); color: var(--badge-text);">${formatBytes(child.size)}</span></a>`;
         }
         html += content;
     });

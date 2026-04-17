@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="system">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -8,142 +8,307 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
+      /* ── Theme variables ── */
       :root {
-        --glass-bg: rgba(25, 25, 25, 0.85);
-        --glass-border: rgba(255, 255, 255, 0.1);
-        --accent-color: #66b2ff;
-        --text-main: #ffffff;
-        --text-muted: #cccccc;
+        --bg-primary: #0f0f1e;
+        --bg-secondary: #161629;
+        --bg-card: rgba(22, 22, 41, 0.88);
+        --bg-card-hover: rgba(30, 30, 55, 0.95);
+        --bg-input: rgba(0, 0, 0, 0.3);
+        --bg-input-focus: rgba(0, 0, 0, 0.5);
+        --border-color: rgba(255, 255, 255, 0.1);
+        --border-hover: rgba(255, 255, 255, 0.25);
+        --text-primary: #f0f0f5;
+        --text-secondary: #a0a0b8;
+        --text-heading: #ffffff;
+        --accent: #5eaeff;
+        --accent-hover: #8cc5ff;
+        --accent-glow: rgba(94, 174, 255, 0.35);
+        --success: #4ade80;
+        --danger: #f87171;
+        --warning: #fbbf24;
+        --info: #60a5fa;
+        --badge-bg: rgba(255, 255, 255, 0.08);
+        --badge-text: #e0e0e0;
+        --nav-bg: rgba(10, 10, 24, 0.95);
+        --nav-border: rgba(255, 255, 255, 0.06);
+        --shadow-card: 0 4px 24px rgba(0, 0, 0, 0.4);
+        --shadow-card-hover: 0 8px 40px rgba(0, 0, 0, 0.55);
+        --glow-online: 0 0 12px rgba(74, 222, 128, 0.5);
+        --glow-offline: 0 0 12px rgba(248, 113, 113, 0.5);
+        --table-stripe: rgba(255, 255, 255, 0.03);
+        --table-header-bg: rgba(0, 0, 0, 0.4);
+        --btn-close-filter: invert(1);
+        --form-check-bg: rgba(255, 255, 255, 0.08);
       }
 
+      [data-theme="light"] {
+        --bg-primary: #f4f5f7;
+        --bg-secondary: #ffffff;
+        --bg-card: #ffffff;
+        --bg-card-hover: #f8f9fa;
+        --bg-input: #f0f1f3;
+        --bg-input-focus: #e8e9eb;
+        --border-color: rgba(0, 0, 0, 0.1);
+        --border-hover: rgba(0, 0, 0, 0.2);
+        --text-primary: #1a1a2e;
+        --text-secondary: #5c5c7a;
+        --text-heading: #111127;
+        --accent: #2563eb;
+        --accent-hover: #3b82f6;
+        --accent-glow: rgba(37, 99, 235, 0.2);
+        --success: #16a34a;
+        --danger: #dc2626;
+        --warning: #d97706;
+        --info: #2563eb;
+        --badge-bg: rgba(0, 0, 0, 0.06);
+        --badge-text: #374151;
+        --nav-bg: #ffffff;
+        --nav-border: rgba(0, 0, 0, 0.08);
+        --shadow-card: 0 2px 12px rgba(0, 0, 0, 0.08);
+        --shadow-card-hover: 0 4px 20px rgba(0, 0, 0, 0.12);
+        --glow-online: 0 0 8px rgba(22, 163, 74, 0.3);
+        --glow-offline: 0 0 8px rgba(220, 38, 38, 0.3);
+        --table-stripe: rgba(0, 0, 0, 0.03);
+        --table-header-bg: rgba(0, 0, 0, 0.04);
+        --btn-close-filter: none;
+        --form-check-bg: #ffffff;
+      }
+
+      @media (prefers-color-scheme: light) {
+        [data-theme="system"] {
+          --bg-primary: #f4f5f7;
+          --bg-secondary: #ffffff;
+          --bg-card: #ffffff;
+          --bg-card-hover: #f8f9fa;
+          --bg-input: #f0f1f3;
+          --bg-input-focus: #e8e9eb;
+          --border-color: rgba(0, 0, 0, 0.1);
+          --border-hover: rgba(0, 0, 0, 0.2);
+          --text-primary: #1a1a2e;
+          --text-secondary: #5c5c7a;
+          --text-heading: #111127;
+          --accent: #2563eb;
+          --accent-hover: #3b82f6;
+          --accent-glow: rgba(37, 99, 235, 0.2);
+          --success: #16a34a;
+          --danger: #dc2626;
+          --warning: #d97706;
+          --info: #2563eb;
+          --badge-bg: rgba(0, 0, 0, 0.06);
+          --badge-text: #374151;
+          --nav-bg: #ffffff;
+          --nav-border: rgba(0, 0, 0, 0.08);
+          --shadow-card: 0 2px 12px rgba(0, 0, 0, 0.08);
+          --shadow-card-hover: 0 4px 20px rgba(0, 0, 0, 0.12);
+          --glow-online: 0 0 8px rgba(22, 163, 74, 0.3);
+          --glow-offline: 0 0 8px rgba(220, 38, 38, 0.3);
+          --table-stripe: rgba(0, 0, 0, 0.03);
+          --table-header-bg: rgba(0, 0, 0, 0.04);
+          --btn-close-filter: none;
+          --form-check-bg: #ffffff;
+        }
+      }
+
+      /* ── Base ── */
       body {
-        background: linear-gradient(135deg, rgba(15,15,30,1) 0%, rgba(25,25,50,1) 50%, rgba(10,10,25,1) 100%);
-        color: var(--text-main);
-        font-family: 'Inter', sans-serif;
+        background: var(--bg-primary);
+        color: var(--text-primary);
+        font-family: 'Inter', system-ui, sans-serif;
         min-height: 100vh;
+        transition: background 0.3s ease, color 0.3s ease;
       }
 
-      h1, h2, h3, h4, h5, h6 { 
-        font-weight: 700; 
-        letter-spacing: -0.5px; 
-        color: #ffffff !important;
-        text-shadow: 0 2px 4px rgba(0,0,0,0.8);
-      }
-      .navbar-brand { font-size: 1.5rem; font-weight: 700; letter-spacing: 1px; }
+      h1, h2, h3, h4, h5, h6 { font-weight: 700; letter-spacing: -0.3px; color: var(--text-heading); }
 
-      .card, .navbar, .modal-content {
-        background: var(--glass-bg) !important;
+      a { color: var(--accent); text-decoration: none; }
+      a:hover { color: var(--accent-hover); text-decoration: underline; }
+
+      .text-muted { color: var(--text-secondary) !important; }
+
+      /* ── Navbar ── */
+      .navbar {
+        background: var(--nav-bg) !important;
+        border-bottom: 1px solid var(--nav-border);
         backdrop-filter: blur(12px);
         -webkit-backdrop-filter: blur(12px);
-        border: 1px solid var(--glass-border);
-        border-radius: 12px;
-        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+        margin-bottom: 1.5rem;
+        transition: background 0.3s ease;
       }
+      .navbar-brand {
+        font-size: 1.4rem;
+        font-weight: 800;
+        letter-spacing: 1.5px;
+        color: var(--accent) !important;
+        text-decoration: none;
+      }
+      .navbar-brand:hover { color: var(--accent-hover) !important; }
 
-      .navbar { margin-bottom: 2rem; border-top: none; border-radius: 0 0 12px 12px; }
-      .navbar-brand { color: #fff !important; text-shadow: 0 2px 4px rgba(0,0,0,0.5); }
+      /* ── Theme toggle ── */
+      .theme-toggle {
+        background: var(--bg-input);
+        border: 1px solid var(--border-color);
+        border-radius: 20px;
+        padding: 3px;
+        display: inline-flex;
+        gap: 2px;
+      }
+      .theme-toggle button {
+        background: none;
+        border: none;
+        border-radius: 16px;
+        padding: 4px 10px;
+        font-size: 0.85rem;
+        color: var(--text-secondary);
+        cursor: pointer;
+        transition: all 0.2s;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+      }
+      .theme-toggle button.active {
+        background: var(--accent);
+        color: #fff;
+        box-shadow: 0 2px 8px var(--accent-glow);
+      }
+      .theme-toggle button:hover:not(.active) { background: var(--bg-card-hover); color: var(--text-primary); }
 
-      .card { transition: transform 0.2s, box-shadow 0.2s; border: 1px solid rgba(255,255,255,0.05); }
-      .card:hover { transform: translateY(-5px); box-shadow: 0 12px 40px rgba(0,0,0,0.5); border-color: rgba(255,255,255,0.2); }
-      .card-title a { color: var(--accent-color) !important; text-decoration: none; font-weight: 700; }
-      .card-title a:hover { color: #99ccff !important; text-decoration: underline; }
-      .card-subtitle { color: var(--text-muted) !important; }
-      .card-text { color: #eee; }
-      .card-header { background: rgba(255,255,255,0.05); color: #fff; border-bottom: 1px solid var(--glass-border); font-weight: 700; }
-      
-      .status-online { color: #55ff55 !important; font-weight: 700; text-shadow: 0 0 8px rgba(85, 255, 85, 0.6); }
-      .status-offline { color: #ff5555 !important; font-weight: 700; text-shadow: 0 0 8px rgba(255, 85, 85, 0.6); }
+      /* ── Cards ── */
+      .card {
+        background: var(--bg-card) !important;
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        box-shadow: var(--shadow-card);
+        transition: transform 0.2s, box-shadow 0.2s, border-color 0.2s;
+      }
+      .card:hover { transform: translateY(-4px); box-shadow: var(--shadow-card-hover); border-color: var(--border-hover); }
+      .card-body { color: var(--text-primary); }
+      .card-title a { color: var(--accent) !important; font-weight: 700; }
+      .card-title a:hover { color: var(--accent-hover) !important; }
+      .card-subtitle { color: var(--text-secondary) !important; }
+      .card-text { color: var(--text-primary); }
+      .card-header { background: var(--badge-bg); color: var(--text-heading); border-bottom: 1px solid var(--border-color); font-weight: 700; }
 
-      .game-badge-minecraft { background: #4caf50; color: #fff; }
-      .game-badge-satisfactory { background: #ff9800; color: #fff; }
-      .game-badge-factorio { background: #cddc39; color: #333; }
+      /* ── Status indicators ── */
+      .status-online { color: var(--success) !important; font-weight: 700; text-shadow: var(--glow-online); }
+      .status-offline { color: var(--danger) !important; font-weight: 700; text-shadow: var(--glow-offline); }
 
+      /* ── Game badges ── */
+      .game-badge-minecraft { background: linear-gradient(135deg, #4caf50, #2e7d32); color: #fff; }
+      .game-badge-satisfactory { background: linear-gradient(135deg, #ff9800, #e65100); color: #fff; }
+      .game-badge-factorio { background: linear-gradient(135deg, #cddc39, #827717); color: #222; }
       .game-badge-minecraft .game-icon,
       .game-badge-satisfactory .game-icon,
       .game-badge-factorio .game-icon {
         width: 14px; height: 14px; vertical-align: -2px; margin-right: 4px; display: inline-block;
       }
 
+      /* ── Buttons ── */
       .btn {
         border-radius: 8px;
         font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-        font-size: 0.9rem;
-        padding: 0.5rem 1.2rem;
+        letter-spacing: 0.3px;
+        font-size: 0.875rem;
+        padding: 0.45rem 1.1rem;
         border: none;
         transition: all 0.2s;
       }
-      .btn-primary { background: linear-gradient(135deg, #007bff, #0056b3); box-shadow: 0 4px 15px rgba(0, 123, 255, 0.4); color: white; }
-      .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0, 123, 255, 0.6); color: white; }
-      
-      .btn-outline-primary { border: 2px solid var(--accent-color); color: var(--accent-color); background: transparent; }
-      .btn-outline-primary:hover { background: var(--accent-color); color: #fff; box-shadow: 0 0 15px rgba(90, 169, 255, 0.5); }
+      .btn-primary {
+        background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent), #000 20%));
+        box-shadow: 0 4px 14px var(--accent-glow);
+        color: #fff;
+      }
+      .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 6px 20px var(--accent-glow); color: #fff; filter: brightness(1.1); }
+      .btn-outline-primary {
+        border: 2px solid var(--accent);
+        color: var(--accent);
+        background: transparent;
+      }
+      .btn-outline-primary:hover { background: var(--accent); color: #fff; box-shadow: 0 0 12px var(--accent-glow); }
+      .btn-outline-info { border-color: var(--info); color: var(--info); }
+      .btn-outline-info:hover { background: var(--info); color: #fff; }
+      .btn-outline-danger { border-color: var(--danger); color: var(--danger); }
+      .btn-outline-danger:hover { background: var(--danger); color: #fff; }
+      .btn-outline-light { border-color: var(--text-secondary); color: var(--text-secondary); }
+      .btn-outline-light:hover { background: var(--text-secondary); color: var(--bg-primary); }
+      .btn-success { background: var(--success); }
+      .btn-secondary { background: var(--text-secondary); }
 
+      /* ── Tables ── */
       .table-responsive { border-radius: 12px; overflow: hidden; }
-      .table { 
-        color: var(--text-main); 
-        border-color: var(--glass-border); 
-        background-color: rgba(0, 0, 0, 0.6); 
-        margin-bottom: 0;
-        --bs-table-striped-bg: rgba(0,0,0,0.3);
+      .table {
+        color: var(--text-primary);
+        border-color: var(--border-color);
         --bs-table-bg: transparent;
-        --bs-table-color: var(--text-main);
+        --bs-table-striped-bg: var(--table-stripe);
+        --bs-table-color: var(--text-primary);
+        --bs-table-hover-bg: var(--bg-card-hover);
       }
-      .table th { color: #fff; border-bottom: 2px solid var(--glass-border); background-color: rgba(0,0,0,0.8); }
-      .table td { color: #ddd; vertical-align: middle; }
-      .table-striped > tbody > tr:nth-of-type(odd) > * { 
-        background-color: rgba(0,0,0,0.3) !important; 
-        color: var(--text-main) !important; 
-        box-shadow: none !important; 
-      }
-      .table > :not(caption) > * > * { color: var(--text-main); }
-      
-      .form-control {
-        background: rgba(0, 0, 0, 0.3);
-        border: 1px solid var(--glass-border);
-        color: #fff;
+      .table th { color: var(--text-heading); border-bottom: 2px solid var(--border-color); background: var(--table-header-bg); }
+      .table td { color: var(--text-primary); vertical-align: middle; }
+
+      /* ── Forms ── */
+      .form-control, .form-select {
+        background: var(--bg-input);
+        border: 1px solid var(--border-color);
+        color: var(--text-primary);
         border-radius: 8px;
       }
-      .form-control:focus { background: rgba(0, 0, 0, 0.5); border-color: var(--accent-color); color: #fff; box-shadow: 0 0 0 0.25rem rgba(90, 169, 255, 0.25); }
-      .form-select {
-        background: rgba(0, 0, 0, 0.3);
-        border: 1px solid var(--glass-border);
-        color: #fff;
-        border-radius: 8px;
-      }
-      .form-select:focus { background: rgba(0, 0, 0, 0.5); border-color: var(--accent-color); color: #fff; box-shadow: 0 0 0 0.25rem rgba(90, 169, 255, 0.25); }
+      .form-control:focus, .form-select:focus { background: var(--bg-input-focus); border-color: var(--accent); color: var(--text-primary); box-shadow: 0 0 0 0.2rem var(--accent-glow); }
+      .form-control::placeholder { color: var(--text-secondary); }
+      .form-check-input { background-color: var(--form-check-bg); border-color: var(--border-color); }
+      .form-check-input:checked { background-color: var(--accent); border-color: var(--accent); }
+      .form-label, .form-text { color: var(--text-secondary); }
 
-      .list-group-item { background: transparent; color: #fff !important; border-color: var(--glass-border); }
-      .list-group-item-action:hover { background-color: rgba(255,255,255,0.1); color: #fff; }
+      /* ── List groups ── */
+      .list-group-item { background: transparent; color: var(--text-primary) !important; border-color: var(--border-color); }
+      .list-group-item-action:hover { background: var(--bg-card-hover); color: var(--text-primary); }
 
-      .text-muted { color: var(--text-muted) !important; }
-      a { color: var(--accent-color); text-decoration: none; }
-      a:hover { color: #99ccff; text-decoration: underline; }
-      .breadcrumb-item { color: var(--text-muted); text-shadow: 0 1px 2px rgba(0,0,0,0.5); }
-      .breadcrumb-item a { color: #fff !important; font-weight: 600; }
-      .breadcrumb-item.active { color: #eee; font-weight: 400; }
-      .breadcrumb-item + .breadcrumb-item::before { color: var(--text-muted); }
-      .server-status-poller { color: #eee !important; }
-      
-      .badge { font-weight: 600; letter-spacing: 0.5px; padding: 0.5em 0.8em; border-radius: 6px; }
-      
-      .modal-header { border-bottom: 1px solid var(--glass-border); }
-      .modal-footer { border-top: 1px solid var(--glass-border); }
-      .btn-close { filter: invert(1); }
+      /* ── Badges ── */
+      .badge { font-weight: 600; letter-spacing: 0.3px; padding: 0.4em 0.7em; border-radius: 6px; }
+      .bg-secondary { background-color: var(--badge-bg) !important; color: var(--badge-text) !important; }
+      .bg-success { background-color: var(--success) !important; color: #fff !important; }
+      .bg-danger { background-color: var(--danger) !important; color: #fff !important; }
+      .bg-info { background-color: var(--info) !important; color: #fff !important; }
+      .bg-warning { background-color: var(--warning) !important; color: #222 !important; }
+
+      /* ── Breadcrumbs ── */
+      .breadcrumb-item { color: var(--text-secondary); }
+      .breadcrumb-item a { color: var(--accent) !important; font-weight: 600; }
+      .breadcrumb-item.active { color: var(--text-primary); }
+
+      /* ── Modals ── */
+      .modal-content { background: var(--bg-card) !important; border: 1px solid var(--border-color); border-radius: 12px; }
+      .modal-header { border-bottom: 1px solid var(--border-color); }
+      .modal-footer { border-top: 1px solid var(--border-color); }
+      .btn-close { filter: var(--btn-close-filter); }
+
+      /* ── Server status poller ── */
+      .server-status-poller { color: var(--text-secondary) !important; }
+
+      /* ── Code ── */
+      code { color: var(--accent); background: var(--badge-bg); padding: 2px 6px; border-radius: 4px; }
+
+      /* ── Filter buttons ── */
+      #game-filter .btn { font-size: 0.8rem; padding: 4px 12px; }
     </style>
   </head>
   <body>
-    <nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
-      <div class="container">
+    <nav class="navbar navbar-expand-lg mb-4">
+      <div class="container d-flex justify-content-between align-items-center">
         <a class="navbar-brand" href="/">HOGS</a>
-        <div class="d-flex">
-           {{if .Authenticated}}
-            <a href="/admin" class="btn btn-outline-light me-2">Admin</a>
-            <a href="/logout" class="btn btn-outline-danger">Logout</a>
-           {{else}}
-            <a href="/login" class="btn btn-primary">Login</a>
-           {{end}}
+        <div class="d-flex align-items-center gap-3">
+          <div class="theme-toggle" id="theme-toggle">
+            <button type="button" data-theme="system" class="active" title="Follow system">&#9788;</button>
+            <button type="button" data-theme="light" title="Light mode">&#9728;</button>
+            <button type="button" data-theme="dark" title="Dark mode">&#9790;</button>
+          </div>
+          {{if .Authenticated}}
+           <a href="/admin" class="btn btn-outline-light btn-sm">Admin</a>
+           <a href="/logout" class="btn btn-outline-danger btn-sm">Logout</a>
+          {{else}}
+           <a href="/login" class="btn btn-primary btn-sm">Login</a>
+          {{end}}
         </div>
       </div>
     </nav>
@@ -152,12 +317,30 @@
       {{block "content" .}}{{end}}
     </div>
 
-    <footer class="text-center mt-5 mb-3 text-muted small">
-      <p>Halls of Game Servers</p>
+    <footer class="text-center mt-5 mb-3 small" style="color: var(--text-secondary);">
+      Halls of Game Servers
     </footer>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
+      function applyTheme(theme) {
+        document.documentElement.setAttribute('data-theme', theme);
+        localStorage.setItem('hogs-theme', theme);
+        document.querySelectorAll('#theme-toggle button').forEach(b => {
+          b.classList.toggle('active', b.dataset.theme === theme);
+        });
+      }
+
+      (function() {
+        const saved = localStorage.getItem('hogs-theme');
+        if (saved) { applyTheme(saved); }
+        else { applyTheme('system'); }
+      })();
+
+      document.querySelectorAll('#theme-toggle button').forEach(btn => {
+        btn.addEventListener('click', () => applyTheme(btn.dataset.theme));
+      });
+
       document.addEventListener("DOMContentLoaded", function() {
         const statusElements = document.querySelectorAll('.server-status-poller');
         statusElements.forEach(el => {
