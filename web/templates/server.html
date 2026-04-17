@@ -147,13 +147,11 @@
          </div>
          {{if inList "whitelist" .AllowedActions}}
          <h6 class="mt-3">Whitelist</h6>
-         <form action="/servers/{{.Server.Name}}/whitelist/add" method="POST" class="input-group input-group-sm mb-2">
-           <input type="text" name="player" class="form-control" placeholder="Player name" required>
-           <button type="submit" class="btn btn-outline-success">Add</button>
-         </form>
-         <form action="/servers/{{.Server.Name}}/whitelist/remove" method="POST" class="input-group input-group-sm">
-           <input type="text" name="player" class="form-control" placeholder="Player name" required>
-           <button type="submit" class="btn btn-outline-danger">Remove</button>
+         <div id="whitelist-status" class="small mb-2" style="color: var(--text-secondary);"></div>
+         <form action="/servers/{{.Server.Name}}/whitelist" method="POST" class="input-group input-group-sm">
+           <input type="hidden" name="user_email" value="{{.UserEmail}}">
+           <input type="text" name="username" class="form-control" placeholder="Your in-game username" required id="whitelist-username">
+           <button type="submit" class="btn btn-outline-success">Whitelist Me</button>
          </form>
          {{end}}
          {{if .PteroCommands}}
@@ -180,6 +178,7 @@
 document.addEventListener("DOMContentLoaded", function() {
     const serverName = "{{.Server.Name}}";
     const gameType = "{{.Server.GameType}}";
+    const userEmail = "{{.UserEmail}}";
     const container = document.getElementById('file-browser');
     
     fetch(`/api/servers/${serverName}/mods`)
@@ -193,6 +192,22 @@ document.addEventListener("DOMContentLoaded", function() {
     .catch(e => {
       container.innerHTML = `<div class="alert alert-warning">${e.message}</div>`;
     });
+
+    if (userEmail) {
+      fetch(`/servers/${serverName}/whitelist?user_email=${encodeURIComponent(userEmail)}`)
+      .then(r => r.json())
+      .then(data => {
+        const statusEl = document.getElementById('whitelist-status');
+        const inputEl = document.getElementById('whitelist-username');
+        if (data.username) {
+          if (statusEl) statusEl.innerHTML = `Currently whitelisted as: <strong>${data.username}</strong>`;
+          if (inputEl) inputEl.value = data.username;
+        } else if (statusEl) {
+          statusEl.textContent = 'You are not yet whitelisted.';
+        }
+      })
+      .catch(() => {});
+    }
 
     fetch(`/api/servers/${serverName}/status`)
     .then(r => r.json())

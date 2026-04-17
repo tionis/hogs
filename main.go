@@ -88,8 +88,8 @@ func main() {
 	if authenticator != nil {
 		router.Handle("/servers/{serverName}/action", authenticator.RequireRole("admin", "user")(http.HandlerFunc(pteroHandler.ServerAction))).Methods("POST")
 		router.Handle("/servers/{serverName}/command", authenticator.RequireRole("admin", "user")(http.HandlerFunc(pteroHandler.SendCommand))).Methods("POST")
-		router.Handle("/servers/{serverName}/whitelist/add", authenticator.RequireRole("admin", "user")(http.HandlerFunc(pteroHandler.WhitelistAdd))).Methods("POST")
-		router.Handle("/servers/{serverName}/whitelist/remove", authenticator.RequireRole("admin", "user")(http.HandlerFunc(pteroHandler.WhitelistRemove))).Methods("POST")
+		router.Handle("/servers/{serverName}/whitelist", authenticator.RequireRole("admin", "user")(http.HandlerFunc(pteroHandler.WhitelistSet))).Methods("POST")
+		router.Handle("/servers/{serverName}/whitelist", authenticator.RequireRole("admin", "user")(http.HandlerFunc(pteroHandler.WhitelistStatus))).Methods("GET")
 	}
 
 	if authenticator != nil {

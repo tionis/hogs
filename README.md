@@ -58,7 +58,10 @@ podman run -d --name hogs \
     -e SESSION_SECRET="change-this-to-a-long-random-string" \
     -e OIDC_PROVIDER_URL="" \
     -e OIDC_CLIENT_ID="" \
+    -e OIDC_CLIENT_ID="" \
     -e OIDC_CLIENT_SECRET="" \
+    -e PTERODACTYL_URL="" \
+    -e PTERODACTYL_APP_KEY="" \
     ghcr.io/tionis/hogs:latest
 ```
 *Note: Refer to the [Configuration Reference](#configuration-reference) below for OIDC details required for admin access.*
@@ -88,9 +91,9 @@ export SESSION_SECRET=change-this-to-a-long-random-string
 export OIDC_ADMIN_GROUP=admins
 export OIDC_USER_GROUP=
 export OIDC_GROUPS_CLAIM=groups
-# Pterodactyl Integration (optional)
-export PTERODACTYL_URL=
-export PTERODACTYL_APP_KEY=
+# Pterodactyl Integration (optional - start/stop/restart/commands from HOGS)
+export PTERODACTYL_URL=https://panel.example.com
+export PTERODACTYL_APP_KEY=ptla_xxxxxxxxxxxxxx
     ```
 
 2.  **Run the binary:**
@@ -126,8 +129,8 @@ The repository includes helper scripts for development/testing:
 | `OIDC_ADMIN_GROUP`     | `admins`                        | OIDC group claim value that grants the admin role.                           |
 | `OIDC_USER_GROUP`      | *(Empty)*                       | OIDC group claim value that grants the user role. Empty = any authenticated user is a user. |
 | `OIDC_GROUPS_CLAIM`    | `groups`                        | The OIDC claim path to extract group memberships from.                     |
-| `PTERODACTYL_URL`      | *(Empty)*                       | Pterodactyl panel URL (e.g. `https://panel.example.com`). Empty = disabled. |
-| `PTERODACTYL_APP_KEY`  | *(Empty)*                       | Pterodactyl Application API key. Required if `PTERODACTYL_URL` is set.      |
+| `PTERODACTYL_URL`      | *(Empty)*                       | Pterodactyl panel URL (e.g. `https://panel.example.com`). **Both this and `PTERODACTYL_APP_KEY` must be set to enable Pterodactyl features.** |
+| `PTERODACTYL_APP_KEY`  | *(Empty)*                       | Pterodactyl **Application** API key (starts with `ptla_`). Get it from your panel's Admin > API section. |
 
 ## Usage Guide
 
@@ -176,7 +179,28 @@ To enable the map proxy:
 2.  In the Admin Dashboard, set the **Map URL** for the server to `http://10.0.0.5:8100`.
 3.  The map will be accessible publicly at `http://your-site.com/Creative/map/`.
 
-### 4. Game-Specific Query Setup
+### 4. Pterodactyl Integration
+
+HOGS can connect to a Pterodactyl panel to let authenticated users start/stop/restart servers, manage whitelists, and run approved commands — all controlled per-server by an admin.
+
+1.  **Set environment variables:**
+    ```bash
+    export PTERODACTYL_URL=https://panel.example.com
+    export PTERODACTYL_APP_KEY=ptla_xxxxxxxxxxxxxx
+    ```
+    Both must be set. Without them, Pterodactyl features are completely hidden.
+
+    The app key must be an **Application API key** (found in Admin > API in your Pterodactyl panel), not a Client API key.
+
+2.  **Restart HOGS.** The Pterodactyl section appears in the Admin Dashboard.
+
+3.  **Link servers:** For each HOGS server, enter the Pterodactyl server UUID (auto-completed from your panel) and check the actions users can perform (Start, Stop, Restart, Whitelist).
+
+4.  **Add approved commands:** Optionally add commands (e.g. `seed` with display name "Random Seed") that users can trigger.
+
+5.  **User access:** Authenticated users see a "My Servers" page listing servers they have actions on, and the server detail page shows action buttons.
+
+### 5. Game-Specific Query Setup
 
 #### Minecraft
 Uses the standard Minecraft query protocol (port 25565). No additional configuration needed. Optionally configure BlueMap URL for map proxy.

@@ -51,6 +51,36 @@ func (s *Server) PublicMetadata() map[string]string {
 	return public
 }
 
+type UserWhitelist struct {
+	ID        int    `json:"id"`
+	UserEmail string `json:"userEmail"`
+	ServerID  int    `json:"serverId"`
+	Username  string `json:"username"`
+}
+
+func (s *Store) GetUserWhitelist(email string, serverID int) (*UserWhitelist, error) {
+	row := s.DB.QueryRow("SELECT id, user_email, server_id, username FROM user_whitelists WHERE user_email = ? AND server_id = ?", email, serverID)
+	var uw UserWhitelist
+	err := row.Scan(&uw.ID, &uw.UserEmail, &uw.ServerID, &uw.Username)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &uw, nil
+}
+
+func (s *Store) SetUserWhitelist(email string, serverID int, username string) error {
+	_, err := s.DB.Exec("INSERT INTO user_whitelists (user_email, server_id, username) VALUES (?, ?, ?) ON CONFLICT(user_email, server_id) DO UPDATE SET username = ?", email, serverID, username, username)
+	return err
+}
+
+func (s *Store) DeleteUserWhitelist(email string, serverID int) error {
+	_, err := s.DB.Exec("DELETE FROM user_whitelists WHERE user_email = ? AND server_id = ?", email, serverID)
+	return err
+}
+
 type PublicServer struct {
 	ID          int               `json:"id"`
 	Name        string            `json:"name"`

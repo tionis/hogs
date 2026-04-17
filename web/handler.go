@@ -360,6 +360,7 @@ func (h *WebHandler) ServerDetail(w http.ResponseWriter, r *http.Request) {
 		Server          *database.Server
 		Authenticated   bool
 		UserRole        string
+		UserEmail       string
 		SiteName        string
 		BackgroundURLs  BackgroundURLs
 		PteroConfigured bool
@@ -370,6 +371,7 @@ func (h *WebHandler) ServerDetail(w http.ResponseWriter, r *http.Request) {
 		Server:          server,
 		Authenticated:   isAuthenticated,
 		UserRole:        h.userRole(r),
+		UserEmail:       h.Auth.GetUserEmail(r),
 		SiteName:        h.siteName(),
 		BackgroundURLs:  h.pickBackgrounds(server.GameType),
 		PteroConfigured: h.Config.PterodactylURL != "",

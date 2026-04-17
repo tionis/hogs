@@ -295,13 +295,13 @@ func (h *PterodactylHandler) SendCommand(w http.ResponseWriter, r *http.Request)
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
-func (h *PterodactylHandler) WhitelistAdd(w http.ResponseWriter, r *http.Request) {
+func (h *PterodactylHandler) WhitelistSet(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	serverName := vars["serverName"]
-	player := r.FormValue("player")
+	username := r.FormValue("username")
 
-	if player == "" {
-		http.Error(w, "Player name is required", http.StatusBadRequest)
+	if username == "" {
+		http.Error(w, "Username is required", http.StatusBadRequest)
 		return
 	}
 
@@ -332,30 +332,45 @@ func (h *PterodactylHandler) WhitelistAdd(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	cmd := whitelistAddCommand(server.GameType, player)
-	if cmd == "" {
+	userEmail := r.FormValue("user_email")
+
+	existing, _ := h.Store.GetUserWhitelist(userEmail, server.ID)
+	if existing != nil && existing.Username == username {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok", "message": "already whitelisted"})
+		return
+	}
+
+	if existing != nil && existing.Username != "" {
+		removeCmd := whitelistRemoveCommand(server.GameType, existing.Username)
+		if removeCmd != "" {
+			c.SendCommand(link.PteroServerID, removeCmd)
+		}
+	}
+
+	addCmd := whitelistAddCommand(server.GameType, username)
+	if addCmd == "" {
 		http.Error(w, "Whitelist not supported for game type: "+server.GameType, http.StatusBadRequest)
 		return
 	}
 
-	if err := c.SendCommand(link.PteroServerID, cmd); err != nil {
+	if err := c.SendCommand(link.PteroServerID, addCmd); err != nil {
 		http.Error(w, "Whitelist add failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
-}
-
-func (h *PterodactylHandler) WhitelistRemove(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	serverName := vars["serverName"]
-	player := r.FormValue("player")
-
-	if player == "" {
-		http.Error(w, "Player name is required", http.StatusBadRequest)
+	if err := h.Store.SetUserWhitelist(userEmail, server.ID, username); err != nil {
+		http.Error(w, "Failed to save whitelist entry", http.StatusInternalServerError)
 		return
 	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok", "username": username})
+}
+
+func (h *PterodactylHandler) WhitelistStatus(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	serverName := vars["serverName"]
 
 	server, err := h.Store.GetServerByName(serverName)
 	if err != nil {
@@ -367,36 +382,19 @@ func (h *PterodactylHandler) WhitelistRemove(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	link, err := h.Store.GetPterodactylLink(server.ID)
-	if err != nil || link == nil {
-		http.Error(w, "Server not linked to Pterodactyl", http.StatusNotFound)
-		return
+	userEmail := r.URL.Query().Get("user_email")
+	if userEmail == "" {
+		userEmail = r.FormValue("user_email")
 	}
 
-	if !isActionAllowed(link.AllowedActions, "whitelist") {
-		http.Error(w, "Whitelist action not permitted for this server", http.StatusForbidden)
-		return
-	}
-
-	c := h.client()
-	if c == nil {
-		http.Error(w, "Pterodactyl not configured", http.StatusServiceUnavailable)
-		return
-	}
-
-	cmd := whitelistRemoveCommand(server.GameType, player)
-	if cmd == "" {
-		http.Error(w, "Whitelist not supported for game type: "+server.GameType, http.StatusBadRequest)
-		return
-	}
-
-	if err := c.SendCommand(link.PteroServerID, cmd); err != nil {
-		http.Error(w, "Whitelist remove failed: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
+	existing, _ := h.Store.GetUserWhitelist(userEmail, server.ID)
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	if existing != nil {
+		json.NewEncoder(w).Encode(map[string]string{"username": existing.Username})
+	} else {
+		json.NewEncoder(w).Encode(map[string]string{"username": ""})
+	}
 }
 
 func whitelistAddCommand(gameType, player string) string {
