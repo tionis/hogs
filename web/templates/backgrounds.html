@@ -58,7 +58,7 @@
       {{range .Backgrounds}}
       <div class="col">
         <div class="card h-100 {{if not .Enabled}}opacity-50{{end}}">
-          <img src="/backgrounds/{{.Filename}}" class="card-img-top" alt="Background" style="height: 140px; object-fit: cover; border-radius: 12px 12px 0 0;">
+          <img src="{{.URL}}" class="card-img-top" alt="Background" style="height: 140px; object-fit: cover; border-radius: 12px 12px 0 0;">
           <div class="card-body">
             <form action="/admin/backgrounds/update" method="POST">
               <input type="hidden" name="id" value="{{.ID}}">

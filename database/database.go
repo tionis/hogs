@@ -1,11 +1,15 @@
 package database
 
 import (
+	"crypto/sha256"
 	"database/sql"
 	"embed"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/database/sqlite3"
@@ -255,15 +259,16 @@ func (s *Store) DeleteServer(id int) error {
 }
 
 type Background struct {
-	ID        int    `json:"id"`
-	Filename  string `json:"filename"`
-	ThemeMode string `json:"themeMode"`
-	GameType  string `json:"gameType"`
-	Enabled   bool   `json:"enabled"`
+	ID          int    `json:"id"`
+	Filename    string `json:"filename"`
+	ContentHash string `json:"contentHash"`
+	ThemeMode   string `json:"themeMode"`
+	GameType    string `json:"gameType"`
+	Enabled     bool   `json:"enabled"`
 }
 
 func (s *Store) ListBackgrounds() ([]Background, error) {
-	rows, err := s.DB.Query("SELECT id, filename, theme_mode, game_type, enabled FROM backgrounds ORDER BY uploaded_at DESC")
+	rows, err := s.DB.Query("SELECT id, filename, content_hash, theme_mode, game_type, enabled FROM backgrounds ORDER BY uploaded_at DESC")
 	if err != nil {
 		return nil, err
 	}
@@ -273,7 +278,7 @@ func (s *Store) ListBackgrounds() ([]Background, error) {
 	for rows.Next() {
 		var bg Background
 		var enabled int
-		if err := rows.Scan(&bg.ID, &bg.Filename, &bg.ThemeMode, &bg.GameType, &enabled); err != nil {
+		if err := rows.Scan(&bg.ID, &bg.Filename, &bg.ContentHash, &bg.ThemeMode, &bg.GameType, &enabled); err != nil {
 			return nil, err
 		}
 		bg.Enabled = enabled == 1
@@ -283,7 +288,7 @@ func (s *Store) ListBackgrounds() ([]Background, error) {
 }
 
 func (s *Store) CreateBackground(bg *Background) error {
-	stmt, err := s.DB.Prepare("INSERT INTO backgrounds (filename, theme_mode, game_type, enabled) VALUES (?, ?, ?, ?)")
+	stmt, err := s.DB.Prepare("INSERT INTO backgrounds (filename, content_hash, theme_mode, game_type, enabled) VALUES (?, ?, ?, ?, ?)")
 	if err != nil {
 		return err
 	}
@@ -292,7 +297,7 @@ func (s *Store) CreateBackground(bg *Background) error {
 	if !bg.Enabled {
 		enabled = 0
 	}
-	result, err := stmt.Exec(bg.Filename, bg.ThemeMode, bg.GameType, enabled)
+	result, err := stmt.Exec(bg.Filename, bg.ContentHash, bg.ThemeMode, bg.GameType, enabled)
 	if err != nil {
 		return err
 	}
@@ -321,7 +326,7 @@ func (s *Store) UpdateBackground(bg *Background) error {
 }
 
 func (s *Store) GetRandomBackground(theme, gameType string) (*Background, error) {
-	query := "SELECT id, filename, theme_mode, game_type, enabled FROM backgrounds WHERE enabled = 1 AND (theme_mode = ? OR theme_mode = 'all')"
+	query := "SELECT id, filename, content_hash, theme_mode, game_type, enabled FROM backgrounds WHERE enabled = 1 AND (theme_mode = ? OR theme_mode = 'all')"
 	args := []interface{}{theme}
 
 	if gameType != "" && gameType != "all" {
@@ -334,7 +339,7 @@ func (s *Store) GetRandomBackground(theme, gameType string) (*Background, error)
 	row := s.DB.QueryRow(query, args...)
 	var bg Background
 	var enabled int
-	err := row.Scan(&bg.ID, &bg.Filename, &bg.ThemeMode, &bg.GameType, &enabled)
+	err := row.Scan(&bg.ID, &bg.Filename, &bg.ContentHash, &bg.ThemeMode, &bg.GameType, &enabled)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
@@ -360,4 +365,48 @@ func (s *Store) GetSetting(key string) (string, error) {
 func (s *Store) SetSetting(key, value string) error {
 	_, err := s.DB.Exec("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = ?", key, value, value)
 	return err
+}
+
+func (bg *Background) URL() string {
+	if bg.ContentHash != "" {
+		return "/backgrounds/" + bg.ContentHash + "/" + bg.Filename
+	}
+	return "/backgrounds/" + bg.Filename
+}
+
+func (s *Store) ComputeMissingHashes(bgDir string) error {
+	rows, err := s.DB.Query("SELECT id, filename, content_hash FROM backgrounds WHERE content_hash = ''")
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	type update struct {
+		id          int
+		contentHash string
+	}
+	var updates []update
+
+	for rows.Next() {
+		var id int
+		var filename, hash string
+		if err := rows.Scan(&id, &filename, &hash); err != nil {
+			return err
+		}
+		data, err := os.ReadFile(filepath.Join(bgDir, filename))
+		if err != nil {
+			log.Printf("Warning: could not read background file %s: %v", filename, err)
+			continue
+		}
+		h := sha256.Sum256(data)
+		contentHash := hex.EncodeToString(h[:])[:16]
+		updates = append(updates, update{id: id, contentHash: contentHash})
+	}
+
+	for _, u := range updates {
+		if _, err := s.DB.Exec("UPDATE backgrounds SET content_hash = ? WHERE id = ?", u.contentHash, u.id); err != nil {
+			return err
+		}
+	}
+	return nil
 }

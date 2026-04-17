@@ -14,3 +14,7 @@ data/
 
 # OS specific
 .DS_Store
+
+# IDE and Agent Harness Stuff
+.vscode
+.pi

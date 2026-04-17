@@ -314,6 +314,8 @@
           background: rgba(255,255,255,0.6);
         }
       }
+      body.hogs-bg-dark { background-image: url('{{.BackgroundURLs.Dark}}'); }
+      body.hogs-bg-light { background-image: url('{{.BackgroundURLs.Light}}'); }
     </style>
   </head>
   <body {{block "body_attrs" .}}{{end}}>
@@ -351,6 +353,29 @@
         document.querySelectorAll('#theme-toggle button').forEach(b => {
           b.classList.toggle('active', b.dataset.theme === theme);
         });
+        applyBackground();
+      }
+
+      function applyBackground() {
+        const bgDark = '{{.BackgroundURLs.Dark}}';
+        const bgLight = '{{.BackgroundURLs.Light}}';
+        if (!bgDark && !bgLight) return;
+        const currentTheme = document.documentElement.getAttribute('data-theme') || 'system';
+        let effectiveTheme = currentTheme;
+        if (currentTheme === 'system') {
+          effectiveTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        }
+        document.body.classList.remove('hogs-bg-dark', 'hogs-bg-light', 'has-background');
+        if (effectiveTheme === 'dark' && bgDark) {
+          document.body.style.backgroundImage = '';
+          document.body.classList.add('hogs-bg-dark', 'has-background');
+        } else if (effectiveTheme === 'light' && bgLight) {
+          document.body.style.backgroundImage = '';
+          document.body.classList.add('hogs-bg-light', 'has-background');
+        } else if (bgDark) {
+          document.body.style.backgroundImage = '';
+          document.body.classList.add('hogs-bg-dark', 'has-background');
+        }
       }
 
       (function() {
@@ -363,40 +388,10 @@
         btn.addEventListener('click', () => applyTheme(btn.dataset.theme));
       });
 
-      function loadBackground() {
-        const currentTheme = document.documentElement.getAttribute('data-theme') || 'system';
-        let effectiveTheme = currentTheme;
-        if (currentTheme === 'system') {
-          effectiveTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-        }
-        const url = new URL('/api/backgrounds', window.location.origin);
-        url.searchParams.set('theme', effectiveTheme);
-        const gameType = document.body.getAttribute('data-game-type');
-        if (gameType) {
-          url.searchParams.set('game', gameType);
-        }
-
-        fetch(url.toString())
-          .then(r => r.json())
-          .then(data => {
-            if (data.background) {
-              document.body.style.backgroundImage = `url(${data.background.url})`;
-              document.body.classList.add('has-background');
-            }
-          })
-          .catch(() => {});
-      }
-
-      loadBackground();
-
       window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
         if (document.documentElement.getAttribute('data-theme') === 'system') {
-          loadBackground();
+          applyBackground();
         }
-      });
-
-      document.querySelectorAll('#theme-toggle button').forEach(btn => {
-        btn.addEventListener('click', () => { setTimeout(loadBackground, 100); });
       });
 
       document.addEventListener("DOMContentLoaded", function() {

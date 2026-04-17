@@ -1,6 +1,8 @@
 package api
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"github.com/tionis/hogs/auth"
@@ -266,7 +268,7 @@ func (h *ServerHandler) GetBackground(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"background": map[string]interface{}{
 			"id":        bg.ID,
-			"url":       fmt.Sprintf("/backgrounds/%s", bg.Filename),
+			"url":       bg.URL(),
 			"themeMode": bg.ThemeMode,
 			"gameType":  bg.GameType,
 		},
@@ -274,8 +276,11 @@ func (h *ServerHandler) GetBackground(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *ServerHandler) ServeBackgroundFile(w http.ResponseWriter, r *http.Request) {
-	filename := mux.Vars(r)["filename"]
+	vars := mux.Vars(r)
+	filename := vars["filename"]
 	bgDir := filepath.Join(h.Config.GameDataPath, "backgrounds")
+
+	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 	http.ServeFile(w, r, filepath.Join(bgDir, filename))
 }
 
@@ -291,6 +296,15 @@ func (h *ServerHandler) UploadBackground(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	defer file.Close()
+
+	fileData, err := io.ReadAll(file)
+	if err != nil {
+		http.Error(w, "Failed to read file", http.StatusInternalServerError)
+		return
+	}
+
+	hash := sha256.Sum256(fileData)
+	contentHash := hex.EncodeToString(hash[:])[:16]
 
 	themeMode := r.FormValue("theme_mode")
 	if themeMode == "" {
@@ -311,22 +325,16 @@ func (h *ServerHandler) UploadBackground(w http.ResponseWriter, r *http.Request)
 	filename := fmt.Sprintf("%d%s", time.Now().UnixNano(), ext)
 	dst := filepath.Join(bgDir, filename)
 
-	out, err := os.Create(dst)
-	if err != nil {
+	if err := os.WriteFile(dst, fileData, 0644); err != nil {
 		http.Error(w, "Failed to save file", http.StatusInternalServerError)
-		return
-	}
-	defer out.Close()
-
-	if _, err := io.Copy(out, file); err != nil {
-		http.Error(w, "Failed to write file", http.StatusInternalServerError)
 		return
 	}
 
 	bg := &database.Background{
-		Filename:  filename,
-		ThemeMode: themeMode,
-		GameType:  gameType,
+		Filename:    filename,
+		ContentHash: contentHash,
+		ThemeMode:   themeMode,
+		GameType:    gameType,
 	}
 
 	if err := h.Store.CreateBackground(bg); err != nil {

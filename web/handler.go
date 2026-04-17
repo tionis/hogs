@@ -33,6 +33,37 @@ func NewWebHandler(store *database.Store, cfg *config.Config, auth *auth.Authent
 	return &WebHandler{Store: store, Config: cfg, Auth: auth}
 }
 
+type BackgroundURLs struct {
+	Dark  string
+	Light string
+}
+
+func (h *WebHandler) pickBackgrounds(gameType string) BackgroundURLs {
+	urls := BackgroundURLs{}
+
+	dark, err := h.Store.GetRandomBackground("dark", gameType)
+	if err == nil && dark != nil {
+		urls.Dark = dark.URL()
+	} else {
+		dark, err = h.Store.GetRandomBackground("all", gameType)
+		if err == nil && dark != nil {
+			urls.Dark = dark.URL()
+		}
+	}
+
+	light, err := h.Store.GetRandomBackground("light", gameType)
+	if err == nil && light != nil {
+		urls.Light = light.URL()
+	} else {
+		light, err = h.Store.GetRandomBackground("all", gameType)
+		if err == nil && light != nil {
+			urls.Light = light.URL()
+		}
+	}
+
+	return urls
+}
+
 func (h *WebHandler) siteName() string {
 	name, err := h.Store.GetSetting("site_name")
 	if err != nil || name == "" {
@@ -66,17 +97,19 @@ func (h *WebHandler) FileManager(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := struct {
-		Server        *database.Server
-		Authenticated bool
-		SiteName      string
-		UserEmail     string
-		Files         *modmanager.ModItem
+		Server         *database.Server
+		Authenticated  bool
+		SiteName       string
+		UserEmail      string
+		Files          *modmanager.ModItem
+		BackgroundURLs BackgroundURLs
 	}{
-		Server:        server,
-		Authenticated: true,
-		SiteName:      h.siteName(),
-		UserEmail:     h.Auth.GetUserEmail(r),
-		Files:         modTree,
+		Server:         server,
+		Authenticated:  true,
+		SiteName:       h.siteName(),
+		UserEmail:      h.Auth.GetUserEmail(r),
+		Files:          modTree,
+		BackgroundURLs: h.pickBackgrounds(""),
 	}
 
 	tmpl, err := template.New("base.html").Funcs(sharedFuncMap()).ParseFS(templateFS, "templates/base.html", "templates/filemanager.html")
@@ -225,15 +258,17 @@ func (h *WebHandler) Home(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := struct {
-		Servers       []database.Server
-		GameTypes     []string
-		Authenticated bool
-		SiteName      string
+		Servers        []database.Server
+		GameTypes      []string
+		Authenticated  bool
+		SiteName       string
+		BackgroundURLs BackgroundURLs
 	}{
-		Servers:       visibleServers,
-		GameTypes:     gameTypes,
-		Authenticated: isAuthenticated,
-		SiteName:      h.siteName(),
+		Servers:        visibleServers,
+		GameTypes:      gameTypes,
+		Authenticated:  isAuthenticated,
+		SiteName:       h.siteName(),
+		BackgroundURLs: h.pickBackgrounds(""),
 	}
 
 	tmpl, err := template.New("base.html").Funcs(sharedFuncMap()).ParseFS(templateFS, "templates/base.html", "templates/index.html")
@@ -274,13 +309,15 @@ func (h *WebHandler) ServerDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := struct {
-		Server        *database.Server
-		Authenticated bool
-		SiteName      string
+		Server         *database.Server
+		Authenticated  bool
+		SiteName       string
+		BackgroundURLs BackgroundURLs
 	}{
-		Server:        server,
-		Authenticated: isAuthenticated,
-		SiteName:      h.siteName(),
+		Server:         server,
+		Authenticated:  isAuthenticated,
+		SiteName:       h.siteName(),
+		BackgroundURLs: h.pickBackgrounds(server.GameType),
 	}
 
 	tmpl, err := template.New("base.html").Funcs(sharedFuncMap()).ParseFS(templateFS, "templates/base.html", "templates/server.html")
@@ -306,15 +343,17 @@ func (h *WebHandler) Admin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := struct {
-		Servers       []database.Server
-		Authenticated bool
-		SiteName      string
-		UserEmail     string
+		Servers        []database.Server
+		Authenticated  bool
+		SiteName       string
+		UserEmail      string
+		BackgroundURLs BackgroundURLs
 	}{
-		Servers:       servers,
-		Authenticated: true,
-		SiteName:      h.siteName(),
-		UserEmail:     h.Auth.GetUserEmail(r),
+		Servers:        servers,
+		Authenticated:  true,
+		SiteName:       h.siteName(),
+		UserEmail:      h.Auth.GetUserEmail(r),
+		BackgroundURLs: h.pickBackgrounds(""),
 	}
 
 	tmpl, err := template.New("base.html").Funcs(sharedFuncMap()).ParseFS(templateFS, "templates/base.html", "templates/admin.html")
@@ -443,15 +482,17 @@ func (h *WebHandler) BackgroundManager(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := struct {
-		Backgrounds   []database.Background
-		Authenticated bool
-		SiteName      string
-		UserEmail     string
+		Backgrounds    []database.Background
+		Authenticated  bool
+		SiteName       string
+		UserEmail      string
+		BackgroundURLs BackgroundURLs
 	}{
-		Backgrounds:   backgrounds,
-		Authenticated: true,
-		SiteName:      h.siteName(),
-		UserEmail:     h.Auth.GetUserEmail(r),
+		Backgrounds:    backgrounds,
+		Authenticated:  true,
+		SiteName:       h.siteName(),
+		UserEmail:      h.Auth.GetUserEmail(r),
+		BackgroundURLs: h.pickBackgrounds(""),
 	}
 
 	var buf bytes.Buffer
@@ -492,13 +533,15 @@ func (h *WebHandler) Settings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := struct {
-		SiteName      string
-		Authenticated bool
-		UserEmail     string
+		SiteName       string
+		Authenticated  bool
+		UserEmail      string
+		BackgroundURLs BackgroundURLs
 	}{
-		SiteName:      siteName,
-		Authenticated: true,
-		UserEmail:     h.Auth.GetUserEmail(r),
+		SiteName:       siteName,
+		Authenticated:  true,
+		UserEmail:      h.Auth.GetUserEmail(r),
+		BackgroundURLs: h.pickBackgrounds(""),
 	}
 
 	var buf bytes.Buffer

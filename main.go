@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"path/filepath"
+
 	"github.com/tionis/hogs/api"
 	"github.com/tionis/hogs/auth"
 	"github.com/tionis/hogs/config"
@@ -24,6 +26,11 @@ func main() {
 	store, err := database.NewStore(cfg.DatabasePath)
 	if err != nil {
 		log.Fatalf("could not initialize database: %s\n", err)
+	}
+
+	bgDir := filepath.Join(cfg.GameDataPath, "backgrounds")
+	if err := store.ComputeMissingHashes(bgDir); err != nil {
+		log.Printf("Warning: failed to compute missing background hashes: %v", err)
 	}
 
 	cache := query.NewServerStatusCache()
@@ -74,7 +81,7 @@ func main() {
 	router.HandleFunc("/api/servers/{serverName}/status", serverHandler.GetServerStatus).Methods("GET")
 	router.HandleFunc("/api/servers/{serverName}/mods", serverHandler.GetServerMods).Methods("GET")
 	router.HandleFunc("/api/backgrounds", serverHandler.GetBackground).Methods("GET")
-	router.HandleFunc("/backgrounds/{filename}", serverHandler.ServeBackgroundFile).Methods("GET")
+	router.HandleFunc("/backgrounds/{contentHash}/{filename}", serverHandler.ServeBackgroundFile).Methods("GET")
 	router.HandleFunc("/healthz", serverHandler.Healthz).Methods("GET")
 
 	if authenticator != nil {
