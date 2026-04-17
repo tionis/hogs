@@ -28,10 +28,10 @@
               {{if eq .State "maintenance"}}<span class="badge bg-warning me-1">Maintenance</span>{{end}}
               {{if eq .State "offline"}}<span class="badge bg-danger me-1">Offline</span>{{end}}
               {{if eq .State "auto"}}<span class="badge bg-secondary me-1" id="status-badge-{{.Name}}">Checking...</span>{{end}}
-              <span class="badge bg-secondary">{{.Address}}</span>
+              {{if .Address}}<span class="badge bg-secondary">{{.Address}}</span>{{end}}
             </div>
           </h5>
-          <h6 class="card-subtitle mb-2 server-status-poller" data-server="{{.Name}}" data-game-type="{{.GameType}}">
+          <h6 class="card-subtitle mb-2 server-status-poller" data-server="{{.Name}}" data-game-type="{{.GameType}}" data-state="{{.State}}">
             Checking status...
           </h6>
           

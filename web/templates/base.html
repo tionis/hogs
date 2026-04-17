@@ -395,6 +395,11 @@
         statusElements.forEach(el => {
           const serverName = el.dataset.server;
           const gameType = el.dataset.gameType || 'minecraft';
+          const serverState = el.dataset.state || 'auto';
+          if (serverState !== 'online' && serverState !== 'auto') {
+            el.innerHTML = `<span class="text-muted">${serverState.charAt(0).toUpperCase() + serverState.slice(1)}</span>`;
+            return;
+          }
           fetch(`/api/servers/${serverName}/status`)
             .then(r => r.json())
             .then(data => {

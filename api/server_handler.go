@@ -95,19 +95,27 @@ func (h *ServerHandler) GetServerStatus(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// If server is disabled, we return an offline status
-	if server.State == "offline" {
-		offlineStatus := &query.ServerStatus{
+	if server.State != "online" && server.State != "auto" {
+		stateStatus := &query.ServerStatus{
 			Online:      false,
 			LastUpdated: time.Now(),
-			Error:       "Server is currently disabled.",
+			Error:       "Server is " + server.State + ".",
 		}
-		h.Cache.Set(serverName, offlineStatus) // Cache disabled status
+		h.Cache.Set(serverName, stateStatus)
 		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(offlineStatus); err != nil {
-			log.Printf("Error encoding offline status to JSON: %v", err)
-			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(stateStatus)
+		return
+	}
+
+	if server.Address == "" {
+		noAddrStatus := &query.ServerStatus{
+			Online:      false,
+			LastUpdated: time.Now(),
+			Error:       "No address configured.",
 		}
+		h.Cache.Set(serverName, noAddrStatus)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(noAddrStatus)
 		return
 	}
 

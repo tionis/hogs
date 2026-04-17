@@ -18,9 +18,9 @@
             {{.Server.Name}}
             <span class="game-badge ms-2" style="{{gameBadgeCSS .Server.GameType}}; font-size: 0.5em;">{{.Server.GameType | gameIcon}}{{.Server.GameType | gameDisplayName}}</span>
           </h1>
-          <div class="server-status-poller h5 mb-0" data-server="{{.Server.Name}}" data-game-type="{{.Server.GameType}}">Checking status...</div>
+          <div class="server-status-poller h5 mb-0" data-server="{{.Server.Name}}" data-game-type="{{.Server.GameType}}" data-state="{{.Server.State}}">Checking status...</div>
         </div>
-        <h6 style="color: var(--text-secondary);">{{.Server.Address}}</h6>
+        {{if .Server.Address}}<h6 style="color: var(--text-secondary);">{{.Server.Address}}</h6>{{end}}
         <p class="card-text lead">{{.Server.Description | nl2br}}</p>
 
         {{if .Server.ModURL}}
@@ -113,9 +113,9 @@
         Server Info
       </div>
       <ul class="list-group list-group-flush">
-         <li class="list-group-item d-flex justify-content-between align-items-center">
+         {{if .Server.Address}}<li class="list-group-item d-flex justify-content-between align-items-center">
             <strong>Address</strong> <span>{{.Server.Address}}</span>
-         </li>
+         </li>{{end}}
          <li class="list-group-item d-flex justify-content-between align-items-center">
             <strong>Game</strong> <span class="game-badge" style="{{gameBadgeCSS .Server.GameType}}">{{.Server.GameType | gameIcon}}{{.Server.GameType | gameDisplayName}}</span>
          </li>
