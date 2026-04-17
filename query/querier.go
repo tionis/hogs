@@ -21,15 +21,28 @@ func (q *NoopQuerier) Query(server *database.Server) (*ServerStatus, error) {
 	}, fmt.Errorf("unsupported game type: %s", server.GameType)
 }
 
+var queriers = map[string]GameQuerier{
+	"minecraft":    &MinecraftQuerier{},
+	"satisfactory": &SatisfactoryQuerier{},
+	"factorio":     &FactorioQuerier{},
+	"valheim":      &ValheimQuerier{},
+}
+
+func RegisterQuerier(gameType string, q GameQuerier) {
+	queriers[gameType] = q
+}
+
 func NewQuerier(gameType string) GameQuerier {
-	switch gameType {
-	case "minecraft":
-		return &MinecraftQuerier{}
-	case "satisfactory":
-		return &SatisfactoryQuerier{}
-	case "factorio":
-		return &FactorioQuerier{}
-	default:
-		return &NoopQuerier{}
+	if q, ok := queriers[gameType]; ok {
+		return q
 	}
+	return &NoopQuerier{}
+}
+
+func RegisteredGameTypes() []string {
+	types := make([]string, 0, len(queriers))
+	for k := range queriers {
+		types = append(types, k)
+	}
+	return types
 }

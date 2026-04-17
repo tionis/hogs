@@ -107,6 +107,7 @@ func TestNewQuerierKnown(t *testing.T) {
 		{"minecraft", "*query.MinecraftQuerier"},
 		{"satisfactory", "*query.SatisfactoryQuerier"},
 		{"factorio", "*query.FactorioQuerier"},
+		{"valheim", "*query.ValheimQuerier"},
 	}
 	for _, tt := range tests {
 		q := NewQuerier(tt.gameType)
@@ -117,9 +118,32 @@ func TestNewQuerierKnown(t *testing.T) {
 }
 
 func TestNewQuerierUnknown(t *testing.T) {
-	q := NewQuerier("valheim")
+	q := NewQuerier("unknown_game")
 	if got := formatType(q); got != "*query.NoopQuerier" {
 		t.Errorf("NewQuerier(unknown) = %s, want *query.NoopQuerier", got)
+	}
+}
+
+func TestRegisterQuerier(t *testing.T) {
+	custom := &NoopQuerier{}
+	RegisterQuerier("custom_game", custom)
+	q := NewQuerier("custom_game")
+	if q != custom {
+		t.Error("RegisterQuerier should make querier available via NewQuerier")
+	}
+	delete(queriers, "custom_game")
+}
+
+func TestRegisteredGameTypes(t *testing.T) {
+	types := RegisteredGameTypes()
+	found := false
+	for _, gt := range types {
+		if gt == "valheim" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("RegisteredGameTypes() = %v, want valheim included", types)
 	}
 }
 
