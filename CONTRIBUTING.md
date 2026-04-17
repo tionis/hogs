@@ -84,24 +84,21 @@ In `web/templates/admin.html`, add an `<option>` to both the Add and Edit modals
 <option value="mygame">My Game</option>
 ```
 
-### 7. Add per-game detail sections (optional)
+Also add it to `web/templates/backgrounds.html` in both the upload form and the per-background edit form.
 
-In `web/templates/server.html`, add a conditional block for your game:
-
-```html
-{{if eq .Server.GameType "mygame"}}
-<div id="game-detail-mygame" style="display:none;" class="mt-3">
-  <!-- Game-specific info panels -->
-</div>
-{{end}}
-```
-
-And update the status fetch in the `<script>` block to populate it.
-
-### 8. Update the status poller text (optional)
+### 7. Add the status poller text (optional)
 
 In `web/templates/base.html`, add a `case` to the `switch (gameType)` block in the status poller for game-appropriate text.
 
-### 9. Document metadata keys
+### 8. Document metadata keys
 
 If your querier requires metadata keys (like `api_token` for Satisfactory or `rcon_password` for Factorio), document them in the README's game-specific section and in the admin modal's metadata help text.
+
+### 9. Test your implementation
+
+Run the test suite to ensure nothing was broken:
+```bash
+go test ./...
+```
+
+You can also use `query.RegisteredGameTypes()` to verify your game type appears in the registry.

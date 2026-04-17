@@ -7,7 +7,7 @@ A modern web interface for managing and showcasing game servers (Minecraft, Sati
 *   **Multi-Game Support:** Query Minecraft, Satisfactory, Factorio, and Valheim servers with game-specific status protocols. New games can be added via the querier registry.
 *   **Real-time Server Status:** Live player counts, version info, and online status using efficient caching (60s TTL).
 *   **Role-Based Access Control:** OIDC groups map to admin/user roles. Admins get full dashboard access; users can interact with servers based on per-server permissions.
-*   **Pterodactyl Integration:** Link servers to a Pterodactyl panel for start/stop/restart, whitelist management, and approved command execution — all configurable per-server.
+*   **Pterodactyl Integration:** Link servers to a Pterodactyl panel for start/stop/restart and approved command execution — all configurable per-server via `allowed_actions`.
 *   **Admin Dashboard:** Complete web-based management interface for adding, editing, and deleting servers without touching the database.
 *   **Background Images:** Customizable, theme-aware background images with hash-addressed caching for performance.
 *   **File Browser:** Automatically scans and serves mod files, modpacks, and documentation from a structured directory.
@@ -82,8 +82,15 @@ podman run -p 8080:8080 -v ./data:/data hogs
     export OIDC_PROVIDER_URL=https://auth.example.com/realms/ieee
     export OIDC_CLIENT_ID=hogs
     export OIDC_CLIENT_SECRET=your-secret
-    export OIDC_REDIRECT_URL=http://localhost:8080/auth/callback
-    export SESSION_SECRET=change-this-to-a-long-random-string
+export OIDC_REDIRECT_URL=http://localhost:8080/auth/callback
+export SESSION_SECRET=change-this-to-a-long-random-string
+# OIDC Role Config (optional)
+export OIDC_ADMIN_GROUP=admins
+export OIDC_USER_GROUP=
+export OIDC_GROUPS_CLAIM=groups
+# Pterodactyl Integration (optional)
+export PTERODACTYL_URL=
+export PTERODACTYL_APP_KEY=
     ```
 
 2.  **Run the binary:**
@@ -130,7 +137,7 @@ Servers are managed via the web-based Admin Dashboard at `/admin`.
 2.  **Add/Edit:** Use the interface to configure server details:
     *   **Name:** Unique identifier (used in URLs and file paths).
     *   **Address:** The server address (e.g., `mc.example.com:25565`).
-    *   **Game Type:** `minecraft`, `satisfactory`, or `factorio`.
+    *   **Game Type:** `minecraft`, `satisfactory`, `factorio`, or `valheim`.
     *   **State:** Controls visibility (`online`, `offline`, `planned`, `maintenance`).
     *   **Map URL:** Internal URL for proxying maps (e.g., BlueMap for Minecraft).
     *   **Mod Pack URL:** Optional direct download link.
@@ -199,10 +206,25 @@ Uses the Steam A2S query protocol. Set the address to `host:port` (default query
 
 The application exposes several JSON endpoints:
 
-*   `GET /api/servers`: Returns a list of all visible servers.
+### Public
+
+*   `GET /api/servers`: Returns a list of all visible servers (sensitive metadata stripped).
 *   `GET /api/servers/{serverName}/status`: Returns real-time status (online/offline, players) for a server.
 *   `GET /api/servers/{serverName}/mods`: Returns the file tree of mods for a server.
 *   `GET /files/{serverName}/mods/...`: Downloads a file directly.
+*   `GET /healthz`: Returns `{"status":"healthy"}` or 503 if DB is unreachable.
+
+### Authenticated (requires login)
+
+*   `POST /servers/{serverName}/action?start|stop|restart`: Trigger a Pterodactyl server power action (requires `allowed_actions` permission).
+*   `POST /servers/{serverName}/command`: Send an approved command to a Pterodactyl-linked server (requires `command:<name>` in `allowed_actions`).
+
+### Admin-only
+
+*   `POST /admin/pterodactyl/link`: Link a server to a Pterodactyl server UUID.
+*   `POST /admin/pterodactyl/unlink`: Remove Pterodactyl linkage.
+*   `POST /admin/pterodactyl/commands/add`: Add an approved command for a linked server.
+*   `POST /admin/pterodactyl/commands/delete`: Remove an approved command.
 
 ## Development
 

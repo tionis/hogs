@@ -8,13 +8,13 @@ tags:
 # HOGS Roadmap
 
 > [!info] Current State
-> HOGS is a Go web application that serves as a landing page for game servers (Minecraft, Satisfactory, Factorio). It features OIDC auth, theme-aware backgrounds, multi-game status queries, and an admin UI.
+> HOGS is a Go web application that serves as a landing page for game servers. It features OIDC auth with role-based access control (admin/user from OIDC groups), Pterodactyl integration for server actions, theme-aware backgrounds with immutable caching, multi-game status queries (Minecraft, Satisfactory, Factorio, Valheim), and an admin UI.
 
 ## Phase 1: More Game Types
 
 **Effort**: Low per game (1-2 hours each)
 
-The `GameQuerier` interface and `CONTRIBUTING.md` make adding games straightforward. New games need: a querier implementation, a `NewQuerier` case, CSS badge, SVG icon, admin dropdown option, and optionally a status poller case.
+The `GameQuerier` interface and `CONTRIBUTING.md` make adding games straightforward. New games need: a querier implementation, a registry entry, CSS badge, SVG icon, admin/background dropdown options, and optionally a status poller case.
 
 ### Planned Games
 
@@ -29,7 +29,7 @@ The `GameQuerier` interface and `CONTRIBUTING.md` make adding games straightforw
 
 With 6+ game types, the codebase needs cleanup:
 
-- **Querier registry**: Replace `NewQuerier` switch with a `map[string]GameQuerier` registry so games register themselves via `init()`.
+- **Querier registry**: ✅ Done — `map[string]GameQuerier` registry with `RegisterQuerier()` and `RegisteredGameTypes()`.
 - **Template game data**: Move game metadata (icon, badge color, status text template) into a central map or struct so templates and status poller JS don't need per-game switch/cases.
 
 ## Phase 2: Role-Based Access Control
@@ -64,8 +64,8 @@ CREATE TABLE users (
 
 - `auth/auth.go`: Extract groups from OIDC ID token claims using the configurable `OIDC_GROUPS_CLAIM`.
 - On callback: auto-provision user in `users` table if first login, map OIDC group to role.
-- Store `user_id` and `role` in session alongside `email`.
-- Add `GetUserRole(r) string` and `GetUserID(r) int` methods to `Authenticator`.
+- Store `role` in session alongside `email`.
+- Add `GetUserRole(r) string` method to `Authenticator`.
 - Add `RequireRole(roles ...string)` middleware that checks session role.
 - Admins can still override roles in the DB (IdP groups are only applied at first login).
 
@@ -79,13 +79,13 @@ CREATE TABLE users (
 
 #### Templates
 
-- Navbar: "Admin" link only visible to admins, "My Servers" link for users.
-- Server detail: conditionally show action buttons based on role + per-server permissions.
-- Admin panel: visible only to admin role.
+- Navbar: "Admin" link only visible to admins (✅ implemented).
+- Server detail: conditionally show Pterodactyl action buttons based on `allowed_actions` (✅ implemented).
+- Admin panel: visible only to admin role (✅ implemented).
 
 #### New Pages
 
-- **My Servers** (`/servers`): filtered list of servers the user has actions on.
+- **My Servers** (`/servers`): filtered list of servers the user has actions on. (Not yet implemented.)
 
 ## Phase 3: Pterodactyl Integration
 
@@ -139,9 +139,7 @@ CREATE TABLE pterodactyl_commands (
 ```
 pterodactyl/
   client.go     -- HTTP client, Application API auth, request helpers
-  servers.go    -- GetServer, ListServers, StartServer, StopServer, RestartServer
-  commands.go   -- SendCommand
-  whitelist.go  -- For game-agnostic whitelisting via server commands
+  servers.go    -- ListServers, GetServer, StartServer, StopServer, RestartServer, SendCommand
 ```
 
 All requests use the Application API (`/api/application/servers/...`) with the admin token.
@@ -152,46 +150,35 @@ All requests use the Application API (`/api/application/servers/...`) with the a
 
 | Route | Method | Purpose |
 |-------|--------|---------|
-| `/admin/servers/{id}/pterodactyl` | GET | Link/unlink Pterodactyl server UI |
-| `/admin/servers/{id}/pterodactyl/link` | POST | Link a Pterodactyl server UUID |
-| `/admin/servers/{id}/pterodactyl/unlink` | POST | Remove Pterodactyl linkage |
-| `/admin/servers/{id}/pterodactyl/actions` | POST | Update allowed actions |
-| `/admin/servers/{id}/pterodactyl/commands` | POST | Add/remove approved commands |
+| `/admin/pterodactyl/link` | POST | Link a server to a Pterodactyl server UUID |
+| `/admin/pterodactyl/unlink` | POST | Remove Pterodactyl linkage |
+| `/admin/pterodactyl/commands/add` | POST | Add an approved command for a linked server |
+| `/admin/pterodactyl/commands/delete` | POST | Remove an approved command |
 
 **User-accessible** (role-checked, per-server permission-checked):
 
 | Route | Method | Purpose |
 |-------|--------|---------|
-| `/servers/{serverName}/start` | POST | Start server |
-| `/servers/{serverName}/stop` | POST | Stop server |
-| `/servers/{serverName}/restart` | POST | Restart server |
-| `/servers/{serverName}/command` | POST | Run an approved command |
-| `/servers/{serverName}/whitelist` | GET | View whitelist |
-| `/servers/{serverName}/whitelist/add` | POST | Add player to whitelist |
-| `/servers/{serverName}/whitelist/remove` | POST | Remove player from whitelist |
+| `/servers/{serverName}/action` | POST | Start/stop/restart server (action in form data) |
+| `/servers/{serverName}/command` | POST | Send an approved command |
 
 ### UI Changes
 
 #### Server Detail Page
 
-New "Actions" card for authorized users:
+New "Server Actions" card for authenticated users (visible when Pterodactyl is configured and the server is linked):
 
-- Power buttons (Start / Stop / Restart) — shown if corresponding action is in `allowed_actions`
-- Whitelist panel — shown if `"whitelist"` is in `allowed_actions`
-  - Shows current whitelisted players
-  - Add / remove by username
-- Command buttons — one button per entry in `pterodactyl_commands`, shown if `"command:<name>"` is in `allowed_actions`
-  - Each button shows `display_name`
-  - Clicking sends the command via Pterodactyl Application API
+- Power buttons (Start / Stop / Restart) — shown if corresponding action is in `allowed_actions` (✅ implemented)
+- Command buttons — one button per entry in `pterodactyl_commands`, shown if `"command:<name>"` is in `allowed_actions` (✅ implemented)
+- Whitelist panel — shown if `"whitelist"` is in `allowed_actions` (not yet implemented)
 
 #### Admin Panel
 
-New Pterodactyl section per server (only visible if `PTERODACTYL_URL` is configured):
+New Pterodactyl section per server (only visible if `PTERODACTYL_URL` is configured) (✅ implemented):
 
-- Dropdown to link a Pterodactyl server (populated from `/api/application/servers` list)
-- Checkboxes for `allowed_actions`
-- Command builder: add command name + display name pairs
-- Pterodactyl server status indicator (online/offline from Pterodactyl API)
+- Link/unlink a Pterodactyl server UUID
+- Edit `allowed_actions` as a JSON array
+- Add/remove approved commands with display names
 
 ### Whitelisting Approach
 
@@ -280,15 +267,15 @@ Suggested sequence based on dependencies and impact:
 
 | Path | Purpose |
 |------|---------|
-| `main.go` | Entry point, route wiring |
-| `database/database.go` | Server CRUD, Background CRUD, Settings, Users (Phase 2) |
+| `main.go` | Entry point, route wiring, graceful shutdown |
+| `database/database.go` | Server CRUD, Background CRUD, Settings, Users, Pterodactyl CRUD |
 | `database/migrations/` | SQL migrations |
 | `query/` | GameQuerier interface + implementations |
-| `pterodactyl/` | Pterodactyl API client (Phase 3) |
-| `auth/auth.go` | OIDC auth, sessions, role middleware (Phase 2) |
-| `api/server_handler.go` | All API handlers |
-| `web/handler.go` | All page handlers |
-| `web/funcmap.go` | Shared template functions |
+| `pterodactyl/` | Pterodactyl Application API client |
+| `auth/auth.go` | OIDC auth, sessions, role middleware |
+| `api/server_handler.go` | Server status, mods, background API handlers |
+| `api/pterodactyl_handler.go` | Pterodactyl link/unlink, actions, commands handlers |
+| `web/handler.go` | All page handlers, Pterodactyl data passing |
+| `web/funcmap.go` | Shared template functions (json, firstLine, nl2br, title, gameIcon, dict, inList) |
 | `web/templates/` | HTML templates |
 | `config/config.go` | Env var loading |
-| `CONTRIBUTING.md` | Guide for adding new game types |
