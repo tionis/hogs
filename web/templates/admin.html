@@ -30,7 +30,7 @@
         <td>{{.Server.ID}}</td>
         <td>{{.Server.Name}}</td>
         <td>{{.Server.Address}}</td>
-        <td><span class="badge game-badge-{{.Server.GameType}}">{{.Server.GameType}}</span></td>
+        <td><span class="game-badge" style="{{gameBadgeCSS .Server.GameType}}">{{.Server.GameType | gameIcon}}{{.Server.GameType | gameDisplayName}}</span></td>
         <td>
           {{if eq .Server.State "online"}}<span class="badge bg-success">Online</span>{{end}}
           {{if eq .Server.State "offline"}}<span class="badge bg-danger">Offline</span>{{end}}

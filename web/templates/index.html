@@ -13,7 +13,7 @@
 
 {{range $gameType := .GameTypes}}
 <section class="mb-5 game-section" data-game="{{$gameType}}">
-  <h4 class="mb-3"><span class="badge game-badge-{{$gameType}} me-2">{{$gameType | gameIcon}}{{$gameType | title}}</span> {{$gameType | title}} Servers</h4>
+  <h4 class="mb-3"><span class="game-badge me-2" style="{{$gameType | gameBadgeCSS}}">{{$gameType | gameIcon}}{{$gameType | gameDisplayName}}</span> {{$gameType | gameDisplayName}} Servers</h4>
   <div class="row row-cols-1 row-cols-md-2 g-4">
     {{range $.Servers}}
     {{if eq .GameType $gameType}}

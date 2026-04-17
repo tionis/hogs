@@ -194,15 +194,8 @@
       .status-offline { color: var(--danger) !important; font-weight: 700; text-shadow: var(--glow-offline); }
 
       /* ── Game badges ── */
-      .game-badge-minecraft { background: linear-gradient(135deg, #4caf50, #2e7d32); color: #fff; }
-      .game-badge-satisfactory { background: linear-gradient(135deg, #ff9800, #e65100); color: #fff; }
-      .game-badge-factorio { background: linear-gradient(135deg, #cddc39, #827717); color: #222; }
-.game-badge-valheim { background: linear-gradient(135deg, #5d4037, #3e2723); color: #ffe0b2; }
-      .game-badge-minecraft .game-icon,
-      .game-badge-satisfactory .game-icon,
-      .game-badge-factorio .game-icon {
-        width: 14px; height: 14px; vertical-align: -2px; margin-right: 4px; display: inline-block;
-      }
+      .game-badge { border-radius: .375em; font-size: .85em; padding: .35em .65em; display: inline-flex; align-items: center; gap: .3em; white-space: nowrap; }
+      .game-badge .game-icon { width: 1em; height: 1em; display: inline-block; }
 
       /* ── Buttons ── */
       .btn {
@@ -318,6 +311,7 @@
       body.hogs-bg-dark { background-image: url('{{.BackgroundURLs.Dark}}'); }
       body.hogs-bg-light { background-image: url('{{.BackgroundURLs.Light}}'); }
     </style>
+    <script>window.HOGS_GAME_NOUNS = {{gameNounMapJS}};</script>
   </head>
   <body {{block "body_attrs" .}}{{end}}>
     <nav class="navbar navbar-expand-lg mb-4">
@@ -407,25 +401,10 @@
               const badgeEl = document.getElementById(`status-badge-${serverName}`);
               if (data.online) {
                 let statusText = '';
-                switch (gameType) {
-                  case 'minecraft':
-                    statusText = `<span class="status-online">Online</span> - ${data.players}/${data.maxPlayers} Players`;
-                    break;
-                  case 'satisfactory':
-                    statusText = `<span class="status-online">Online</span> - ${data.players}/${data.maxPlayers} Engineers`;
-                    if (data.mapName) statusText += ` in ${data.mapName}`;
-                    break;
-                  case 'factorio':
-                    statusText = `<span class="status-online">Online</span> - ${data.players}/${data.maxPlayers} Engineers`;
-                    if (data.version) statusText += ` (${data.version})`;
-                    break;
-                  case 'valheim':
-                    statusText = `<span class="status-online">Online</span> - ${data.players}/${data.maxPlayers} Vikings`;
-                    if (data.version) statusText += ` (${data.version})`;
-                    break;
-                  default:
-                    statusText = `<span class="status-online">Online</span> - ${data.players}/${data.maxPlayers} Players`;
-                }
+                const noun = window.HOGS_GAME_NOUNS[gameType] || 'Players';
+                statusText = `<span class="status-online">Online</span> - ${data.players}/${data.maxPlayers} ${noun}`;
+                if (data.version) statusText += ` (${data.version})`;
+                if (data.mapName && gameType === 'satisfactory') statusText += ` in ${data.mapName}`;
                 el.innerHTML = statusText;
 
                 if(data.serverMessage && gameType === 'minecraft') {
