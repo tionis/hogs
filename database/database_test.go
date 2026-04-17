@@ -278,3 +278,87 @@ func TestTouchUserLastLogin(t *testing.T) {
 		t.Fatal("expected user, got nil")
 	}
 }
+
+func TestPterodactylLinkCRUD(t *testing.T) {
+	store := testStore(t)
+
+	srv := &Server{Name: "test", Address: "t:25565", GameType: "minecraft", State: "online"}
+	if err := store.CreateServer(srv); err != nil {
+		t.Fatalf("CreateServer failed: %v", err)
+	}
+
+	link := &PterodactylLink{
+		ServerID:       srv.ID,
+		PteroServerID:  "abc-123-def",
+		AllowedActions: `["start","stop"]`,
+	}
+	if err := store.CreatePterodactylLink(link); err != nil {
+		t.Fatalf("CreatePterodactylLink failed: %v", err)
+	}
+
+	got, err := store.GetPterodactylLink(srv.ID)
+	if err != nil {
+		t.Fatalf("GetPterodactylLink failed: %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected link, got nil")
+	}
+	if got.PteroServerID != "abc-123-def" {
+		t.Errorf("PteroServerID = %q, want %q", got.PteroServerID, "abc-123-def")
+	}
+
+	got.AllowedActions = `["start","stop","restart"]`
+	if err := store.UpdatePterodactylLink(got); err != nil {
+		t.Fatalf("UpdatePterodactylLink failed: %v", err)
+	}
+
+	updated, _ := store.GetPterodactylLink(srv.ID)
+	if updated.AllowedActions != `["start","stop","restart"]` {
+		t.Errorf("AllowedActions = %q, want updated value", updated.AllowedActions)
+	}
+
+	if err := store.DeletePterodactylLink(srv.ID); err != nil {
+		t.Fatalf("DeletePterodactylLink failed: %v", err)
+	}
+
+	deleted, _ := store.GetPterodactylLink(srv.ID)
+	if deleted != nil {
+		t.Error("expected nil after delete")
+	}
+}
+
+func TestPterodactylCommandCRUD(t *testing.T) {
+	store := testStore(t)
+
+	srv := &Server{Name: "cmdtest", Address: "c:25565", GameType: "minecraft", State: "online"}
+	if err := store.CreateServer(srv); err != nil {
+		t.Fatalf("CreateServer failed: %v", err)
+	}
+
+	cmd1 := &PterodactylCommand{ServerID: srv.ID, Command: "seed", DisplayName: "Random Seed"}
+	if err := store.CreatePterodactylCommand(cmd1); err != nil {
+		t.Fatalf("CreatePterodactylCommand failed: %v", err)
+	}
+
+	cmd2 := &PterodactylCommand{ServerID: srv.ID, Command: "time set day", DisplayName: "Set Day"}
+	if err := store.CreatePterodactylCommand(cmd2); err != nil {
+		t.Fatalf("CreatePterodactylCommand failed: %v", err)
+	}
+
+	commands, err := store.ListPterodactylCommands(srv.ID)
+	if err != nil {
+		t.Fatalf("ListPterodactylCommands failed: %v", err)
+	}
+	if len(commands) != 2 {
+		t.Errorf("len(commands) = %d, want 2", len(commands))
+	}
+
+	if err := store.DeletePterodactylCommand(cmd1.ID); err != nil {
+		t.Fatalf("DeletePterodactylCommand failed: %v", err)
+	}
+
+	commands, _ = store.ListPterodactylCommands(srv.ID)
+	if len(commands) != 1 {
+		t.Errorf("len(commands) after delete = %d, want 1", len(commands))
+	}
+}

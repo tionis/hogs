@@ -79,3 +79,28 @@ func TestOIDCGroupConfigFromEnv(t *testing.T) {
 		t.Errorf("OIDCGroupsClaim = %q, want %q", cfg.OIDCGroupsClaim, "roles")
 	}
 }
+
+func TestPterodactylConfigDefaults(t *testing.T) {
+	cfg := LoadConfig()
+	if cfg.PterodactylURL != "" {
+		t.Errorf("PterodactylURL = %q, want empty default", cfg.PterodactylURL)
+	}
+	if cfg.PterodactylAppKey != "" {
+		t.Errorf("PterodactylAppKey = %q, want empty default", cfg.PterodactylAppKey)
+	}
+}
+
+func TestPterodactylConfigFromEnv(t *testing.T) {
+	os.Setenv("PTERODACTYL_URL", "https://panel.example.com")
+	os.Setenv("PTERODACTYL_APP_KEY", "ptla_xxxxxxxx")
+	defer os.Unsetenv("PTERODACTYL_URL")
+	defer os.Unsetenv("PTERODACTYL_APP_KEY")
+
+	cfg := LoadConfig()
+	if cfg.PterodactylURL != "https://panel.example.com" {
+		t.Errorf("PterodactylURL = %q, want %q", cfg.PterodactylURL, "https://panel.example.com")
+	}
+	if cfg.PterodactylAppKey != "ptla_xxxxxxxx" {
+		t.Errorf("PterodactylAppKey = %q, want %q", cfg.PterodactylAppKey, "ptla_xxxxxxxx")
+	}
+}

@@ -22,6 +22,10 @@ type Config struct {
 	OIDCAdminGroup  string
 	OIDCUserGroup   string
 	OIDCGroupsClaim string
+
+	// Pterodactyl Configuration
+	PterodactylURL    string
+	PterodactylAppKey string
 }
 
 // LoadConfig reads configuration from environment variables or sets defaults.
@@ -48,6 +52,9 @@ func LoadConfig() *Config {
 		OIDCAdminGroup:  getEnv("OIDC_ADMIN_GROUP", "admins"),
 		OIDCUserGroup:   getEnv("OIDC_USER_GROUP", ""),
 		OIDCGroupsClaim: getEnv("OIDC_GROUPS_CLAIM", "groups"),
+
+		PterodactylURL:    getEnv("PTERODACTYL_URL", ""),
+		PterodactylAppKey: getEnv("PTERODACTYL_APP_KEY", ""),
 	}
 }
 

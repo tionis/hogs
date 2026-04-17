@@ -428,6 +428,89 @@ func (s *Store) ListUsers() ([]User, error) {
 	return users, nil
 }
 
+type PterodactylLink struct {
+	ID             int    `json:"id"`
+	ServerID       int    `json:"serverId"`
+	PteroServerID  string `json:"pteroServerId"`
+	AllowedActions string `json:"allowedActions"`
+}
+
+type PterodactylCommand struct {
+	ID          int    `json:"id"`
+	ServerID    int    `json:"serverId"`
+	Command     string `json:"command"`
+	DisplayName string `json:"displayName"`
+}
+
+func (s *Store) GetPterodactylLink(serverID int) (*PterodactylLink, error) {
+	row := s.DB.QueryRow("SELECT id, server_id, ptero_server_id, allowed_actions FROM pterodactyl_servers WHERE server_id = ?", serverID)
+	var link PterodactylLink
+	err := row.Scan(&link.ID, &link.ServerID, &link.PteroServerID, &link.AllowedActions)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &link, nil
+}
+
+func (s *Store) CreatePterodactylLink(link *PterodactylLink) error {
+	result, err := s.DB.Exec("INSERT INTO pterodactyl_servers (server_id, ptero_server_id, allowed_actions) VALUES (?, ?, ?)",
+		link.ServerID, link.PteroServerID, link.AllowedActions)
+	if err != nil {
+		return err
+	}
+	id, _ := result.LastInsertId()
+	link.ID = int(id)
+	return nil
+}
+
+func (s *Store) UpdatePterodactylLink(link *PterodactylLink) error {
+	_, err := s.DB.Exec("UPDATE pterodactyl_servers SET ptero_server_id = ?, allowed_actions = ? WHERE server_id = ?",
+		link.PteroServerID, link.AllowedActions, link.ServerID)
+	return err
+}
+
+func (s *Store) DeletePterodactylLink(serverID int) error {
+	_, err := s.DB.Exec("DELETE FROM pterodactyl_servers WHERE server_id = ?", serverID)
+	return err
+}
+
+func (s *Store) ListPterodactylCommands(serverID int) ([]PterodactylCommand, error) {
+	rows, err := s.DB.Query("SELECT id, server_id, command, display_name FROM pterodactyl_commands WHERE server_id = ?", serverID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var commands []PterodactylCommand
+	for rows.Next() {
+		var cmd PterodactylCommand
+		if err := rows.Scan(&cmd.ID, &cmd.ServerID, &cmd.Command, &cmd.DisplayName); err != nil {
+			return nil, err
+		}
+		commands = append(commands, cmd)
+	}
+	return commands, nil
+}
+
+func (s *Store) CreatePterodactylCommand(cmd *PterodactylCommand) error {
+	result, err := s.DB.Exec("INSERT INTO pterodactyl_commands (server_id, command, display_name) VALUES (?, ?, ?)",
+		cmd.ServerID, cmd.Command, cmd.DisplayName)
+	if err != nil {
+		return err
+	}
+	id, _ := result.LastInsertId()
+	cmd.ID = int(id)
+	return nil
+}
+
+func (s *Store) DeletePterodactylCommand(id int) error {
+	_, err := s.DB.Exec("DELETE FROM pterodactyl_commands WHERE id = ?", id)
+	return err
+}
+
 func (bg *Background) URL() string {
 	if bg.ContentHash != "" {
 		return "/backgrounds/" + bg.ContentHash + "/" + bg.Filename
