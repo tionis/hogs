@@ -80,6 +80,7 @@ func main() {
 	if authenticator != nil {
 		router.Handle("/admin/backgrounds", authenticator.Middleware(http.HandlerFunc(webHandler.BackgroundManager))).Methods("GET")
 		router.Handle("/admin/backgrounds/upload", authenticator.Middleware(http.HandlerFunc(serverHandler.UploadBackground))).Methods("POST")
+		router.Handle("/admin/backgrounds/update", authenticator.Middleware(http.HandlerFunc(serverHandler.UpdateBackground))).Methods("POST")
 		router.Handle("/admin/backgrounds/delete", authenticator.Middleware(http.HandlerFunc(serverHandler.DeleteBackground))).Methods("POST")
 		router.Handle("/admin/settings", authenticator.Middleware(http.HandlerFunc(webHandler.Settings))).Methods("GET", "POST")
 	}

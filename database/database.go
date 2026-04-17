@@ -259,10 +259,11 @@ type Background struct {
 	Filename  string `json:"filename"`
 	ThemeMode string `json:"themeMode"`
 	GameType  string `json:"gameType"`
+	Enabled   bool   `json:"enabled"`
 }
 
 func (s *Store) ListBackgrounds() ([]Background, error) {
-	rows, err := s.DB.Query("SELECT id, filename, theme_mode, game_type FROM backgrounds ORDER BY uploaded_at DESC")
+	rows, err := s.DB.Query("SELECT id, filename, theme_mode, game_type, enabled FROM backgrounds ORDER BY uploaded_at DESC")
 	if err != nil {
 		return nil, err
 	}
@@ -271,21 +272,27 @@ func (s *Store) ListBackgrounds() ([]Background, error) {
 	var bgs []Background
 	for rows.Next() {
 		var bg Background
-		if err := rows.Scan(&bg.ID, &bg.Filename, &bg.ThemeMode, &bg.GameType); err != nil {
+		var enabled int
+		if err := rows.Scan(&bg.ID, &bg.Filename, &bg.ThemeMode, &bg.GameType, &enabled); err != nil {
 			return nil, err
 		}
+		bg.Enabled = enabled == 1
 		bgs = append(bgs, bg)
 	}
 	return bgs, nil
 }
 
 func (s *Store) CreateBackground(bg *Background) error {
-	stmt, err := s.DB.Prepare("INSERT INTO backgrounds (filename, theme_mode, game_type) VALUES (?, ?, ?)")
+	stmt, err := s.DB.Prepare("INSERT INTO backgrounds (filename, theme_mode, game_type, enabled) VALUES (?, ?, ?, ?)")
 	if err != nil {
 		return err
 	}
 	defer stmt.Close()
-	result, err := stmt.Exec(bg.Filename, bg.ThemeMode, bg.GameType)
+	enabled := 1
+	if !bg.Enabled {
+		enabled = 0
+	}
+	result, err := stmt.Exec(bg.Filename, bg.ThemeMode, bg.GameType, enabled)
 	if err != nil {
 		return err
 	}
@@ -304,19 +311,30 @@ func (s *Store) DeleteBackground(id int) error {
 	return err
 }
 
+func (s *Store) UpdateBackground(bg *Background) error {
+	enabled := 0
+	if bg.Enabled {
+		enabled = 1
+	}
+	_, err := s.DB.Exec("UPDATE backgrounds SET theme_mode = ?, game_type = ?, enabled = ? WHERE id = ?", bg.ThemeMode, bg.GameType, enabled, bg.ID)
+	return err
+}
+
 func (s *Store) GetRandomBackground(theme, gameType string) (*Background, error) {
 	row := s.DB.QueryRow(
-		"SELECT id, filename, theme_mode, game_type FROM backgrounds WHERE (theme_mode = ? OR theme_mode = 'all') AND (game_type = ? OR game_type = 'all') ORDER BY RANDOM() LIMIT 1",
+		"SELECT id, filename, theme_mode, game_type, enabled FROM backgrounds WHERE enabled = 1 AND (theme_mode = ? OR theme_mode = 'all') AND (game_type = ? OR game_type = 'all') ORDER BY RANDOM() LIMIT 1",
 		theme, gameType,
 	)
 	var bg Background
-	err := row.Scan(&bg.ID, &bg.Filename, &bg.ThemeMode, &bg.GameType)
+	var enabled int
+	err := row.Scan(&bg.ID, &bg.Filename, &bg.ThemeMode, &bg.GameType, &enabled)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
 		return nil, err
 	}
+	bg.Enabled = enabled == 1
 	return &bg, nil
 }
 

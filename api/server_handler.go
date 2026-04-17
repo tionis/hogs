@@ -379,3 +379,41 @@ func (h *ServerHandler) DeleteBackground(w http.ResponseWriter, r *http.Request)
 
 	http.Redirect(w, r, "/admin/backgrounds", http.StatusFound)
 }
+
+func (h *ServerHandler) UpdateBackground(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Invalid form data", http.StatusBadRequest)
+		return
+	}
+
+	idStr := r.FormValue("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		http.Error(w, "Invalid ID", http.StatusBadRequest)
+		return
+	}
+
+	themeMode := r.FormValue("theme_mode")
+	if themeMode == "" {
+		themeMode = "all"
+	}
+	gameType := r.FormValue("game_type")
+	if gameType == "" {
+		gameType = "all"
+	}
+	enabled := r.FormValue("enabled") == "on"
+
+	bg := &database.Background{
+		ID:        id,
+		ThemeMode: themeMode,
+		GameType:  gameType,
+		Enabled:   enabled,
+	}
+
+	if err := h.Store.UpdateBackground(bg); err != nil {
+		http.Error(w, "Failed to update background", http.StatusInternalServerError)
+		return
+	}
+
+	http.Redirect(w, r, "/admin/backgrounds", http.StatusFound)
+}

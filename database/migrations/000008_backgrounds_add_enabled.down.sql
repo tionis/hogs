@@ -1,0 +1,1 @@
+ALTER TABLE backgrounds DROP COLUMN enabled;
