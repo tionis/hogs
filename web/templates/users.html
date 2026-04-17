@@ -1,0 +1,49 @@
+{{define "title"}}User Management{{end}}
+
+{{define "content"}}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+  <h1 class="h2">User Management</h1>
+  <a href="/admin" class="btn btn-sm btn-outline-secondary">Back to Admin</a>
+</div>
+
+<div class="table-responsive">
+  <table class="table table-striped table-sm align-middle">
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Email</th>
+        <th>Role</th>
+        <th>First Seen</th>
+        <th>Last Login</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{range .Users}}
+      <tr>
+        <td>{{.ID}}</td>
+        <td>{{.Email}}</td>
+        <td>
+          <form action="/admin/users/update" method="POST" class="d-flex align-items-center gap-2">
+            <input type="hidden" name="user_id" value="{{.ID}}">
+            <select class="form-select form-select-sm" name="role" style="width:auto;" onchange="this.form.submit()">
+              <option value="admin" {{if eq .Role "admin"}}selected{{end}}>Admin</option>
+              <option value="user" {{if eq .Role "user"}}selected{{end}}>User</option>
+            </select>
+          </form>
+        </td>
+        <td class="small">{{.FirstSeen}}</td>
+        <td class="small">{{.LastLogin}}</td>
+        <td>
+          <span class="badge {{if eq .Role "admin"}}bg-danger{{else}}bg-secondary{{end}}">{{.Role}}</span>
+        </td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+</div>
+
+<div class="mt-5 text-muted small">
+  <p>Roles are assigned from OIDC groups at first login. You can override them here.</p>
+</div>
+{{end}}
