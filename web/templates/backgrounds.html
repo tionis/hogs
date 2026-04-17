@@ -1,0 +1,85 @@
+{{define "title"}}Background Manager{{end}}
+
+{{define "content"}}
+<nav aria-label="breadcrumb">
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="/admin">Admin</a></li>
+    <li class="breadcrumb-item"><a href="/admin/settings">Settings</a></li>
+    <li class="breadcrumb-item active" aria-current="page">Backgrounds</li>
+  </ol>
+</nav>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h2>Background Images</h2>
+</div>
+
+<div class="card mb-4">
+  <div class="card-header">Upload New Background</div>
+  <div class="card-body">
+    <form action="/admin/backgrounds/upload" method="POST" enctype="multipart/form-data">
+      <div class="row">
+        <div class="col-md-5 mb-3">
+          <label for="file" class="form-label">Image File</label>
+          <input class="form-control" type="file" id="file" name="file" accept="image/*" required>
+          <div class="form-text">JPG, PNG, or WebP. Recommended: 1920x1080 or larger.</div>
+        </div>
+        <div class="col-md-3 mb-3">
+          <label for="theme_mode" class="form-label">Theme Mode</label>
+          <select class="form-select" id="theme_mode" name="theme_mode">
+            <option value="all">All Themes</option>
+            <option value="dark">Dark Only</option>
+            <option value="light">Light Only</option>
+          </select>
+          <div class="form-text">Which theme mode should this image appear in?</div>
+        </div>
+        <div class="col-md-3 mb-3">
+          <label for="game_type" class="form-label">Game Type</label>
+          <select class="form-select" id="game_type" name="game_type">
+            <option value="all">All Games</option>
+            <option value="minecraft">Minecraft</option>
+            <option value="satisfactory">Satisfactory</option>
+            <option value="factorio">Factorio</option>
+          </select>
+          <div class="form-text">Assign to a specific game or show for all?</div>
+        </div>
+        <div class="col-md-1 mb-3 d-flex align-items-end">
+          <button type="submit" class="btn btn-primary w-100">Upload</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+{{if .Backgrounds}}
+<div class="card">
+  <div class="card-header">Current Backgrounds</div>
+  <div class="card-body">
+    <div class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-4">
+      {{range .Backgrounds}}
+      <div class="col">
+        <div class="card h-100">
+          <img src="/backgrounds/{{.Filename}}" class="card-img-top" alt="Background" style="height: 140px; object-fit: cover; border-radius: 12px 12px 0 0;">
+          <div class="card-body">
+            <div class="d-flex justify-content-between align-items-start">
+              <div>
+                <span class="badge me-1" style="background: var(--badge-bg); color: var(--badge-text);">{{.ThemeMode}}</span>
+                <span class="badge game-badge-{{.GameType}} me-1">{{if eq .GameType "all"}}All Games{{else}}{{.GameType | title}}{{end}}</span>
+              </div>
+              <form action="/admin/backgrounds/delete" method="POST" onsubmit="return confirm('Delete this background?');">
+                <input type="hidden" name="id" value="{{.ID}}">
+                <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
+              </form>
+            </div>
+          </div>
+        </div>
+      </div>
+      {{end}}
+    </div>
+  </div>
+</div>
+{{else}}
+<div class="text-center py-4" style="color: var(--text-secondary);">
+  <p>No backgrounds uploaded yet. Upload one above to add some character to the landing page.</p>
+</div>
+{{end}}
+{{end}}

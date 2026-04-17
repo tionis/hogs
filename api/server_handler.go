@@ -8,11 +8,14 @@ import (
 	"github.com/tionis/hogs/database"
 	"github.com/tionis/hogs/modmanager"
 	"github.com/tionis/hogs/query"
+	"io"
 	"log"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -233,12 +236,146 @@ func (h *ServerHandler) ServeModFiles(w http.ResponseWriter, r *http.Request) {
 
 // isValidServerName checks if the server name is safe to use in file paths.
 func isValidServerName(name string) bool {
-	// Simple validation: alphanumeric, hyphens, underscores only.
-	// Prevents ".." and other malicious path components.
 	for _, r := range name {
 		if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_') {
 			return false
 		}
 	}
 	return true
+}
+
+func (h *ServerHandler) GetBackground(w http.ResponseWriter, r *http.Request) {
+	theme := r.URL.Query().Get("theme")
+	if theme == "" {
+		theme = "all"
+	}
+	gameType := r.URL.Query().Get("game")
+	if gameType == "" {
+		gameType = "all"
+	}
+
+	bg, err := h.Store.GetRandomBackground(theme, gameType)
+	if err != nil {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+	if bg == nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"background": nil})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"background": map[string]interface{}{
+			"id":        bg.ID,
+			"url":       fmt.Sprintf("/backgrounds/%s", bg.Filename),
+			"themeMode": bg.ThemeMode,
+			"gameType":  bg.GameType,
+		},
+	})
+}
+
+func (h *ServerHandler) ServeBackgroundFile(w http.ResponseWriter, r *http.Request) {
+	filename := mux.Vars(r)["filename"]
+	bgDir := filepath.Join(h.Config.GameDataPath, "backgrounds")
+	http.ServeFile(w, r, filepath.Join(bgDir, filename))
+}
+
+func (h *ServerHandler) UploadBackground(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		http.Error(w, "Failed to parse form", http.StatusBadRequest)
+		return
+	}
+
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		http.Error(w, "Missing file", http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+
+	themeMode := r.FormValue("theme_mode")
+	if themeMode == "" {
+		themeMode = "all"
+	}
+	gameType := r.FormValue("game_type")
+	if gameType == "" {
+		gameType = "all"
+	}
+
+	bgDir := filepath.Join(h.Config.GameDataPath, "backgrounds")
+	if err := os.MkdirAll(bgDir, 0755); err != nil {
+		http.Error(w, "Failed to create backgrounds directory", http.StatusInternalServerError)
+		return
+	}
+
+	ext := filepath.Ext(header.Filename)
+	filename := fmt.Sprintf("%d%s", time.Now().UnixNano(), ext)
+	dst := filepath.Join(bgDir, filename)
+
+	out, err := os.Create(dst)
+	if err != nil {
+		http.Error(w, "Failed to save file", http.StatusInternalServerError)
+		return
+	}
+	defer out.Close()
+
+	if _, err := io.Copy(out, file); err != nil {
+		http.Error(w, "Failed to write file", http.StatusInternalServerError)
+		return
+	}
+
+	bg := &database.Background{
+		Filename:  filename,
+		ThemeMode: themeMode,
+		GameType:  gameType,
+	}
+
+	if err := h.Store.CreateBackground(bg); err != nil {
+		os.Remove(dst)
+		http.Error(w, "Failed to save background metadata", http.StatusInternalServerError)
+		return
+	}
+
+	http.Redirect(w, r, "/admin/backgrounds", http.StatusFound)
+}
+
+func (h *ServerHandler) DeleteBackground(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Invalid form data", http.StatusBadRequest)
+		return
+	}
+
+	idStr := r.FormValue("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		http.Error(w, "Invalid ID", http.StatusBadRequest)
+		return
+	}
+
+	bgs, err := h.Store.ListBackgrounds()
+	if err != nil {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	var filename string
+	for _, bg := range bgs {
+		if bg.ID == id {
+			filename = bg.Filename
+			break
+		}
+	}
+
+	if err := h.Store.DeleteBackground(id); err != nil {
+		http.Error(w, "Failed to delete background", http.StatusInternalServerError)
+		return
+	}
+
+	if filename != "" {
+		os.Remove(filepath.Join(h.Config.GameDataPath, "backgrounds", filename))
+	}
+
+	http.Redirect(w, r, "/admin/backgrounds", http.StatusFound)
 }

@@ -1,0 +1,28 @@
+{{define "title"}}Site Settings{{end}}
+
+{{define "content"}}
+<nav aria-label="breadcrumb">
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="/admin">Admin</a></li>
+    <li class="breadcrumb-item active" aria-current="page">Settings</li>
+  </ol>
+</nav>
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h2>Site Settings</h2>
+</div>
+
+<div class="card">
+  <div class="card-header">General</div>
+  <div class="card-body">
+    <form action="/admin/settings" method="POST">
+      <div class="mb-3">
+        <label for="siteName" class="form-label">Site Name</label>
+        <input type="text" class="form-control" id="siteName" name="site_name" value="{{.SiteName}}" placeholder="HOGS">
+        <div class="form-text">Displayed in the navbar and browser tab title.</div>
+      </div>
+      <button type="submit" class="btn btn-primary">Save Settings</button>
+    </form>
+  </div>
+</div>
+{{end}}

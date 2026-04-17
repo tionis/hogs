@@ -73,7 +73,16 @@ func main() {
 	router.HandleFunc("/api/servers", serverHandler.GetServers).Methods("GET")
 	router.HandleFunc("/api/servers/{serverName}/status", serverHandler.GetServerStatus).Methods("GET")
 	router.HandleFunc("/api/servers/{serverName}/mods", serverHandler.GetServerMods).Methods("GET")
+	router.HandleFunc("/api/backgrounds", serverHandler.GetBackground).Methods("GET")
+	router.HandleFunc("/backgrounds/{filename}", serverHandler.ServeBackgroundFile).Methods("GET")
 	router.HandleFunc("/healthz", serverHandler.Healthz).Methods("GET")
+
+	if authenticator != nil {
+		router.Handle("/admin/backgrounds", authenticator.Middleware(http.HandlerFunc(webHandler.BackgroundManager))).Methods("GET")
+		router.Handle("/admin/backgrounds/upload", authenticator.Middleware(http.HandlerFunc(serverHandler.UploadBackground))).Methods("POST")
+		router.Handle("/admin/backgrounds/delete", authenticator.Middleware(http.HandlerFunc(serverHandler.DeleteBackground))).Methods("POST")
+		router.Handle("/admin/settings", authenticator.Middleware(http.HandlerFunc(webHandler.Settings))).Methods("GET", "POST")
+	}
 	router.PathPrefix("/{serverName}/map/").HandlerFunc(serverHandler.MapProxy)
 	router.PathPrefix("/files/{serverName}/mods/").Handler(http.HandlerFunc(serverHandler.ServeModFiles))
 	router.PathPrefix("/assets/").Handler(http.HandlerFunc(webHandler.ServeAssets))

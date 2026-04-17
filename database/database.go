@@ -253,3 +253,86 @@ func (s *Store) DeleteServer(id int) error {
 	_, err = stmt.Exec(id)
 	return err
 }
+
+type Background struct {
+	ID        int    `json:"id"`
+	Filename  string `json:"filename"`
+	ThemeMode string `json:"themeMode"`
+	GameType  string `json:"gameType"`
+}
+
+func (s *Store) ListBackgrounds() ([]Background, error) {
+	rows, err := s.DB.Query("SELECT id, filename, theme_mode, game_type FROM backgrounds ORDER BY uploaded_at DESC")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var bgs []Background
+	for rows.Next() {
+		var bg Background
+		if err := rows.Scan(&bg.ID, &bg.Filename, &bg.ThemeMode, &bg.GameType); err != nil {
+			return nil, err
+		}
+		bgs = append(bgs, bg)
+	}
+	return bgs, nil
+}
+
+func (s *Store) CreateBackground(bg *Background) error {
+	stmt, err := s.DB.Prepare("INSERT INTO backgrounds (filename, theme_mode, game_type) VALUES (?, ?, ?)")
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+	result, err := stmt.Exec(bg.Filename, bg.ThemeMode, bg.GameType)
+	if err != nil {
+		return err
+	}
+	id, _ := result.LastInsertId()
+	bg.ID = int(id)
+	return nil
+}
+
+func (s *Store) DeleteBackground(id int) error {
+	stmt, err := s.DB.Prepare("DELETE FROM backgrounds WHERE id=?")
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+	_, err = stmt.Exec(id)
+	return err
+}
+
+func (s *Store) GetRandomBackground(theme, gameType string) (*Background, error) {
+	row := s.DB.QueryRow(
+		"SELECT id, filename, theme_mode, game_type FROM backgrounds WHERE (theme_mode = ? OR theme_mode = 'all') AND (game_type = ? OR game_type = 'all') ORDER BY RANDOM() LIMIT 1",
+		theme, gameType,
+	)
+	var bg Background
+	err := row.Scan(&bg.ID, &bg.Filename, &bg.ThemeMode, &bg.GameType)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &bg, nil
+}
+
+func (s *Store) GetSetting(key string) (string, error) {
+	var value string
+	err := s.DB.QueryRow("SELECT value FROM settings WHERE key = ?", key).Scan(&value)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return "", nil
+		}
+		return "", err
+	}
+	return value, nil
+}
+
+func (s *Store) SetSetting(key, value string) error {
+	_, err := s.DB.Exec("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = ?", key, value, value)
+	return err
+}

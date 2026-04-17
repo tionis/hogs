@@ -33,6 +33,14 @@ func NewWebHandler(store *database.Store, cfg *config.Config, auth *auth.Authent
 	return &WebHandler{Store: store, Config: cfg, Auth: auth}
 }
 
+func (h *WebHandler) siteName() string {
+	name, err := h.Store.GetSetting("site_name")
+	if err != nil || name == "" {
+		return "HOGS"
+	}
+	return name
+}
+
 // ... (Home, ServerDetail, Admin handlers remain unchanged) ...
 
 // FileManager renders the file manager for a specific server.
@@ -60,11 +68,13 @@ func (h *WebHandler) FileManager(w http.ResponseWriter, r *http.Request) {
 	data := struct {
 		Server        *database.Server
 		Authenticated bool
+		SiteName      string
 		UserEmail     string
 		Files         *modmanager.ModItem
 	}{
 		Server:        server,
 		Authenticated: true,
+		SiteName:      h.siteName(),
 		UserEmail:     h.Auth.GetUserEmail(r),
 		Files:         modTree,
 	}
@@ -218,10 +228,12 @@ func (h *WebHandler) Home(w http.ResponseWriter, r *http.Request) {
 		Servers       []database.Server
 		GameTypes     []string
 		Authenticated bool
+		SiteName      string
 	}{
 		Servers:       visibleServers,
 		GameTypes:     gameTypes,
 		Authenticated: isAuthenticated,
+		SiteName:      h.siteName(),
 	}
 
 	tmpl, err := template.New("base.html").Funcs(sharedFuncMap()).ParseFS(templateFS, "templates/base.html", "templates/index.html")
@@ -264,9 +276,11 @@ func (h *WebHandler) ServerDetail(w http.ResponseWriter, r *http.Request) {
 	data := struct {
 		Server        *database.Server
 		Authenticated bool
+		SiteName      string
 	}{
 		Server:        server,
 		Authenticated: isAuthenticated,
+		SiteName:      h.siteName(),
 	}
 
 	tmpl, err := template.New("base.html").Funcs(sharedFuncMap()).ParseFS(templateFS, "templates/base.html", "templates/server.html")
@@ -294,10 +308,12 @@ func (h *WebHandler) Admin(w http.ResponseWriter, r *http.Request) {
 	data := struct {
 		Servers       []database.Server
 		Authenticated bool
+		SiteName      string
 		UserEmail     string
 	}{
 		Servers:       servers,
 		Authenticated: true,
+		SiteName:      h.siteName(),
 		UserEmail:     h.Auth.GetUserEmail(r),
 	}
 
@@ -417,4 +433,84 @@ func (h *WebHandler) HandleServerDelete(w http.ResponseWriter, r *http.Request) 
 	}
 
 	http.Redirect(w, r, "/admin", http.StatusFound)
+}
+
+func (h *WebHandler) BackgroundManager(w http.ResponseWriter, r *http.Request) {
+	backgrounds, err := h.Store.ListBackgrounds()
+	if err != nil {
+		http.Error(w, "Failed to load backgrounds", http.StatusInternalServerError)
+		return
+	}
+
+	data := struct {
+		Backgrounds   []database.Background
+		Authenticated bool
+		SiteName      string
+		UserEmail     string
+	}{
+		Backgrounds:   backgrounds,
+		Authenticated: true,
+		SiteName:      h.siteName(),
+		UserEmail:     h.Auth.GetUserEmail(r),
+	}
+
+	var buf bytes.Buffer
+	tmpl, err := template.New("base.html").Funcs(sharedFuncMap()).ParseFS(templateFS, "templates/base.html", "templates/backgrounds.html")
+	if err != nil {
+		http.Error(w, "Template error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if err := tmpl.Execute(&buf, data); err != nil {
+		http.Error(w, "Render error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	buf.WriteTo(w)
+}
+
+func (h *WebHandler) Settings(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		if err := r.ParseForm(); err != nil {
+			http.Error(w, "Invalid form data", http.StatusBadRequest)
+			return
+		}
+		siteName := r.FormValue("site_name")
+		if siteName == "" {
+			siteName = "HOGS"
+		}
+		if err := h.Store.SetSetting("site_name", siteName); err != nil {
+			http.Error(w, "Failed to save settings", http.StatusInternalServerError)
+			return
+		}
+		http.Redirect(w, r, "/admin/settings", http.StatusFound)
+		return
+	}
+
+	siteName, _ := h.Store.GetSetting("site_name")
+	if siteName == "" {
+		siteName = "HOGS"
+	}
+
+	data := struct {
+		SiteName      string
+		Authenticated bool
+		UserEmail     string
+	}{
+		SiteName:      siteName,
+		Authenticated: true,
+		UserEmail:     h.Auth.GetUserEmail(r),
+	}
+
+	var buf bytes.Buffer
+	tmpl, err := template.New("base.html").Funcs(sharedFuncMap()).ParseFS(templateFS, "templates/base.html", "templates/settings.html")
+	if err != nil {
+		http.Error(w, "Template error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if err := tmpl.Execute(&buf, data); err != nil {
+		http.Error(w, "Render error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	buf.WriteTo(w)
 }

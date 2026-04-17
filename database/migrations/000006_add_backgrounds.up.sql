@@ -1,0 +1,7 @@
+CREATE TABLE IF NOT EXISTS backgrounds (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    filename TEXT NOT NULL,
+    theme_mode TEXT NOT NULL DEFAULT 'all',
+    game_type TEXT NOT NULL DEFAULT 'all',
+    uploaded_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
