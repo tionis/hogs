@@ -3,12 +3,12 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/tionis/hogs/auth"
+	"github.com/tionis/hogs/config"
+	"github.com/tionis/hogs/database"
+	"github.com/tionis/hogs/modmanager"
+	"github.com/tionis/hogs/query"
 	"log"
-	"github.com/tionis/mcow/auth"
-	"github.com/tionis/mcow/config"
-	"github.com/tionis/mcow/database"
-	"github.com/tionis/mcow/mcstatus"
-	"github.com/tionis/mcow/modmanager"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -23,12 +23,12 @@ import (
 type ServerHandler struct {
 	Store  *database.Store
 	Config *config.Config
-	Cache  *mcstatus.ServerStatusCache
+	Cache  *query.ServerStatusCache
 	Auth   *auth.Authenticator
 }
 
 // NewServerHandler creates a new ServerHandler.
-func NewServerHandler(store *database.Store, cfg *config.Config, cache *mcstatus.ServerStatusCache, auth *auth.Authenticator) *ServerHandler {
+func NewServerHandler(store *database.Store, cfg *config.Config, cache *query.ServerStatusCache, auth *auth.Authenticator) *ServerHandler {
 	return &ServerHandler{
 		Store:  store,
 		Config: cfg,
@@ -46,8 +46,19 @@ func (h *ServerHandler) GetServers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	isAdmin := h.Auth != nil && h.Auth.IsAuthenticated(r)
+
+	var public []interface{}
+	for i := range servers {
+		if isAdmin {
+			public = append(public, servers[i])
+		} else {
+			public = append(public, servers[i].ToPublic())
+		}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(servers); err != nil {
+	if err := json.NewEncoder(w).Encode(public); err != nil {
 		log.Printf("Error encoding servers to JSON: %v", err)
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 	}
@@ -78,10 +89,10 @@ func (h *ServerHandler) GetServerStatus(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "Server not found", http.StatusNotFound)
 		return
 	}
-	
+
 	// If server is disabled, we return an offline status
 	if server.State == "offline" {
-		offlineStatus := &mcstatus.ServerStatus{
+		offlineStatus := &query.ServerStatus{
 			Online:      false,
 			LastUpdated: time.Now(),
 			Error:       "Server is currently disabled.",
@@ -95,9 +106,10 @@ func (h *ServerHandler) GetServerStatus(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	status, err := mcstatus.QueryMinecraftServer(server)
+	querier := query.NewQuerier(server.GameType)
+	status, err := querier.Query(server)
 	if err != nil {
-		log.Printf("Error querying Minecraft server %s (%s): %v", server.Name, server.Address, err)
+		log.Printf("Error querying %s server %s (%s): %v", server.GameType, server.Name, server.Address, err)
 		// Even if there's an error, the status object will contain error information.
 		// We still cache it to avoid hammering the server.
 	}
@@ -121,7 +133,7 @@ func (h *ServerHandler) GetServerMods(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	modTree, err := modmanager.ScanModDirectory(h.Config.ModDataPath, serverName)
+	modTree, err := modmanager.ScanModDirectory(h.Config.GameDataPath, serverName)
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") { // Check if directory doesn't exist
 			http.Error(w, fmt.Sprintf("Mod directory for server %s not found", serverName), http.StatusNotFound)
@@ -139,14 +151,25 @@ func (h *ServerHandler) GetServerMods(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// BlueMapProxy handles requests to proxy BlueMap instances.
-func (h *ServerHandler) BlueMapProxy(w http.ResponseWriter, r *http.Request) {
+func (h *ServerHandler) Healthz(w http.ResponseWriter, r *http.Request) {
+	if err := h.Store.DB.Ping(); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(map[string]string{"status": "unhealthy", "error": err.Error()})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "healthy"})
+}
+
+// MapProxy handles requests to proxy map instances (BlueMap for Minecraft, etc).
+func (h *ServerHandler) MapProxy(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	serverName := vars["serverName"]
 
 	server, err := h.Store.GetServerByName(serverName)
 	if err != nil {
-		log.Printf("Error getting server %s from database for BlueMap proxy: %v", serverName, err)
+		log.Printf("Error getting server %s from database for map proxy: %v", serverName, err)
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
@@ -154,14 +177,14 @@ func (h *ServerHandler) BlueMapProxy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Server not found", http.StatusNotFound)
 		return
 	}
-	if server.BlueMapURL == "" {
-		http.Error(w, "BlueMap URL not configured for this server", http.StatusNotFound)
+	if server.MapURL == "" {
+		http.Error(w, "Map URL not configured for this server", http.StatusNotFound)
 		return
 	}
 
-	targetURL, err := url.Parse(server.BlueMapURL)
+	targetURL, err := url.Parse(server.MapURL)
 	if err != nil {
-		log.Printf("Invalid BlueMap URL for server %s: %v", serverName, err)
+		log.Printf("Invalid map URL for server %s: %v", serverName, err)
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
@@ -176,10 +199,8 @@ func (h *ServerHandler) BlueMapProxy(w http.ResponseWriter, r *http.Request) {
 		req.Host = targetURL.Host
 		req.URL.Scheme = targetURL.Scheme
 		req.URL.Host = targetURL.Host
-		
+
 		// Rewrite the path to remove the /<serverName>/map prefix
-		// The original request path is something like /Creative/map/some/path
-		// We want to forward /some/path to the BlueMap server.
 		prefix := fmt.Sprintf("/%s/map", serverName)
 		req.URL.Path = strings.TrimPrefix(req.URL.Path, prefix)
 		req.URL.RawPath = strings.TrimPrefix(req.URL.RawPath, prefix)
@@ -203,7 +224,7 @@ func (h *ServerHandler) ServeModFiles(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Construct the base directory for the server's mods using config
-	modBaseDir := filepath.Join(h.Config.ModDataPath, serverName)
+	modBaseDir := filepath.Join(h.Config.GameDataPath, serverName)
 
 	// Create a file server for the constructed directory
 	// http.StripPrefix is needed to remove the part of the URL path that gorilla/mux matched.

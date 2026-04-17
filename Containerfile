@@ -9,7 +9,7 @@ WORKDIR /app
 # Build the application
 COPY . .
 # -ldflags="-w -s" strips debug information for smaller binary
-RUN CGO_ENABLED=1 GOOS=linux go build -ldflags="-w -s" -o mc-webui .
+RUN CGO_ENABLED=1 GOOS=linux go build -ldflags="-w -s" -o hogs .
 
 # Runtime Stage
 FROM alpine:latest
@@ -20,21 +20,21 @@ RUN apk add --no-cache ca-certificates tzdata
 WORKDIR /app
 
 # Copy binary from builder
-COPY --from=builder /app/mc-webui .
+COPY --from=builder /app/hogs .
 
 # Create data directory
-RUN mkdir -p data/mods
+RUN mkdir -p data/game
 
 # Expose port
 EXPOSE 8080
 
 # Environment variables (Defaults, override in Quadlet/Docker)
 ENV PORT=8080
-ENV DB_PATH=/data/mcow.db
-ENV MOD_DATA_PATH=/app/data/mods
+ENV DB_PATH=/data/hogs.db
+ENV GAME_DATA_PATH=/app/data/game
 
 # Mount point for data persistence
-VOLUME ["/data", "/app/data/mods"]
+VOLUME ["/data", "/app/data/game"]
 
 # Run
-CMD ["./mc-webui"]
+CMD ["./hogs"]

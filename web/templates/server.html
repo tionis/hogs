@@ -13,20 +13,84 @@
     <div class="card mb-4 shadow-sm">
       <div class="card-body">
         <div class="d-flex justify-content-between align-items-center mb-3">
-          <h1 class="card-title mb-0">{{.Server.Name}}</h1>
-          <div class="server-status-poller h5 mb-0" data-server="{{.Server.Name}}">Checking status...</div>
+          <h1 class="card-title mb-0">
+            {{.Server.Name}}
+            <span class="badge game-badge-{{.Server.GameType}} ms-2" style="font-size: 0.5em;">{{.Server.GameType | gameIcon}}{{.Server.GameType | title}}</span>
+          </h1>
+          <div class="server-status-poller h5 mb-0" data-server="{{.Server.Name}}" data-game-type="{{.Server.GameType}}">Checking status...</div>
         </div>
         <h6 class="text-muted">{{.Server.Address}}</h6>
         <p class="card-text lead">{{.Server.Description | nl2br}}</p>
 
-        {{if .Server.ModpackURL}}
-        <a href="{{.Server.ModpackURL}}" class="btn btn-success mb-3">Download Modpack</a>
+        {{if .Server.ModURL}}
+        <a href="{{.Server.ModURL}}" class="btn btn-success mb-3">Download Mod Pack</a>
         {{end}}
 
-        {{if .Server.BlueMapURL}}
+        {{if .Server.MapURL}}
         <h4 class="mt-4">Live Map</h4>
         <div class="ratio ratio-16x9 border rounded">
-          <iframe src="/{{.Server.Name}}/map/" title="BlueMap" allowfullscreen></iframe>
+          <iframe src="/{{.Server.Name}}/map/" title="Server Map" allowfullscreen></iframe>
+        </div>
+        {{end}}
+
+        {{if eq .Server.GameType "minecraft"}}
+        <div id="game-detail-minecraft" style="display:none;" class="mt-3">
+          <div class="row">
+            <div class="col-md-6">
+              <div class="card bg-transparent border-0">
+                <div class="card-body p-2">
+                  <h6>Server Version</h6>
+                  <p id="mc-version" class="mb-0 text-muted small">Loading...</p>
+                </div>
+              </div>
+            </div>
+            <div class="col-md-6">
+              <div class="card bg-transparent border-0">
+                <div class="card-body p-2">
+                  <h6>Server Message</h6>
+                  <p id="mc-motd" class="mb-0 text-muted small font-monospace">Loading...</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        {{end}}
+
+        {{if eq .Server.GameType "satisfactory"}}
+        <div id="game-detail-satisfactory" style="display:none;" class="mt-3">
+          <div class="row">
+            <div class="col-md-6">
+              <div class="card bg-transparent border-0">
+                <div class="card-body p-2">
+                  <h6>Active Session</h6>
+                  <p id="sf-session" class="mb-0 text-muted small">Loading...</p>
+                </div>
+              </div>
+            </div>
+            <div class="col-md-6">
+              <div class="card bg-transparent border-0">
+                <div class="card-body p-2">
+                  <h6>Server Name</h6>
+                  <p id="sf-servername" class="mb-0 text-muted small">Loading...</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        {{end}}
+
+        {{if eq .Server.GameType "factorio"}}
+        <div id="game-detail-factorio" style="display:none;" class="mt-3">
+          <div class="row">
+            <div class="col-md-6">
+              <div class="card bg-transparent border-0">
+                <div class="card-body p-2">
+                  <h6>Game Version</h6>
+                  <p id="fa-version" class="mb-0 text-muted small">Loading...</p>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
         {{end}}
       </div>
@@ -51,10 +115,17 @@
          <li class="list-group-item d-flex justify-content-between align-items-center">
             <strong>Address</strong> <span>{{.Server.Address}}</span>
          </li>
+         <li class="list-group-item d-flex justify-content-between align-items-center">
+            <strong>Game</strong> <span class="badge game-badge-{{.Server.GameType}}">{{.Server.GameType | gameIcon}}{{.Server.GameType | title}}</span>
+         </li>
          {{range $k, $v := .Server.Metadata}}
+         {{if ne $k "api_token"}}
+         {{if ne $k "rcon_password"}}
          <li class="list-group-item d-flex justify-content-between align-items-center">
             <strong>{{$k}}</strong> <span>{{$v}}</span>
          </li>
+         {{end}}
+         {{end}}
          {{end}}
          <li class="list-group-item">
             <strong>Online Players</strong>
@@ -68,6 +139,7 @@
 <script>
 document.addEventListener("DOMContentLoaded", function() {
     const serverName = "{{.Server.Name}}";
+    const gameType = "{{.Server.GameType}}";
     const container = document.getElementById('file-browser');
     
     fetch(`/api/servers/${serverName}/mods`)
@@ -81,11 +153,47 @@ document.addEventListener("DOMContentLoaded", function() {
     .catch(e => {
       container.innerHTML = `<div class="alert alert-warning">${e.message}</div>`;
     });
+
+    fetch(`/api/servers/${serverName}/status`)
+    .then(r => r.json())
+    .then(data => {
+      if (!data.online) return;
+
+      if (gameType === 'minecraft') {
+        const el = document.getElementById('game-detail-minecraft');
+        if (el) {
+          el.style.display = 'block';
+          const verEl = document.getElementById('mc-version');
+          if (verEl && data.version) verEl.textContent = data.version;
+          const motdEl = document.getElementById('mc-motd');
+          if (motdEl && data.serverMessage) motdEl.textContent = data.serverMessage;
+        }
+      }
+
+      if (gameType === 'satisfactory') {
+        const el = document.getElementById('game-detail-satisfactory');
+        if (el) {
+          el.style.display = 'block';
+          const sessEl = document.getElementById('sf-session');
+          if (sessEl && data.mapName) sessEl.textContent = data.mapName;
+          const nameEl = document.getElementById('sf-servername');
+          if (nameEl && data.serverMessage) nameEl.textContent = data.serverMessage;
+        }
+      }
+
+      if (gameType === 'factorio') {
+        const el = document.getElementById('game-detail-factorio');
+        if (el) {
+          el.style.display = 'block';
+          const verEl = document.getElementById('fa-version');
+          if (verEl && data.version) verEl.textContent = data.version;
+        }
+      }
+    })
+    .catch(() => {});
 });
 
-// Reusing the render logic (could be moved to base.html if shared)
 function renderFileTree(item, serverName) {
-  let html = '<ul class="list-group list-group-flush">';
   if (item.path === "") {
      if (!item.children || item.children.length === 0) return "No files found.";
      return renderChildren(item.children, serverName);
@@ -96,8 +204,8 @@ function renderFileTree(item, serverName) {
 function renderChildren(children, serverName) {
     let html = '<ul class="list-group">';
     children.forEach(child => {
-        let icon = child.type === 'directory' ? '📁' : '📄';
-        if (child.type === 'url') icon = '🔗';
+        let icon = child.type === 'directory' ? '\uD83D\uDCC1' : '\uD83D\uDCC4';
+        if (child.type === 'url') icon = '\uD83D\uDD17';
         
         let content = '';
         if (child.type === 'directory') {

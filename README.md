@@ -1,13 +1,14 @@
-# MineCraft Overview (McOw/MCOW)
+# HOGS - Halls of Game Servers
 
-A modern, high-performance web interface for managing and showcasing IEEE Passau's Minecraft servers. Built with Go, it provides a clean UI for server status, mod downloads, and map viewing, protected by OIDC authentication for administrative tasks.
+A modern web interface for managing and showcasing game servers (Minecraft, Satisfactory, Factorio, and more). Built with Go, it provides a clean UI for server status, mod downloads, and map viewing, protected by OIDC authentication for administrative tasks.
 
 ## Features
 
+*   **Multi-Game Support:** Query Minecraft, Satisfactory, and Factorio servers with game-specific status protocols.
 *   **Real-time Server Status:** Live player counts, version info, and online status using efficient caching (60s TTL).
 *   **Admin Dashboard:** Complete web-based management interface for adding, editing, and deleting servers without touching the database.
-*   **Mod File Browser:** Automatically scans and serves mod files, modpacks, and documentation from a structured directory. Supports downloading files and directories (as zip), rendering `.md` files, and `.url` redirects.
-*   **BlueMap Proxy:** Securely proxies BlueMap instances (e.g., `http://localhost:8100`) through the main web server, unifying access.
+*   **File Browser:** Automatically scans and serves mod files, modpacks, and documentation from a structured directory. Supports downloading files, rendering `.md` files, and `.url` redirects.
+*   **Map Proxy:** Securely proxies web map instances (e.g., BlueMap for Minecraft) through the main web server, unifying access.
 *   **OIDC Authentication:** Secure login via OpenID Connect (e.g., Keycloak, Google) for administrative access.
 *   **Modern Architecture:**
     *   **Backend:** Go (1.24+) with `gorilla/mux` and `database/sql`.
@@ -27,41 +28,41 @@ A modern, high-performance web interface for managing and showcasing IEEE Passau
 
 1.  Clone the repository:
     ```bash
-    git clone https://github.com/tionis/mcow.git
-    cd mcow
+    git clone https://github.com/tionis/hogs.git
+    cd hogs
     ```
 
 2.  Build the application:
     ```bash
-    go build -o mcow .
+    go build -o hogs .
     ```
 
 ### Containers (Docker/Podman)
 
 #### Pre-built Image
-We automatically build a container image for the `main` branch, available at `ghcr.io/tionis/mcow:latest`.
+We automatically build a container image for the `main` branch, available at `ghcr.io/tionis/hogs:latest`.
 
 #### Run with Podman
-Here is an example of how to run the application using Podman, persisting data and mods:
+Here is an example of how to run the application using Podman, persisting data and game files:
 
 ```bash
-podman run -d --name mcow \
+podman run -d --name hogs \
     -p 8080:8080 \
     -v ./data:/data \
-    -v ./mods:/app/data/mods \
+    -v ./game:/app/data/game \
     -e SESSION_SECRET="change-this-to-a-long-random-string" \
     -e OIDC_PROVIDER_URL="" \
     -e OIDC_CLIENT_ID="" \
     -e OIDC_CLIENT_SECRET="" \
-    ghcr.io/tionis/mcow:latest
+    ghcr.io/tionis/hogs:latest
 ```
 *Note: Refer to the [Configuration Reference](#configuration-reference) below for OIDC details required for admin access.*
 
 #### Build Manually
 A `Containerfile` is provided for building a container image manually:
 ```bash
-podman build -t mcow .
-podman run -p 8080:8080 -v ./data:/data mcow
+podman build -t hogs .
+podman run -p 8080:8080 -v ./data:/data hogs
 ```
 
 ### Running the Application
@@ -70,11 +71,11 @@ podman run -p 8080:8080 -v ./data:/data mcow
     Create a `.env` file or export these variables:
     ```bash
     export PORT=8080
-    export DB_PATH=./mcow.db
-    export MOD_DATA_PATH=./data/mods
+    export DB_PATH=./hogs.db
+    export GAME_DATA_PATH=./data/game
     # OIDC Config (Optional - Login disabled if missing)
     export OIDC_PROVIDER_URL=https://auth.example.com/realms/ieee
-    export OIDC_CLIENT_ID=mcow
+    export OIDC_CLIENT_ID=hogs
     export OIDC_CLIENT_SECRET=your-secret
     export OIDC_REDIRECT_URL=http://localhost:8080/auth/callback
     export SESSION_SECRET=change-this-to-a-long-random-string
@@ -82,7 +83,7 @@ podman run -p 8080:8080 -v ./data:/data mcow
 
 2.  **Run the binary:**
     ```bash
-    ./mcow
+    ./hogs
     ```
     Or directly with Go:
     ```bash
@@ -96,17 +97,15 @@ podman run -p 8080:8080 -v ./data:/data mcow
 ### Helper Scripts
 The repository includes helper scripts for development/testing:
 *   `go run insert_dummy_data.go`: Populates the database with sample servers.
-*   `go run update_bluemap_url.go`: Example script to update database records programmatically.
+*   `go run update_map_url.go`: Example script to update database records programmatically.
 
 ## Configuration Reference
-
-
 
 | Variable             | Default                         | Description                                                                 |
 | -------------------- | ------------------------------- | --------------------------------------------------------------------------- |
 | `PORT`               | `8080`                          | The HTTP port to listen on.                                                 |
-| `DB_PATH`            | `./mcow.db`                     | Path to the SQLite database file. Created automatically if missing.         |
-| `MOD_DATA_PATH`      | `data/mods`                     | Root directory for storing server mod files.                                |
+| `DB_PATH`            | `./hogs.db`                     | Path to the SQLite database file. Created automatically if missing.         |
+| `GAME_DATA_PATH`     | `data/game`                     | Root directory for storing server mod/game files.                            |
 | `OIDC_PROVIDER_URL`  | *(Empty)*                       | The OIDC Issuer URL (e.g., Keycloak realm URL). Login disabled if empty.    |
 | `OIDC_CLIENT_ID`     | *(Empty)*                       | The Client ID registered with your IDP.                                     |
 | `OIDC_CLIENT_SECRET` | *(Empty)*                       | The Client Secret for the application.                                      |
@@ -120,24 +119,25 @@ Servers are managed via the web-based Admin Dashboard at `/admin`.
 1.  **Log in:** Authenticate via OIDC to access the dashboard.
 2.  **Add/Edit:** Use the interface to configure server details:
     *   **Name:** Unique identifier (used in URLs and file paths).
-    *   **Address:** The Minecraft server address (e.g., `mc.example.com`).
+    *   **Address:** The server address (e.g., `mc.example.com:25565`).
+    *   **Game Type:** `minecraft`, `satisfactory`, or `factorio`.
     *   **State:** Controls visibility (`online`, `offline`, `planned`, `maintenance`).
-    *   **BlueMap URL:** Internal URL for proxying (e.g., `http://localhost:8100`).
-    *   **Modpack URL:** Optional direct download link.
-    *   **Metadata:** Custom key-value pairs for additional info.
+    *   **Map URL:** Internal URL for proxying maps (e.g., BlueMap for Minecraft).
+    *   **Mod Pack URL:** Optional direct download link.
+    *   **Metadata:** Custom key-value pairs. Satisfactory: add `api_token`; Factorio: add `rcon_password`.
 
 ### 2. Managing Files
-You can manage mod files via the **Admin File Manager** or directly on the filesystem.
+You can manage mod/game files via the **Admin File Manager** or directly on the filesystem.
 
 #### Via File Manager
 Click "Files" on any server in the Admin Dashboard to upload, delete, or organize files directly from the browser.
 
 #### Manual Organization
-The application serves files from `MOD_DATA_PATH` (default: `data/mods`).
+The application serves files from `GAME_DATA_PATH` (default: `data/game`).
 Directory structure must match the **server name**:
 
 ```text
-data/mods/
+data/game/
 ├── Creative/               <-- Matches server name "Creative"
 │   ├── mods/
 │   │   ├── sodium.jar
@@ -153,11 +153,22 @@ data/mods/
 *   **`.url` files:** Rendered as external links.
 *   **Other files:** Served as direct downloads.
 
-### 3. BlueMap Proxy
+### 3. Map Proxy
 To enable the map proxy:
-1.  Ensure your BlueMap backend is running (e.g., internal IP `10.0.0.5:8100`).
-2.  In the Admin Dashboard, set the **BlueMap URL** for the server to `http://10.0.0.5:8100`.
+1.  Ensure your map backend is running (e.g., BlueMap at internal IP `10.0.0.5:8100`).
+2.  In the Admin Dashboard, set the **Map URL** for the server to `http://10.0.0.5:8100`.
 3.  The map will be accessible publicly at `http://your-site.com/Creative/map/`.
+
+### 4. Game-Specific Query Setup
+
+#### Minecraft
+Uses the standard Minecraft query protocol (port 25565). No additional configuration needed. Optionally configure BlueMap URL for map proxy.
+
+#### Satisfactory
+Queries the Satisfactory Dedicated Server REST API. Add `api_token` to server metadata with your API bearer token. Set the address to `host:api_port` (default API port is 15777).
+
+#### Factorio
+Uses RCON to query the Factorio server. Add `rcon_password` to server metadata with your RCON password. Set the address to `host:rcon_port`. Without an RCON password, only basic TCP connectivity check is performed.
 
 ## Architecture
 
@@ -168,8 +179,8 @@ To enable the map proxy:
 *   **`database/`**:
     *   `database.go`: Connection pooling and repository pattern implementation.
     *   `migrations/`: SQL migration files embedded into the binary.
-*   **`mcstatus/`**: Logic for querying Minecraft servers and caching results.
-*   **`modmanager/`**: Secure filesystem scanning for mod files.
+*   **`query/`**: Game-specific server query implementations (Minecraft, Satisfactory, Factorio) with status caching.
+*   **`modmanager/`**: Secure filesystem scanning for mod/game files.
 *   **`config/`**: Environment variable loading.
 
 ## API Reference
@@ -182,7 +193,6 @@ The application exposes several JSON endpoints:
 *   `GET /files/{serverName}/mods/...`: Downloads a file directly.
 
 ## Development
-
 
 ### Running Migrations
 Migrations run automatically on startup. To add a new migration:

@@ -3,9 +3,10 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{{block "title" .}}Minecraft Servers{{end}}</title>
+    <title>{{block "title" .}}Game Servers{{end}}</title>
+    <link rel="icon" type="image/svg+xml" href="/assets/assets/favicon.svg">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://fonts.googleapis.com/css2?family=VT323&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
       :root {
         --glass-bg: rgba(25, 25, 25, 0.85);
@@ -16,23 +17,20 @@
       }
 
       body {
-        background: url('/assets/background.jpg') no-repeat center center fixed;
-        background-size: cover;
+        background: linear-gradient(135deg, rgba(15,15,30,1) 0%, rgba(25,25,50,1) 50%, rgba(10,10,25,1) 100%);
         color: var(--text-main);
         font-family: 'Inter', sans-serif;
         min-height: 100vh;
       }
 
-      /* Typography */
       h1, h2, h3, h4, h5, h6 { 
         font-weight: 700; 
         letter-spacing: -0.5px; 
         color: #ffffff !important;
         text-shadow: 0 2px 4px rgba(0,0,0,0.8);
       }
-      .navbar-brand { font-family: 'VT323', monospace; font-size: 2rem; letter-spacing: 1px; }
+      .navbar-brand { font-size: 1.5rem; font-weight: 700; letter-spacing: 1px; }
 
-      /* Glassmorphism Components */
       .card, .navbar, .modal-content {
         background: var(--glass-bg) !important;
         backdrop-filter: blur(12px);
@@ -42,11 +40,9 @@
         box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
       }
 
-      /* Navbar specifics */
       .navbar { margin-bottom: 2rem; border-top: none; border-radius: 0 0 12px 12px; }
       .navbar-brand { color: #fff !important; text-shadow: 0 2px 4px rgba(0,0,0,0.5); }
 
-      /* Cards */
       .card { transition: transform 0.2s, box-shadow 0.2s; border: 1px solid rgba(255,255,255,0.05); }
       .card:hover { transform: translateY(-5px); box-shadow: 0 12px 40px rgba(0,0,0,0.5); border-color: rgba(255,255,255,0.2); }
       .card-title a { color: var(--accent-color) !important; text-decoration: none; font-weight: 700; }
@@ -58,7 +54,16 @@
       .status-online { color: #55ff55 !important; font-weight: 700; text-shadow: 0 0 8px rgba(85, 255, 85, 0.6); }
       .status-offline { color: #ff5555 !important; font-weight: 700; text-shadow: 0 0 8px rgba(255, 85, 85, 0.6); }
 
-      /* Buttons */
+      .game-badge-minecraft { background: #4caf50; color: #fff; }
+      .game-badge-satisfactory { background: #ff9800; color: #fff; }
+      .game-badge-factorio { background: #cddc39; color: #333; }
+
+      .game-badge-minecraft .game-icon,
+      .game-badge-satisfactory .game-icon,
+      .game-badge-factorio .game-icon {
+        width: 14px; height: 14px; vertical-align: -2px; margin-right: 4px; display: inline-block;
+      }
+
       .btn {
         border-radius: 8px;
         font-weight: 600;
@@ -75,14 +80,13 @@
       .btn-outline-primary { border: 2px solid var(--accent-color); color: var(--accent-color); background: transparent; }
       .btn-outline-primary:hover { background: var(--accent-color); color: #fff; box-shadow: 0 0 15px rgba(90, 169, 255, 0.5); }
 
-      /* Tables & Forms */
       .table-responsive { border-radius: 12px; overflow: hidden; }
       .table { 
         color: var(--text-main); 
         border-color: var(--glass-border); 
         background-color: rgba(0, 0, 0, 0.6); 
         margin-bottom: 0;
-        --bs-table-striped-bg: rgba(0,0,0,0.3); /* Bootstrap override */
+        --bs-table-striped-bg: rgba(0,0,0,0.3);
         --bs-table-bg: transparent;
         --bs-table-color: var(--text-main);
       }
@@ -102,12 +106,17 @@
         border-radius: 8px;
       }
       .form-control:focus { background: rgba(0, 0, 0, 0.5); border-color: var(--accent-color); color: #fff; box-shadow: 0 0 0 0.25rem rgba(90, 169, 255, 0.25); }
+      .form-select {
+        background: rgba(0, 0, 0, 0.3);
+        border: 1px solid var(--glass-border);
+        color: #fff;
+        border-radius: 8px;
+      }
+      .form-select:focus { background: rgba(0, 0, 0, 0.5); border-color: var(--accent-color); color: #fff; box-shadow: 0 0 0 0.25rem rgba(90, 169, 255, 0.25); }
 
-      /* Lists (File Browser) */
       .list-group-item { background: transparent; color: #fff !important; border-color: var(--glass-border); }
       .list-group-item-action:hover { background-color: rgba(255,255,255,0.1); color: #fff; }
 
-      /* Utils */
       .text-muted { color: var(--text-muted) !important; }
       a { color: var(--accent-color); text-decoration: none; }
       a:hover { color: #99ccff; text-decoration: underline; }
@@ -119,7 +128,6 @@
       
       .badge { font-weight: 600; letter-spacing: 0.5px; padding: 0.5em 0.8em; border-radius: 6px; }
       
-      /* Modals */
       .modal-header { border-bottom: 1px solid var(--glass-border); }
       .modal-footer { border-top: 1px solid var(--glass-border); }
       .btn-close { filter: invert(1); }
@@ -128,7 +136,7 @@
   <body>
     <nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
       <div class="container">
-        <a class="navbar-brand" href="/">IEEE Passau MC</a>
+        <a class="navbar-brand" href="/">HOGS</a>
         <div class="d-flex">
            {{if .Authenticated}}
             <a href="/admin" class="btn btn-outline-light me-2">Admin</a>
@@ -145,35 +153,50 @@
     </div>
 
     <footer class="text-center mt-5 mb-3 text-muted small">
-      <p>
-        <a href="https://wallpapers.com/wallpapers/moving-minecraft-steve-with-a-horse-pdsh695zjw7xj33p.html" target="_blank" rel="noopener" class="text-muted">Wallpaper by fashions on Wallpapers.com</a>
-      </p>
+      <p>Halls of Game Servers</p>
     </footer>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-      // Simple client-side status poller
       document.addEventListener("DOMContentLoaded", function() {
         const statusElements = document.querySelectorAll('.server-status-poller');
         statusElements.forEach(el => {
           const serverName = el.dataset.server;
+          const gameType = el.dataset.gameType || 'minecraft';
           fetch(`/api/servers/${serverName}/status`)
             .then(r => r.json())
             .then(data => {
               const badgeEl = document.getElementById(`status-badge-${serverName}`);
               if (data.online) {
-                el.innerHTML = `<span class="status-online">Online</span> - ${data.players}/${data.maxPlayers} Players`;
-                if(data.motd) {
+                let statusText = '';
+                switch (gameType) {
+                  case 'minecraft':
+                    statusText = `<span class="status-online">Online</span> - ${data.players}/${data.maxPlayers} Players`;
+                    break;
+                  case 'satisfactory':
+                    statusText = `<span class="status-online">Online</span> - ${data.players}/${data.maxPlayers} Engineers`;
+                    if (data.mapName) statusText += ` in ${data.mapName}`;
+                    break;
+                  case 'factorio':
+                    statusText = `<span class="status-online">Online</span> - ${data.players}/${data.maxPlayers} Engineers`;
+                    if (data.version) statusText += ` (${data.version})`;
+                    break;
+                  default:
+                    statusText = `<span class="status-online">Online</span> - ${data.players}/${data.maxPlayers} Players`;
+                }
+                el.innerHTML = statusText;
+
+                if(data.serverMessage && gameType === 'minecraft') {
                   const motdEl = document.getElementById(`live-motd-${serverName}`);
                   if (motdEl) {
-                    motdEl.innerText = data.motd;
+                    motdEl.innerText = data.serverMessage;
                     motdEl.style.display = 'block';
                   }
                 }
-                if(data.samplePlayers && data.samplePlayers.length > 0) {
+                if(data.playerList && data.playerList.length > 0) {
                     const playerListEl = document.getElementById(`player-list-${serverName}`);
                     if(playerListEl) {
-                        const names = data.samplePlayers.map(p => p.name).join(', ');
+                        const names = data.playerList.map(p => p.name).join(', ');
                         playerListEl.innerHTML = `<strong>Online:</strong> ${names}`;
                     }
                 }

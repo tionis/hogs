@@ -3,8 +3,11 @@
 *.sqlite
 
 # Binaries
-mcow
+hogs
 main
+
+# Dev Secrets
+.envrc
 
 # Data (if local only)
 data/

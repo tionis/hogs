@@ -17,8 +17,8 @@
         <th scope="col">#</th>
         <th scope="col">Name</th>
         <th scope="col">Address</th>
+        <th scope="col">Game</th>
         <th scope="col">State</th>
-        <th scope="col">Show MOTD</th>
         <th scope="col">Actions</th>
       </tr>
     </thead>
@@ -28,6 +28,7 @@
         <td>{{.ID}}</td>
         <td>{{.Name}}</td>
         <td>{{.Address}}</td>
+        <td><span class="badge game-badge-{{.GameType}}">{{.GameType}}</span></td>
         <td>
           {{if eq .State "online"}}<span class="badge bg-success">Online</span>{{end}}
           {{if eq .State "offline"}}<span class="badge bg-danger">Offline</span>{{end}}
@@ -35,7 +36,6 @@
           {{if eq .State "maintenance"}}<span class="badge bg-warning text-dark">Maintenance</span>{{end}}
           {{if eq .State "auto"}}<span class="badge bg-secondary">Auto</span>{{end}}
         </td>
-        <td>{{if .ShowMOTD}}✅{{else}}❌{{end}}</td>
         <td>
           <a href="/admin/files/{{.Name}}" class="btn btn-sm btn-outline-info me-1">Files</a>
           <button class="btn btn-sm btn-outline-primary" 
@@ -45,8 +45,9 @@
             data-name="{{.Name}}"
             data-address="{{.Address}}"
             data-description="{{.Description}}"
-            data-bluemap="{{.BlueMapURL}}"
-            data-modpack="{{.ModpackURL}}"
+            data-mapurl="{{.MapURL}}"
+            data-modurl="{{.ModURL}}"
+            data-gametype="{{.GameType}}"
             data-state="{{.State}}"
             data-showmotd="{{.ShowMOTD}}"
             data-metadata='{{.Metadata | json}}'>
@@ -91,6 +92,14 @@
           </div>
           <div class="row">
             <div class="col-md-6 mb-3">
+              <label for="addGameType" class="form-label">Game Type</label>
+              <select class="form-select" id="addGameType" name="game_type" onchange="toggleGameFields('add')">
+                <option value="minecraft" selected>Minecraft</option>
+                <option value="satisfactory">Satisfactory</option>
+                <option value="factorio">Factorio</option>
+              </select>
+            </div>
+            <div class="col-md-6 mb-3">
               <label for="addState" class="form-label">State</label>
               <select class="form-select" id="addState" name="state">
                 <option value="online" selected>Online</option>
@@ -100,25 +109,27 @@
                 <option value="auto">Auto</option>
               </select>
             </div>
-            <div class="col-md-6 mb-3 pt-4">
-               <div class="form-check">
-                <input class="form-check-input" type="checkbox" id="addShowMOTD" name="show_motd" checked>
-                <label class="form-check-label" for="addShowMOTD">Show MOTD</label>
-              </div>
+          </div>
+          <div class="mb-3" id="add-mapurl-group">
+            <label for="addMapURL" class="form-label">Map URL</label>
+            <input type="url" class="form-control" id="addMapURL" name="map_url">
+            <div class="form-text">e.g. internal BlueMap URL for Minecraft</div>
+          </div>
+          <div class="mb-3" id="add-modurl-group">
+            <label for="addModURL" class="form-label">Mod Pack URL</label>
+            <input type="text" class="form-control" id="addModURL" name="mod_url">
+          </div>
+          <div class="mb-3" id="add-showmotd-group">
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" id="addShowMOTD" name="show_motd" checked>
+              <label class="form-check-label" for="addShowMOTD">Show Server Message (MOTD)</label>
             </div>
-          </div>
-          <div class="mb-3">
-            <label for="addBlueMap" class="form-label">BlueMap URL</label>
-            <input type="url" class="form-control" id="addBlueMap" name="blue_map_url">
-          </div>
-          <div class="mb-3">
-            <label for="addModpack" class="form-label">Modpack URL</label>
-            <input type="text" class="form-control" id="addModpack" name="modpack_url">
           </div>
           <div class="mb-3">
             <label class="form-label">Metadata</label>
             <div id="addMetadataContainer"></div>
             <button type="button" class="btn btn-sm btn-secondary mt-2" onclick="addMetadataRow('addMetadataContainer')">+ Add Property</button>
+            <div class="form-text">Satisfactory: add <code>api_token</code>; Factorio: add <code>rcon_password</code></div>
           </div>
         </div>
         <div class="modal-footer">
@@ -155,6 +166,14 @@
           </div>
           <div class="row">
             <div class="col-md-6 mb-3">
+              <label for="editGameType" class="form-label">Game Type</label>
+              <select class="form-select" id="editGameType" name="game_type" onchange="toggleGameFields('edit')">
+                <option value="minecraft">Minecraft</option>
+                <option value="satisfactory">Satisfactory</option>
+                <option value="factorio">Factorio</option>
+              </select>
+            </div>
+            <div class="col-md-6 mb-3">
               <label for="editState" class="form-label">State</label>
               <select class="form-select" id="editState" name="state">
                 <option value="online">Online</option>
@@ -164,25 +183,26 @@
                 <option value="auto">Auto</option>
               </select>
             </div>
-            <div class="col-md-6 mb-3 pt-4">
-               <div class="form-check">
-                <input class="form-check-input" type="checkbox" id="editShowMOTD" name="show_motd">
-                <label class="form-check-label" for="editShowMOTD">Show MOTD</label>
-              </div>
+          </div>
+          <div class="mb-3" id="edit-mapurl-group">
+            <label for="editMapURL" class="form-label">Map URL</label>
+            <input type="url" class="form-control" id="editMapURL" name="map_url">
+          </div>
+          <div class="mb-3" id="edit-modurl-group">
+            <label for="editModURL" class="form-label">Mod Pack URL</label>
+            <input type="text" class="form-control" id="editModURL" name="mod_url">
+          </div>
+          <div class="mb-3" id="edit-showmotd-group">
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" id="editShowMOTD" name="show_motd">
+              <label class="form-check-label" for="editShowMOTD">Show Server Message (MOTD)</label>
             </div>
-          </div>
-          <div class="mb-3">
-            <label for="editBlueMap" class="form-label">BlueMap URL</label>
-            <input type="url" class="form-control" id="editBlueMap" name="blue_map_url">
-          </div>
-          <div class="mb-3">
-            <label for="editModpack" class="form-label">Modpack URL</label>
-            <input type="text" class="form-control" id="editModpack" name="modpack_url">
           </div>
           <div class="mb-3">
             <label class="form-label">Metadata</label>
             <div id="editMetadataContainer"></div>
             <button type="button" class="btn btn-sm btn-secondary mt-2" onclick="addMetadataRow('editMetadataContainer')">+ Add Property</button>
+            <div class="form-text">Satisfactory: add <code>api_token</code>; Factorio: add <code>rcon_password</code></div>
           </div>
         </div>
         <div class="modal-footer">
@@ -207,7 +227,14 @@
     container.appendChild(div);
   }
 
-  // Populate Edit Modal
+  function toggleGameFields(prefix) {
+    const gameType = document.getElementById(prefix + 'GameType').value;
+    const showMotdGroup = document.getElementById(prefix + '-showmotd-group');
+    showMotdGroup.style.display = gameType === 'minecraft' ? 'block' : 'none';
+  }
+
+  toggleGameFields('add');
+
   var editModal = document.getElementById('editServerModal');
   editModal.addEventListener('show.bs.modal', function (event) {
     var button = event.relatedTarget;
@@ -216,12 +243,14 @@
     document.getElementById('editName').value = button.getAttribute('data-name');
     document.getElementById('editAddress').value = button.getAttribute('data-address');
     document.getElementById('editDescription').value = button.getAttribute('data-description');
-    document.getElementById('editBlueMap').value = button.getAttribute('data-bluemap');
-    document.getElementById('editModpack').value = button.getAttribute('data-modpack');
+    document.getElementById('editMapURL').value = button.getAttribute('data-mapurl');
+    document.getElementById('editModURL').value = button.getAttribute('data-modurl');
+    document.getElementById('editGameType').value = button.getAttribute('data-gametype');
     document.getElementById('editState').value = button.getAttribute('data-state');
     document.getElementById('editShowMOTD').checked = button.getAttribute('data-showmotd') === 'true';
 
-    // Populate metadata
+    toggleGameFields('edit');
+
     const container = document.getElementById('editMetadataContainer');
     container.innerHTML = '';
     const metadata = JSON.parse(button.getAttribute('data-metadata'));

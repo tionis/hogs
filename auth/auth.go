@@ -4,7 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
-	"github.com/tionis/mcow/config"
+	"github.com/tionis/hogs/config"
 	"net/http"
 
 	"github.com/coreos/go-oidc/v3/oidc"
@@ -60,7 +60,7 @@ func (a *Authenticator) HandleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	session, _ := a.SessionStore.Get(r, "mc-webui-session")
+	session, _ := a.SessionStore.Get(r, "hogs-session")
 	session.Values["state"] = state
 	session.Save(r, w)
 
@@ -69,7 +69,7 @@ func (a *Authenticator) HandleLogin(w http.ResponseWriter, r *http.Request) {
 
 // HandleCallback handles the OIDC callback.
 func (a *Authenticator) HandleCallback(w http.ResponseWriter, r *http.Request) {
-	session, _ := a.SessionStore.Get(r, "mc-webui-session")
+	session, _ := a.SessionStore.Get(r, "hogs-session")
 
 	// Validate state
 	state := r.URL.Query().Get("state")
@@ -120,7 +120,7 @@ func (a *Authenticator) HandleCallback(w http.ResponseWriter, r *http.Request) {
 // Middleware protects routes that require authentication.
 func (a *Authenticator) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		session, _ := a.SessionStore.Get(r, "mc-webui-session")
+		session, _ := a.SessionStore.Get(r, "hogs-session")
 		if auth, ok := session.Values["authenticated"].(bool); !ok || !auth {
 			http.Redirect(w, r, "/login", http.StatusFound)
 			return
@@ -131,7 +131,7 @@ func (a *Authenticator) Middleware(next http.Handler) http.Handler {
 
 // HandleLogout logs the user out.
 func (a *Authenticator) HandleLogout(w http.ResponseWriter, r *http.Request) {
-	session, _ := a.SessionStore.Get(r, "mc-webui-session")
+	session, _ := a.SessionStore.Get(r, "hogs-session")
 	session.Values["authenticated"] = false
 	session.Values["user_email"] = ""
 	session.Options.MaxAge = -1 // delete cookie
@@ -141,14 +141,14 @@ func (a *Authenticator) HandleLogout(w http.ResponseWriter, r *http.Request) {
 
 // IsAuthenticated checks if the user is currently authenticated.
 func (a *Authenticator) IsAuthenticated(r *http.Request) bool {
-	session, _ := a.SessionStore.Get(r, "mc-webui-session")
+	session, _ := a.SessionStore.Get(r, "hogs-session")
 	auth, ok := session.Values["authenticated"].(bool)
 	return ok && auth
 }
 
 // GetUserEmail returns the email of the authenticated user.
 func (a *Authenticator) GetUserEmail(r *http.Request) string {
-	session, _ := a.SessionStore.Get(r, "mc-webui-session")
+	session, _ := a.SessionStore.Get(r, "hogs-session")
 	email, ok := session.Values["user_email"].(string)
 	if !ok {
 		return ""

@@ -1,54 +1,87 @@
 {{define "title"}}Server List{{end}}
 
 {{define "content"}}
-<div class="row row-cols-1 row-cols-md-2 g-4">
-  {{range .Servers}}
-  <div class="col">
-    <div class="card h-100 shadow-sm server-card position-relative">
-      <div class="card-body">
-        <h5 class="card-title d-flex justify-content-between align-items-center">
-          <a href="/{{.Name}}" class="text-decoration-none text-dark stretched-link">{{.Name}}</a>
-          <div>
-            {{if eq .State "online"}}<span class="badge bg-success me-1">Online</span>{{end}}
-            {{if eq .State "planned"}}<span class="badge bg-info text-dark me-1">Planned</span>{{end}}
-            {{if eq .State "maintenance"}}<span class="badge bg-warning text-dark me-1">Maintenance</span>{{end}}
-            {{if eq .State "offline"}}<span class="badge bg-danger me-1">Offline</span>{{end}}
-            {{if eq .State "auto"}}<span class="badge bg-secondary me-1" id="status-badge-{{.Name}}">Checking...</span>{{end}}
-            <span class="badge bg-secondary">{{.Address}}</span>
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h2>Game Servers</h2>
+  <div class="btn-group btn-group-sm" role="group" id="game-filter">
+    <button type="button" class="btn btn-outline-primary active" data-filter="all">All</button>
+    {{range .GameTypes}}
+    <button type="button" class="btn btn-outline-primary" data-filter="{{.}}">{{. | title}}</button>
+    {{end}}
+  </div>
+</div>
+
+{{range $gameType := .GameTypes}}
+<section class="mb-5 game-section" data-game="{{$gameType}}">
+  <h4 class="mb-3"><span class="badge game-badge-{{$gameType}} me-2">{{$gameType | gameIcon}}{{$gameType | title}}</span> {{$gameType | title}} Servers</h4>
+  <div class="row row-cols-1 row-cols-md-2 g-4">
+    {{range $.Servers}}
+    {{if eq .GameType $gameType}}
+    <div class="col">
+      <div class="card h-100 shadow-sm server-card position-relative">
+        <div class="card-body">
+          <h5 class="card-title d-flex justify-content-between align-items-center">
+            <a href="/{{.Name}}" class="text-decoration-none text-dark stretched-link">{{.Name}}</a>
+            <div>
+              {{if eq .State "online"}}<span class="badge bg-success me-1">Online</span>{{end}}
+              {{if eq .State "planned"}}<span class="badge bg-info text-dark me-1">Planned</span>{{end}}
+              {{if eq .State "maintenance"}}<span class="badge bg-warning text-dark me-1">Maintenance</span>{{end}}
+              {{if eq .State "offline"}}<span class="badge bg-danger me-1">Offline</span>{{end}}
+              {{if eq .State "auto"}}<span class="badge bg-secondary me-1" id="status-badge-{{.Name}}">Checking...</span>{{end}}
+              <span class="badge bg-secondary">{{.Address}}</span>
+            </div>
+          </h5>
+          <h6 class="card-subtitle mb-2 text-muted server-status-poller" data-server="{{.Name}}" data-game-type="{{.GameType}}">
+            Checking status...
+          </h6>
+          
+          <p class="card-text">{{.Description | firstLine}}</p>
+          
+          {{if and .ShowMOTD (eq .GameType "minecraft")}}
+          <p class="card-text small text-muted font-monospace border-start ps-2" style="display: none;" id="live-motd-{{.Name}}"></p>
+          {{end}}
+
+          <div id="player-list-{{.Name}}" class="mb-3 small"></div>
+
+          {{if .Metadata}}
+          <div class="mb-3">
+            {{range $k, $v := .Metadata}}
+              <span class="badge bg-light text-dark border me-1 mb-1" title="{{$k}}">{{$k}}: {{$v}}</span>
+            {{end}}
           </div>
-        </h5>
-        <h6 class="card-subtitle mb-2 text-muted server-status-poller" data-server="{{.Name}}">
-          Checking status...
-        </h6>
-        
-        <!-- Configurable Tagline -->
-        <p class="card-text">{{.Description | firstLine}}</p>
-        
-        <!-- Live MOTD (Less emphasis) -->
-        {{if .ShowMOTD}}
-        <p class="card-text small text-muted font-monospace border-start ps-2" style="display: none;" id="live-motd-{{.Name}}"></p>
-        {{end}}
-
-        <!-- Player List -->
-        <div id="player-list-{{.Name}}" class="mb-3 small"></div>
-
-        {{if .Metadata}}
-        <div class="mb-3">
-          {{range $k, $v := .Metadata}}
-            <span class="badge bg-light text-dark border me-1 mb-1" title="{{$k}}">{{$k}}: {{$v}}</span>
           {{end}}
-        </div>
-        {{end}}
 
-        <div class="d-grid gap-2 d-md-block position-relative" style="z-index: 2;">
-          {{if .BlueMapURL}}
-          <a href="/{{.Name}}/map/" target="_blank" class="btn btn-outline-primary">View Map</a>
-          {{end}}
+          <div class="d-grid gap-2 d-md-block position-relative" style="z-index: 2;">
+            {{if .MapURL}}
+            <a href="/{{.Name}}/map/" target="_blank" class="btn btn-outline-primary">View Map</a>
+            {{end}}
+          </div>
         </div>
       </div>
     </div>
+    {{end}}
+    {{end}}
   </div>
-  {{end}}
-</div>
+</section>
+{{end}}
 
+<script>
+document.addEventListener("DOMContentLoaded", function() {
+  const filterBtns = document.querySelectorAll('#game-filter .btn');
+  filterBtns.forEach(btn => {
+    btn.addEventListener('click', function() {
+      filterBtns.forEach(b => b.classList.remove('active'));
+      this.classList.add('active');
+      const filter = this.dataset.filter;
+      document.querySelectorAll('.game-section').forEach(section => {
+        if (filter === 'all' || section.dataset.game === filter) {
+          section.style.display = '';
+        } else {
+          section.style.display = 'none';
+        }
+      });
+    });
+  });
+});
+</script>
 {{end}}

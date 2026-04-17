@@ -1,4 +1,4 @@
-package mcstatus
+package query
 
 import (
 	"sync"
@@ -6,32 +6,26 @@ import (
 )
 
 const (
-	// CacheExpiration defines how long a cached server status is considered fresh.
-	CacheExpiration = 60 * time.Second
-	// ErrorCacheExpiration defines how long an error status is considered fresh to prevent hammering unreachable servers.
+	CacheExpiration      = 60 * time.Second
 	ErrorCacheExpiration = 10 * time.Second
 )
 
-// cacheEntry holds the server status and the time it was cached.
 type cacheEntry struct {
 	Status    *ServerStatus
 	Timestamp time.Time
 }
 
-// ServerStatusCache provides an in-memory cache for Minecraft server statuses.
 type ServerStatusCache struct {
 	mu    sync.RWMutex
 	cache map[string]*cacheEntry
 }
 
-// NewServerStatusCache creates and returns a new ServerStatusCache.
 func NewServerStatusCache() *ServerStatusCache {
 	return &ServerStatusCache{
 		cache: make(map[string]*cacheEntry),
 	}
 }
 
-// Get retrieves a server status from the cache if it's fresh.
 func (c *ServerStatusCache) Get(serverName string) (*ServerStatus, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -42,18 +36,17 @@ func (c *ServerStatusCache) Get(serverName string) (*ServerStatus, bool) {
 	}
 
 	expiration := CacheExpiration
-	if !entry.Status.Online { // If server is offline/error, use shorter error cache expiration
+	if !entry.Status.Online {
 		expiration = ErrorCacheExpiration
 	}
 
 	if time.Since(entry.Timestamp) < expiration {
-		return entry.Status, true // Cache hit and fresh
+		return entry.Status, true
 	}
 
-	return nil, false // Cache hit but stale
+	return nil, false
 }
 
-// Set stores a server status in the cache.
 func (c *ServerStatusCache) Set(serverName string, status *ServerStatus) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -63,6 +56,3 @@ func (c *ServerStatusCache) Set(serverName string, status *ServerStatus) {
 		Timestamp: time.Now(),
 	}
 }
-
-// Global cache instance
-var GlobalServerStatusCache = NewServerStatusCache()

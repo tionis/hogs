@@ -11,13 +11,13 @@ import (
 )
 
 func main() {
-	db, err := sql.Open("sqlite3", "./mcow.db")
+	db, err := sql.Open("sqlite3", "./hogs.db")
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer db.Close()
 
-	updateSQL := `UPDATE servers SET blue_map_url = ? WHERE name = ?`
+	updateSQL := `UPDATE servers SET map_url = ? WHERE name = ?`
 	statement, err := db.Prepare(updateSQL)
 	if err != nil {
 		log.Fatal(err)
@@ -29,5 +29,5 @@ func main() {
 		log.Fatalf("Could not update server: %v", err)
 	}
 
-	log.Println("Updated Creative server BlueMapURL to https://example.com")
+	log.Println("Updated Creative server MapURL to https://example.com")
 }

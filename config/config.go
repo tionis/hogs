@@ -6,10 +6,10 @@ import (
 
 // Config holds the application configuration.
 type Config struct {
-	Port           string
-	DatabasePath   string
-	ModDataPath    string
-	CacheDuration  int // Seconds
+	Port          string
+	DatabasePath  string
+	GameDataPath  string
+	CacheDuration int // Seconds
 
 	// OIDC Configuration
 	OIDCProviderURL  string
@@ -21,12 +21,19 @@ type Config struct {
 
 // LoadConfig reads configuration from environment variables or sets defaults.
 func LoadConfig() *Config {
+	gameDataPath := getEnv("GAME_DATA_PATH", "")
+	if gameDataPath == "" {
+		gameDataPath = getEnv("MOD_DATA_PATH", "data/game")
+	}
+
+	dbPath := getEnv("DB_PATH", "./hogs.db")
+
 	return &Config{
-		Port:           getEnv("PORT", "8080"),
-		DatabasePath:   getEnv("DB_PATH", "./mcow.db"),
-		ModDataPath:    getEnv("MOD_DATA_PATH", "data/mods"),
-		CacheDuration:  60,
-		
+		Port:          getEnv("PORT", "8080"),
+		DatabasePath:  dbPath,
+		GameDataPath:  gameDataPath,
+		CacheDuration: 60,
+
 		OIDCProviderURL:  getEnv("OIDC_PROVIDER_URL", ""),
 		OIDCClientID:     getEnv("OIDC_CLIENT_ID", ""),
 		OIDCClientSecret: getEnv("OIDC_CLIENT_SECRET", ""),

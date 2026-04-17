@@ -1,15 +1,14 @@
 package web
 
 import (
+	"bytes"
 	"embed"
-	"encoding/json"
-	"fmt"
+	"github.com/tionis/hogs/auth"
+	"github.com/tionis/hogs/config"
+	"github.com/tionis/hogs/database"
+	"github.com/tionis/hogs/modmanager"
 	"html/template"
 	"io"
-	"github.com/tionis/mcow/auth"
-	"github.com/tionis/mcow/config"
-	"github.com/tionis/mcow/database"
-	"github.com/tionis/mcow/modmanager"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -47,11 +46,11 @@ func (h *WebHandler) FileManager(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	modTree, err := modmanager.ScanModDirectory(h.Config.ModDataPath, serverName)
+	modTree, err := modmanager.ScanModDirectory(h.Config.GameDataPath, serverName)
 	// If dir not found, maybe just empty tree or create it?
 	// Create if not exists to allow uploading
 	if err != nil && strings.Contains(err.Error(), "not found") {
-		os.MkdirAll(filepath.Join(h.Config.ModDataPath, serverName), 0755)
+		os.MkdirAll(filepath.Join(h.Config.GameDataPath, serverName), 0755)
 		modTree = &modmanager.ModItem{Name: serverName, Type: modmanager.TypeDir, Path: ""}
 	} else if err != nil {
 		http.Error(w, "Error scanning files: "+err.Error(), http.StatusInternalServerError)
@@ -70,36 +69,18 @@ func (h *WebHandler) FileManager(w http.ResponseWriter, r *http.Request) {
 		Files:         modTree,
 	}
 
-	funcMap := template.FuncMap{
-		"json": func(v interface{}) string {
-			b, _ := json.Marshal(v)
-			return string(b)
-		},
-		"dict": func(values ...interface{}) (map[string]interface{}, error) {
-			if len(values)%2 != 0 {
-				return nil, fmt.Errorf("invalid dict call")
-			}
-			dict := make(map[string]interface{}, len(values)/2)
-			for i := 0; i < len(values); i += 2 {
-				key, ok := values[i].(string)
-				if !ok {
-					return nil, fmt.Errorf("dict keys must be strings")
-				}
-				dict[key] = values[i+1]
-			}
-			return dict, nil
-		},
-	}
-
-	tmpl, err := template.New("base.html").Funcs(funcMap).ParseFS(templateFS, "templates/base.html", "templates/filemanager.html")
+	tmpl, err := template.New("base.html").Funcs(sharedFuncMap()).ParseFS(templateFS, "templates/base.html", "templates/filemanager.html")
 	if err != nil {
 		http.Error(w, "Template error: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	if err := tmpl.Execute(w, data); err != nil {
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, data); err != nil {
 		http.Error(w, "Render error: "+err.Error(), http.StatusInternalServerError)
+		return
 	}
+	buf.WriteTo(w)
 }
 
 // HandleFileUpload handles uploading files.
@@ -109,7 +90,7 @@ func (h *WebHandler) HandleFileUpload(w http.ResponseWriter, r *http.Request) {
 
 	serverName := r.FormValue("serverName")
 	relPath := r.FormValue("path")
-	
+
 	file, header, err := r.FormFile("file")
 	if err != nil {
 		http.Error(w, "Error retrieving file", http.StatusBadRequest)
@@ -122,7 +103,7 @@ func (h *WebHandler) HandleFileUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	targetDir := filepath.Join(h.Config.ModDataPath, serverName, relPath)
+	targetDir := filepath.Join(h.Config.GameDataPath, serverName, relPath)
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		http.Error(w, "Error creating directory", http.StatusInternalServerError)
 		return
@@ -154,7 +135,7 @@ func (h *WebHandler) HandleFileDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	targetPath := filepath.Join(h.Config.ModDataPath, serverName, relPath)
+	targetPath := filepath.Join(h.Config.GameDataPath, serverName, relPath)
 	if err := os.RemoveAll(targetPath); err != nil {
 		http.Error(w, "Error deleting file", http.StatusInternalServerError)
 		return
@@ -174,7 +155,7 @@ func (h *WebHandler) HandleMkdir(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	targetPath := filepath.Join(h.Config.ModDataPath, serverName, relPath, dirName)
+	targetPath := filepath.Join(h.Config.GameDataPath, serverName, relPath, dirName)
 	if err := os.MkdirAll(targetPath, 0755); err != nil {
 		http.Error(w, "Error creating directory", http.StatusInternalServerError)
 		return
@@ -185,9 +166,6 @@ func (h *WebHandler) HandleMkdir(w http.ResponseWriter, r *http.Request) {
 
 // ServeAssets serves static assets embedded in the binary.
 func (h *WebHandler) ServeAssets(w http.ResponseWriter, r *http.Request) {
-	// The embed FS root contains "assets" directory.
-	// We want /assets/background.jpg to map to assets/background.jpg
-	// So we serve the root of templateFS.
 	http.FileServer(http.FS(templateFS)).ServeHTTP(w, r)
 }
 
@@ -216,7 +194,7 @@ func (h *WebHandler) Home(w http.ResponseWriter, r *http.Request) {
 	}
 
 	isAuthenticated := h.Auth != nil && h.Auth.IsAuthenticated(r)
-	
+
 	// Filter servers
 	var visibleServers []database.Server
 	for _, s := range allServers {
@@ -227,40 +205,37 @@ func (h *WebHandler) Home(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	gameTypeSet := make(map[string]bool)
+	for _, s := range visibleServers {
+		gameTypeSet[s.GameType] = true
+	}
+	var gameTypes []string
+	for gt := range gameTypeSet {
+		gameTypes = append(gameTypes, gt)
+	}
+
 	data := struct {
 		Servers       []database.Server
+		GameTypes     []string
 		Authenticated bool
 	}{
 		Servers:       visibleServers,
+		GameTypes:     gameTypes,
 		Authenticated: isAuthenticated,
 	}
 
-	funcMap := template.FuncMap{
-		"json": func(v interface{}) string {
-			b, _ := json.Marshal(v)
-			return string(b)
-		},
-		"firstLine": func(s string) string {
-			if idx := strings.Index(s, "\n"); idx != -1 {
-				return s[:idx]
-			}
-			return s
-		},
-		"nl2br": func(s string) template.HTML {
-			return template.HTML(strings.ReplaceAll(template.HTMLEscapeString(s), "\n", "<br>"))
-		},
-	}
-
-	// Parse both base and index templates
-	tmpl, err := template.New("base.html").Funcs(funcMap).ParseFS(templateFS, "templates/base.html", "templates/index.html")
+	tmpl, err := template.New("base.html").Funcs(sharedFuncMap()).ParseFS(templateFS, "templates/base.html", "templates/index.html")
 	if err != nil {
 		http.Error(w, "Template error: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	if err := tmpl.Execute(w, data); err != nil {
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, data); err != nil {
 		http.Error(w, "Render error: "+err.Error(), http.StatusInternalServerError)
+		return
 	}
+	buf.WriteTo(w)
 }
 
 // ServerDetail renders the detail page for a specific server.
@@ -294,31 +269,18 @@ func (h *WebHandler) ServerDetail(w http.ResponseWriter, r *http.Request) {
 		Authenticated: isAuthenticated,
 	}
 
-	funcMap := template.FuncMap{
-		"json": func(v interface{}) string {
-			b, _ := json.Marshal(v)
-			return string(b)
-		},
-		"firstLine": func(s string) string {
-			if idx := strings.Index(s, "\n"); idx != -1 {
-				return s[:idx]
-			}
-			return s
-		},
-		"nl2br": func(s string) template.HTML {
-			return template.HTML(strings.ReplaceAll(template.HTMLEscapeString(s), "\n", "<br>"))
-		},
-	}
-
-	tmpl, err := template.New("base.html").Funcs(funcMap).ParseFS(templateFS, "templates/base.html", "templates/server.html")
+	tmpl, err := template.New("base.html").Funcs(sharedFuncMap()).ParseFS(templateFS, "templates/base.html", "templates/server.html")
 	if err != nil {
 		http.Error(w, "Template error: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	if err := tmpl.Execute(w, data); err != nil {
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, data); err != nil {
 		http.Error(w, "Render error: "+err.Error(), http.StatusInternalServerError)
+		return
 	}
+	buf.WriteTo(w)
 }
 
 // Admin renders the admin dashboard.
@@ -335,35 +297,22 @@ func (h *WebHandler) Admin(w http.ResponseWriter, r *http.Request) {
 		UserEmail     string
 	}{
 		Servers:       servers,
-		Authenticated: true, // Admin page is protected, so always true
+		Authenticated: true,
 		UserEmail:     h.Auth.GetUserEmail(r),
 	}
 
-	funcMap := template.FuncMap{
-		"json": func(v interface{}) string {
-			b, _ := json.Marshal(v)
-			return string(b)
-		},
-		"firstLine": func(s string) string {
-			if idx := strings.Index(s, "\n"); idx != -1 {
-				return s[:idx]
-			}
-			return s
-		},
-		"nl2br": func(s string) template.HTML {
-			return template.HTML(strings.ReplaceAll(template.HTMLEscapeString(s), "\n", "<br>"))
-		},
-	}
-
-	tmpl, err := template.New("base.html").Funcs(funcMap).ParseFS(templateFS, "templates/base.html", "templates/admin.html")
+	tmpl, err := template.New("base.html").Funcs(sharedFuncMap()).ParseFS(templateFS, "templates/base.html", "templates/admin.html")
 	if err != nil {
 		http.Error(w, "Template error: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	if err := tmpl.Execute(w, data); err != nil {
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, data); err != nil {
 		http.Error(w, "Render error: "+err.Error(), http.StatusInternalServerError)
+		return
 	}
+	buf.WriteTo(w)
 }
 
 // HandleServerCreate handles the creation of a new server.
@@ -377,8 +326,9 @@ func (h *WebHandler) HandleServerCreate(w http.ResponseWriter, r *http.Request) 
 		Name:        r.FormValue("name"),
 		Address:     r.FormValue("address"),
 		Description: r.FormValue("description"),
-		BlueMapURL:  r.FormValue("blue_map_url"),
-		ModpackURL:  r.FormValue("modpack_url"),
+		MapURL:      r.FormValue("map_url"),
+		ModURL:      r.FormValue("mod_url"),
+		GameType:    r.FormValue("game_type"),
 		State:       r.FormValue("state"),
 		ShowMOTD:    r.FormValue("show_motd") == "on",
 		Metadata:    h.parseMetadata(r),
@@ -410,8 +360,9 @@ func (h *WebHandler) HandleServerUpdate(w http.ResponseWriter, r *http.Request) 
 		Name:        r.FormValue("name"),
 		Address:     r.FormValue("address"),
 		Description: r.FormValue("description"),
-		BlueMapURL:  r.FormValue("blue_map_url"),
-		ModpackURL:  r.FormValue("modpack_url"),
+		MapURL:      r.FormValue("map_url"),
+		ModURL:      r.FormValue("mod_url"),
+		GameType:    r.FormValue("game_type"),
 		State:       r.FormValue("state"),
 		ShowMOTD:    r.FormValue("show_motd") == "on",
 		Metadata:    h.parseMetadata(r),

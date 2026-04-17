@@ -11,7 +11,7 @@ import (
 )
 
 func main() {
-	db, err := sql.Open("sqlite3", "./mcow.db")
+	db, err := sql.Open("sqlite3", "./hogs.db")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -21,26 +21,41 @@ func main() {
 		Name        string
 		Address     string
 		Description string
-		BlueMapURL  string
-		ModpackURL  string
+		MapURL      string
+		ModURL      string
+		GameType    string
 	}{
 		{
 			Name:        "Creative",
 			Address:     "creative.example.com:25565",
 			Description: "A server for creative building.",
-			BlueMapURL:  "https://maps.example.com/creative",
-			ModpackURL:  "/files/creative/mods/creative-pack-v1.zip",
+			MapURL:      "https://maps.example.com/creative",
+			ModURL:      "/files/creative/mods/creative-pack-v1.zip",
+			GameType:    "minecraft",
 		},
 		{
 			Name:        "Survival",
 			Address:     "survival.example.com:25565",
 			Description: "A challenging survival server.",
-			BlueMapURL:  "https://maps.example.com/survival",
-			ModpackURL:  "/files/survival/mods/survival-pack-v2.zip",
+			MapURL:      "https://maps.example.com/survival",
+			ModURL:      "/files/survival/mods/survival-pack-v2.zip",
+			GameType:    "minecraft",
+		},
+		{
+			Name:        "Satisfactory",
+			Address:     "satisfactory.example.com:15777",
+			Description: "Our Satisfactory server.",
+			GameType:    "satisfactory",
+		},
+		{
+			Name:        "Factorio",
+			Address:     "factorio.example.com:27015",
+			Description: "Our Factorio server.",
+			GameType:    "factorio",
 		},
 	}
 
-	insertSQL := `INSERT INTO servers (name, address, description, blue_map_url, modpack_url, is_enabled) VALUES (?, ?, ?, ?, ?, ?)`
+	insertSQL := `INSERT INTO servers (name, address, description, map_url, mod_url, state, game_type, show_motd, metadata) VALUES (?, ?, ?, ?, ?, 'online', ?, 1, '{}')`
 	statement, err := db.Prepare(insertSQL)
 	if err != nil {
 		log.Fatal(err)
@@ -48,11 +63,11 @@ func main() {
 	defer statement.Close()
 
 	for _, server := range servers {
-		_, err := statement.Exec(server.Name, server.Address, server.Description, server.BlueMapURL, server.ModpackURL, 1)
+		_, err := statement.Exec(server.Name, server.Address, server.Description, server.MapURL, server.ModURL, server.GameType)
 		if err != nil {
 			log.Printf("Could not insert server %s: %v", server.Name, err)
 		} else {
-			log.Printf("Inserted server: %s", server.Name)
+			log.Printf("Inserted server: %s (%s)", server.Name, server.GameType)
 		}
 	}
 	log.Println("Dummy data insertion complete.")
