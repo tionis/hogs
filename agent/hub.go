@@ -54,6 +54,52 @@ type ConsoleLineData struct {
 	Timestamp string `json:"timestamp"`
 }
 
+type FileListRequestData struct {
+	Path string `json:"path"`
+}
+
+type FileReadRequestData struct {
+	Path string `json:"path"`
+}
+
+type FileWriteRequestData struct {
+	Path    string `json:"path"`
+	Content string `json:"content"`
+}
+
+type FileDeleteRequestData struct {
+	Path string `json:"path"`
+}
+
+type MkdirRequestData struct {
+	Path string `json:"path"`
+}
+
+type BackupCreateRequestData struct {
+	Repo     string   `json:"repo"`
+	Password string   `json:"password"`
+	Paths    []string `json:"paths"`
+	Tags     []string `json:"tags"`
+}
+
+type BackupRestoreRequestData struct {
+	Repo     string `json:"repo"`
+	Password string `json:"password"`
+	Snapshot string `json:"snapshot"`
+	Target   string `json:"target"`
+}
+
+type BackupListRequestData struct {
+	Repo     string `json:"repo"`
+	Password string `json:"password"`
+}
+
+type GenericResultData struct {
+	Success bool        `json:"success"`
+	Data    interface{} `json:"data,omitempty"`
+	Error   string      `json:"error,omitempty"`
+}
+
 type Hub struct {
 	Store    *database.Store
 	Config   *config.Config
@@ -185,6 +231,126 @@ func (h *Hub) SendAction(agentID int, action string) (bool, string) {
 	return true, "action sent"
 }
 
+func (h *Hub) SendFileList(agentID int, path string) (bool, string) {
+	ac := h.GetConn(agentID)
+	if ac == nil {
+		return false, "agent offline"
+	}
+	data, _ := json.Marshal(FileListRequestData{Path: path})
+	msg, _ := json.Marshal(Envelope{Type: "file_list", Data: data})
+	select {
+	case ac.Send <- msg:
+	default:
+		return false, "agent send buffer full"
+	}
+	return true, "file list request sent"
+}
+
+func (h *Hub) SendFileRead(agentID int, path string) (bool, string) {
+	ac := h.GetConn(agentID)
+	if ac == nil {
+		return false, "agent offline"
+	}
+	data, _ := json.Marshal(FileReadRequestData{Path: path})
+	msg, _ := json.Marshal(Envelope{Type: "file_read", Data: data})
+	select {
+	case ac.Send <- msg:
+	default:
+		return false, "agent send buffer full"
+	}
+	return true, "file read request sent"
+}
+
+func (h *Hub) SendFileWrite(agentID int, path, content string) (bool, string) {
+	ac := h.GetConn(agentID)
+	if ac == nil {
+		return false, "agent offline"
+	}
+	data, _ := json.Marshal(FileWriteRequestData{Path: path, Content: content})
+	msg, _ := json.Marshal(Envelope{Type: "file_write", Data: data})
+	select {
+	case ac.Send <- msg:
+	default:
+		return false, "agent send buffer full"
+	}
+	return true, "file write request sent"
+}
+
+func (h *Hub) SendFileDelete(agentID int, path string) (bool, string) {
+	ac := h.GetConn(agentID)
+	if ac == nil {
+		return false, "agent offline"
+	}
+	data, _ := json.Marshal(FileDeleteRequestData{Path: path})
+	msg, _ := json.Marshal(Envelope{Type: "file_delete", Data: data})
+	select {
+	case ac.Send <- msg:
+	default:
+		return false, "agent send buffer full"
+	}
+	return true, "file delete request sent"
+}
+
+func (h *Hub) SendMkdir(agentID int, path string) (bool, string) {
+	ac := h.GetConn(agentID)
+	if ac == nil {
+		return false, "agent offline"
+	}
+	data, _ := json.Marshal(MkdirRequestData{Path: path})
+	msg, _ := json.Marshal(Envelope{Type: "mkdir", Data: data})
+	select {
+	case ac.Send <- msg:
+	default:
+		return false, "agent send buffer full"
+	}
+	return true, "mkdir request sent"
+}
+
+func (h *Hub) SendBackupCreate(agentID int, repo, password string, paths, tags []string) (bool, string) {
+	ac := h.GetConn(agentID)
+	if ac == nil {
+		return false, "agent offline"
+	}
+	data, _ := json.Marshal(BackupCreateRequestData{Repo: repo, Password: password, Paths: paths, Tags: tags})
+	msg, _ := json.Marshal(Envelope{Type: "backup_create", Data: data})
+	select {
+	case ac.Send <- msg:
+	default:
+		return false, "agent send buffer full"
+	}
+	return true, "backup create request sent"
+}
+
+func (h *Hub) SendBackupRestore(agentID int, repo, password, snapshot, target string) (bool, string) {
+	ac := h.GetConn(agentID)
+	if ac == nil {
+		return false, "agent offline"
+	}
+	data, _ := json.Marshal(BackupRestoreRequestData{Repo: repo, Password: password, Snapshot: snapshot, Target: target})
+	msg, _ := json.Marshal(Envelope{Type: "backup_restore", Data: data})
+	select {
+	case ac.Send <- msg:
+	default:
+		return false, "agent send buffer full"
+	}
+	return true, "backup restore request sent"
+}
+
+func (h *Hub) SendBackupList(agentID int, repo, password string) (bool, string) {
+	ac := h.GetConn(agentID)
+	if ac == nil {
+		return false, "agent offline"
+	}
+	data, _ := json.Marshal(BackupListRequestData{Repo: repo, Password: password})
+	msg, _ := json.Marshal(Envelope{Type: "backup_list", Data: data})
+	select {
+	case ac.Send <- msg:
+	default:
+		return false, "agent send buffer full"
+	}
+	return true, "backup list request sent"
+}
+
 func (ac *AgentConn) readPump() {
 	defer func() {
 		ac.Conn.Close()
@@ -253,6 +419,62 @@ func (ac *AgentConn) readPump() {
 				continue
 			}
 			log.Printf("Agent %d console: %s", ac.AgentID, line.Line)
+
+		case "file_list_result":
+			var result GenericResultData
+			if err := json.Unmarshal(env.Data, &result); err != nil {
+				continue
+			}
+			log.Printf("Agent %d file list: success=%v", ac.AgentID, result.Success)
+
+		case "file_read_result":
+			var result GenericResultData
+			if err := json.Unmarshal(env.Data, &result); err != nil {
+				continue
+			}
+			log.Printf("Agent %d file read: success=%v", ac.AgentID, result.Success)
+
+		case "file_write_result":
+			var result GenericResultData
+			if err := json.Unmarshal(env.Data, &result); err != nil {
+				continue
+			}
+			log.Printf("Agent %d file write: success=%v", ac.AgentID, result.Success)
+
+		case "file_delete_result":
+			var result GenericResultData
+			if err := json.Unmarshal(env.Data, &result); err != nil {
+				continue
+			}
+			log.Printf("Agent %d file delete: success=%v", ac.AgentID, result.Success)
+
+		case "mkdir_result":
+			var result GenericResultData
+			if err := json.Unmarshal(env.Data, &result); err != nil {
+				continue
+			}
+			log.Printf("Agent %d mkdir: success=%v", ac.AgentID, result.Success)
+
+		case "backup_create_result":
+			var result GenericResultData
+			if err := json.Unmarshal(env.Data, &result); err != nil {
+				continue
+			}
+			log.Printf("Agent %d backup create: success=%v", ac.AgentID, result.Success)
+
+		case "backup_restore_result":
+			var result GenericResultData
+			if err := json.Unmarshal(env.Data, &result); err != nil {
+				continue
+			}
+			log.Printf("Agent %d backup restore: success=%v", ac.AgentID, result.Success)
+
+		case "backup_list_result":
+			var result GenericResultData
+			if err := json.Unmarshal(env.Data, &result); err != nil {
+				continue
+			}
+			log.Printf("Agent %d backup list: success=%v", ac.AgentID, result.Success)
 		}
 	}
 }

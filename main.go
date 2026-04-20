@@ -62,8 +62,12 @@ func main() {
 	}
 
 	var agentHub *agent.Hub
+	var agentHandler *api.AgentHandler
+	var agentService *agent.AgentService
 	if cfg.AgentEnabled {
 		agentHub = agent.NewHub(store, cfg)
+		agentService = agent.NewAgentService(store, agentHub)
+		agentHandler = api.NewAgentHandler(store, agentService)
 		log.Println("Agent WebSocket endpoint enabled at /agent/ws")
 	}
 
@@ -166,6 +170,22 @@ func main() {
 
 	if agentHub != nil {
 		router.HandleFunc("/agent/ws", agentHub.ServeWS)
+	}
+
+	if agentHandler != nil && authenticator != nil {
+		router.Handle("/api/agents", authenticator.RequireRole("admin")(http.HandlerFunc(agentHandler.ListAgents))).Methods("GET")
+		router.Handle("/api/agents", authenticator.RequireRole("admin")(http.HandlerFunc(agentHandler.CreateAgent))).Methods("POST")
+		router.Handle("/api/agents/delete", authenticator.RequireRole("admin")(http.HandlerFunc(agentHandler.DeleteAgent))).Methods("POST")
+
+		router.Handle("/api/agents/{serverName}/files", authenticator.RequireRole("admin")(http.HandlerFunc(agentHandler.AgentFileList))).Methods("GET")
+		router.Handle("/api/agents/{serverName}/files/read", authenticator.RequireRole("admin")(http.HandlerFunc(agentHandler.AgentFileRead))).Methods("GET")
+		router.Handle("/api/agents/{serverName}/files/write", authenticator.RequireRole("admin")(http.HandlerFunc(agentHandler.AgentFileWrite))).Methods("POST")
+		router.Handle("/api/agents/{serverName}/files/delete", authenticator.RequireRole("admin")(http.HandlerFunc(agentHandler.AgentFileDelete))).Methods("POST")
+		router.Handle("/api/agents/{serverName}/files/mkdir", authenticator.RequireRole("admin")(http.HandlerFunc(agentHandler.AgentMkdir))).Methods("POST")
+
+		router.Handle("/api/agents/{serverName}/backup/create", authenticator.RequireRole("admin")(http.HandlerFunc(agentHandler.AgentBackupCreate))).Methods("POST")
+		router.Handle("/api/agents/{serverName}/backup/restore", authenticator.RequireRole("admin")(http.HandlerFunc(agentHandler.AgentBackupRestore))).Methods("POST")
+		router.Handle("/api/agents/{serverName}/backup/list", authenticator.RequireRole("admin")(http.HandlerFunc(agentHandler.AgentBackupList))).Methods("POST")
 	}
 
 	if scimHandler != nil {

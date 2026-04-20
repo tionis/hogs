@@ -133,3 +133,67 @@ func (s *AgentService) SendCommand(serverName, command string) error {
 
 	return fmt.Errorf("no agent backend available for server %s", serverName)
 }
+
+func (s *AgentService) FileList(serverName, path string) (bool, string) {
+	_, agentID := ResolveBackend(serverName, s.Store, s.Hub)
+	if agentID <= 0 {
+		return false, "no agent backend"
+	}
+	return s.Hub.SendFileList(agentID, path)
+}
+
+func (s *AgentService) FileRead(serverName, path string) (bool, string) {
+	_, agentID := ResolveBackend(serverName, s.Store, s.Hub)
+	if agentID <= 0 {
+		return false, "no agent backend"
+	}
+	return s.Hub.SendFileRead(agentID, path)
+}
+
+func (s *AgentService) FileWrite(serverName, path, content string) (bool, string) {
+	_, agentID := ResolveBackend(serverName, s.Store, s.Hub)
+	if agentID <= 0 {
+		return false, "no agent backend"
+	}
+	return s.Hub.SendFileWrite(agentID, path, content)
+}
+
+func (s *AgentService) FileDelete(serverName, path string) (bool, string) {
+	_, agentID := ResolveBackend(serverName, s.Store, s.Hub)
+	if agentID <= 0 {
+		return false, "no agent backend"
+	}
+	return s.Hub.SendFileDelete(agentID, path)
+}
+
+func (s *AgentService) Mkdir(serverName, path string) (bool, string) {
+	_, agentID := ResolveBackend(serverName, s.Store, s.Hub)
+	if agentID <= 0 {
+		return false, "no agent backend"
+	}
+	return s.Hub.SendMkdir(agentID, path)
+}
+
+func (s *AgentService) BackupCreate(serverName, repo, password string, paths, tags []string) (bool, string) {
+	_, agentID := ResolveBackend(serverName, s.Store, s.Hub)
+	if agentID <= 0 {
+		return false, "no agent backend"
+	}
+	return s.Hub.SendBackupCreate(agentID, repo, password, paths, tags)
+}
+
+func (s *AgentService) BackupRestore(serverName, repo, password, snapshot, target string) (bool, string) {
+	_, agentID := ResolveBackend(serverName, s.Store, s.Hub)
+	if agentID <= 0 {
+		return false, "no agent backend"
+	}
+	return s.Hub.SendBackupRestore(agentID, repo, password, snapshot, target)
+}
+
+func (s *AgentService) BackupList(serverName, repo, password string) (bool, string) {
+	_, agentID := ResolveBackend(serverName, s.Store, s.Hub)
+	if agentID <= 0 {
+		return false, "no agent backend"
+	}
+	return s.Hub.SendBackupList(agentID, repo, password)
+}
