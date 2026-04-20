@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -304,6 +305,7 @@ func (h *WebHandler) Home(w http.ResponseWriter, r *http.Request) {
 	for gt := range gameTypeSet {
 		gameTypes = append(gameTypes, gt)
 	}
+	sort.Strings(gameTypes)
 
 	data := struct {
 		Servers        []database.Server
