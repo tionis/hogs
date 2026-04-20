@@ -37,6 +37,13 @@ var gameInfoRegistry = map[string]GameInfo{
 		BadgeCSS:    "background: linear-gradient(135deg, #5d4037, #3e2723); color: #ffe0b2;",
 		PlayerNoun:  "Vikings",
 	},
+	"starrupture": {
+		Type:        "starrupture",
+		DisplayName: "Star Rupture",
+		Icon:        `<svg class="game-icon" viewBox="0 0 16 16" fill="currentColor"><circle cx="8" cy="8" r="2"/><path d="M8 0v3M8 13v3M0 8h3M13 8h3M2.5 2.5l2 2M11.5 11.5l2 2M13.5 2.5l-2 2M4.5 11.5l-2 2"/></svg>`,
+		BadgeCSS:    "background: linear-gradient(135deg, #7c4dff, #4a148c); color: #fff;",
+		PlayerNoun:  "Players",
+	},
 }
 
 func RegisterGameInfo(info GameInfo) {
