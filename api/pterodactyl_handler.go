@@ -266,14 +266,29 @@ func (h *PterodactylHandler) ServerAction(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	if c.ClientKey == "" {
+		http.Error(w, "Pterodactyl client key not configured. Set PTERODACTYL_CLIENT_KEY for power actions.", http.StatusServiceUnavailable)
+		return
+	}
+
+	if link.PteroIdentifier == "" {
+		identifier, err := h.resolveIdentifier(c, link.PteroServerID)
+		if err != nil {
+			http.Error(w, "Failed to resolve Pterodactyl server identifier: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		link.PteroIdentifier = identifier
+		h.Store.UpdatePterodactylLink(link)
+	}
+
 	var pteroErr error
 	switch action {
 	case "start":
-		pteroErr = c.StartServer(link.PteroServerID)
+		pteroErr = c.StartServer(link.PteroIdentifier)
 	case "stop":
-		pteroErr = c.StopServer(link.PteroServerID)
+		pteroErr = c.StopServer(link.PteroIdentifier)
 	case "restart":
-		pteroErr = c.RestartServer(link.PteroServerID)
+		pteroErr = c.RestartServer(link.PteroIdentifier)
 	default:
 		http.Error(w, fmt.Sprintf("Unknown action: %s", action), http.StatusBadRequest)
 		return

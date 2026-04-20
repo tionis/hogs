@@ -1,9 +1,5 @@
 package pterodactyl
 
-import (
-	"fmt"
-)
-
 type PterodactylServer struct {
 	ServerID   int           `json:"server_id"`
 	Identifier string        `json:"identifier"`
@@ -49,14 +45,14 @@ func (c *Client) GetServer(uuid string) (*PterodactylServer, error) {
 	return &resp.Attributes, nil
 }
 
-func (c *Client) StartServer(uuid string) error {
-	return c.post(fmt.Sprintf("/api/application/servers/%s/start", uuid), nil, nil)
+func (c *Client) StartServer(identifier string) error {
+	return c.sendPowerAction(identifier, "start")
 }
 
-func (c *Client) StopServer(uuid string) error {
-	return c.post(fmt.Sprintf("/api/application/servers/%s/stop", uuid), nil, nil)
+func (c *Client) StopServer(identifier string) error {
+	return c.sendPowerAction(identifier, "stop")
 }
 
-func (c *Client) RestartServer(uuid string) error {
-	return c.post(fmt.Sprintf("/api/application/servers/%s/restart", uuid), nil, nil)
+func (c *Client) RestartServer(identifier string) error {
+	return c.sendPowerAction(identifier, "restart")
 }
