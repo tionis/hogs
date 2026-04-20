@@ -540,6 +540,8 @@ type PterodactylLink struct {
 	PteroServerID   string `json:"pteroServerId"`
 	PteroIdentifier string `json:"pteroIdentifier"`
 	AllowedActions  string `json:"allowedActions"`
+	ACLRule         string `json:"aclRule"`
+	Node            string `json:"node"`
 }
 
 type PterodactylCommand struct {
@@ -550,9 +552,9 @@ type PterodactylCommand struct {
 }
 
 func (s *Store) GetPterodactylLink(serverID int) (*PterodactylLink, error) {
-	row := s.DB.QueryRow("SELECT id, server_id, ptero_server_id, ptero_identifier, allowed_actions FROM pterodactyl_servers WHERE server_id = ?", serverID)
+	row := s.DB.QueryRow("SELECT id, server_id, ptero_server_id, ptero_identifier, allowed_actions, acl_rule, node FROM pterodactyl_servers WHERE server_id = ?", serverID)
 	var link PterodactylLink
-	err := row.Scan(&link.ID, &link.ServerID, &link.PteroServerID, &link.PteroIdentifier, &link.AllowedActions)
+	err := row.Scan(&link.ID, &link.ServerID, &link.PteroServerID, &link.PteroIdentifier, &link.AllowedActions, &link.ACLRule, &link.Node)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
@@ -563,8 +565,8 @@ func (s *Store) GetPterodactylLink(serverID int) (*PterodactylLink, error) {
 }
 
 func (s *Store) CreatePterodactylLink(link *PterodactylLink) error {
-	result, err := s.DB.Exec("INSERT INTO pterodactyl_servers (server_id, ptero_server_id, ptero_identifier, allowed_actions) VALUES (?, ?, ?, ?)",
-		link.ServerID, link.PteroServerID, link.PteroIdentifier, link.AllowedActions)
+	result, err := s.DB.Exec("INSERT INTO pterodactyl_servers (server_id, ptero_server_id, ptero_identifier, allowed_actions, acl_rule, node) VALUES (?, ?, ?, ?, ?, ?)",
+		link.ServerID, link.PteroServerID, link.PteroIdentifier, link.AllowedActions, link.ACLRule, link.Node)
 	if err != nil {
 		return err
 	}
@@ -574,8 +576,8 @@ func (s *Store) CreatePterodactylLink(link *PterodactylLink) error {
 }
 
 func (s *Store) UpdatePterodactylLink(link *PterodactylLink) error {
-	_, err := s.DB.Exec("UPDATE pterodactyl_servers SET ptero_server_id = ?, ptero_identifier = ?, allowed_actions = ? WHERE server_id = ?",
-		link.PteroServerID, link.PteroIdentifier, link.AllowedActions, link.ServerID)
+	_, err := s.DB.Exec("UPDATE pterodactyl_servers SET ptero_server_id = ?, ptero_identifier = ?, allowed_actions = ?, acl_rule = ?, node = ? WHERE server_id = ?",
+		link.PteroServerID, link.PteroIdentifier, link.AllowedActions, link.ACLRule, link.Node, link.ServerID)
 	return err
 }
 
@@ -618,11 +620,456 @@ func (s *Store) DeletePterodactylCommand(id int) error {
 	return err
 }
 
+type CommandSchema struct {
+	ID          int             `json:"id"`
+	ServerID    int             `json:"serverId"`
+	Name        string          `json:"name"`
+	DisplayName string          `json:"displayName"`
+	Template    string          `json:"template"`
+	Params      json.RawMessage `json:"params"`
+	ACLRule     string          `json:"aclRule"`
+	Enabled     bool            `json:"enabled"`
+}
+
+func (s *Store) ListCommandSchemas(serverID int) ([]CommandSchema, error) {
+	rows, err := s.DB.Query("SELECT id, server_id, name, display_name, template, params, acl_rule, enabled FROM command_schemas WHERE server_id = ?", serverID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var schemas []CommandSchema
+	for rows.Next() {
+		var cs CommandSchema
+		var enabled int
+		if err := rows.Scan(&cs.ID, &cs.ServerID, &cs.Name, &cs.DisplayName, &cs.Template, &cs.Params, &cs.ACLRule, &enabled); err != nil {
+			return nil, err
+		}
+		cs.Enabled = enabled == 1
+		schemas = append(schemas, cs)
+	}
+	return schemas, nil
+}
+
+func (s *Store) GetCommandSchema(id int) (*CommandSchema, error) {
+	row := s.DB.QueryRow("SELECT id, server_id, name, display_name, template, params, acl_rule, enabled FROM command_schemas WHERE id = ?", id)
+	var cs CommandSchema
+	var enabled int
+	err := row.Scan(&cs.ID, &cs.ServerID, &cs.Name, &cs.DisplayName, &cs.Template, &cs.Params, &cs.ACLRule, &enabled)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	cs.Enabled = enabled == 1
+	return &cs, nil
+}
+
+func (s *Store) GetCommandSchemaByName(serverID int, name string) (*CommandSchema, error) {
+	row := s.DB.QueryRow("SELECT id, server_id, name, display_name, template, params, acl_rule, enabled FROM command_schemas WHERE server_id = ? AND name = ?", serverID, name)
+	var cs CommandSchema
+	var enabled int
+	err := row.Scan(&cs.ID, &cs.ServerID, &cs.Name, &cs.DisplayName, &cs.Template, &cs.Params, &cs.ACLRule, &enabled)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	cs.Enabled = enabled == 1
+	return &cs, nil
+}
+
+func (s *Store) CreateCommandSchema(cs *CommandSchema) error {
+	enabled := 0
+	if cs.Enabled {
+		enabled = 1
+	}
+	if cs.Params == nil {
+		cs.Params = json.RawMessage("{}")
+	}
+	result, err := s.DB.Exec("INSERT INTO command_schemas (server_id, name, display_name, template, params, acl_rule, enabled) VALUES (?, ?, ?, ?, ?, ?, ?)",
+		cs.ServerID, cs.Name, cs.DisplayName, cs.Template, string(cs.Params), cs.ACLRule, enabled)
+	if err != nil {
+		return err
+	}
+	id, _ := result.LastInsertId()
+	cs.ID = int(id)
+	return nil
+}
+
+func (s *Store) UpdateCommandSchema(cs *CommandSchema) error {
+	enabled := 0
+	if cs.Enabled {
+		enabled = 1
+	}
+	if cs.Params == nil {
+		cs.Params = json.RawMessage("{}")
+	}
+	_, err := s.DB.Exec("UPDATE command_schemas SET name = ?, display_name = ?, template = ?, params = ?, acl_rule = ?, enabled = ? WHERE id = ?",
+		cs.Name, cs.DisplayName, cs.Template, string(cs.Params), cs.ACLRule, enabled, cs.ID)
+	return err
+}
+
+func (s *Store) DeleteCommandSchema(id int) error {
+	_, err := s.DB.Exec("DELETE FROM command_schemas WHERE id = ?", id)
+	return err
+}
+
+type ServerTag struct {
+	ServerID int    `json:"serverId"`
+	Tag      string `json:"tag"`
+}
+
+func (s *Store) GetServerTags(serverID int) ([]string, error) {
+	rows, err := s.DB.Query("SELECT tag FROM server_tags WHERE server_id = ? ORDER BY tag", serverID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var tags []string
+	for rows.Next() {
+		var tag string
+		if err := rows.Scan(&tag); err != nil {
+			return nil, err
+		}
+		tags = append(tags, tag)
+	}
+	return tags, nil
+}
+
+func (s *Store) SetServerTags(serverID int, tags []string) error {
+	_, err := s.DB.Exec("DELETE FROM server_tags WHERE server_id = ?", serverID)
+	if err != nil {
+		return err
+	}
+	if len(tags) == 0 {
+		return nil
+	}
+	stmt, err := s.DB.Prepare("INSERT INTO server_tags (server_id, tag) VALUES (?, ?)")
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+	for _, tag := range tags {
+		if _, err := stmt.Exec(serverID, tag); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+type Constraint struct {
+	ID          int    `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Condition   string `json:"condition"`
+	Strategy    string `json:"strategy"`
+	Priority    int    `json:"priority"`
+	Enabled     bool   `json:"enabled"`
+}
+
+func (s *Store) ListConstraints() ([]Constraint, error) {
+	rows, err := s.DB.Query("SELECT id, name, description, condition, strategy, priority, enabled FROM constraints ORDER BY priority DESC, id")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var constraints []Constraint
+	for rows.Next() {
+		var c Constraint
+		var enabled int
+		if err := rows.Scan(&c.ID, &c.Name, &c.Description, &c.Condition, &c.Strategy, &c.Priority, &enabled); err != nil {
+			return nil, err
+		}
+		c.Enabled = enabled == 1
+		constraints = append(constraints, c)
+	}
+	return constraints, nil
+}
+
+func (s *Store) ListEnabledConstraints() ([]Constraint, error) {
+	rows, err := s.DB.Query("SELECT id, name, description, condition, strategy, priority, enabled FROM constraints WHERE enabled = 1 ORDER BY priority DESC, id")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var constraints []Constraint
+	for rows.Next() {
+		var c Constraint
+		if err := rows.Scan(&c.ID, &c.Name, &c.Description, &c.Condition, &c.Strategy, &c.Priority, &c.Enabled); err != nil {
+			return nil, err
+		}
+		constraints = append(constraints, c)
+	}
+	return constraints, nil
+}
+
+func (s *Store) GetConstraint(id int) (*Constraint, error) {
+	row := s.DB.QueryRow("SELECT id, name, description, condition, strategy, priority, enabled FROM constraints WHERE id = ?", id)
+	var c Constraint
+	var enabled int
+	err := row.Scan(&c.ID, &c.Name, &c.Description, &c.Condition, &c.Strategy, &c.Priority, &enabled)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	c.Enabled = enabled == 1
+	return &c, nil
+}
+
+func (s *Store) CreateConstraint(c *Constraint) error {
+	enabled := 0
+	if c.Enabled {
+		enabled = 1
+	}
+	result, err := s.DB.Exec("INSERT INTO constraints (name, description, condition, strategy, priority, enabled) VALUES (?, ?, ?, ?, ?, ?)",
+		c.Name, c.Description, c.Condition, c.Strategy, c.Priority, enabled)
+	if err != nil {
+		return err
+	}
+	id, _ := result.LastInsertId()
+	c.ID = int(id)
+	return nil
+}
+
+func (s *Store) UpdateConstraint(c *Constraint) error {
+	enabled := 0
+	if c.Enabled {
+		enabled = 1
+	}
+	_, err := s.DB.Exec("UPDATE constraints SET name = ?, description = ?, condition = ?, strategy = ?, priority = ?, enabled = ? WHERE id = ?",
+		c.Name, c.Description, c.Condition, c.Strategy, c.Priority, enabled, c.ID)
+	return err
+}
+
+func (s *Store) DeleteConstraint(id int) error {
+	_, err := s.DB.Exec("DELETE FROM constraints WHERE id = ?", id)
+	return err
+}
+
+type CronJob struct {
+	ID         int             `json:"id"`
+	Name       string          `json:"name"`
+	Schedule   string          `json:"schedule"`
+	ServerName string          `json:"serverName"`
+	Action     string          `json:"action"`
+	Params     json.RawMessage `json:"params"`
+	ACLRule    string          `json:"aclRule"`
+	Enabled    bool            `json:"enabled"`
+	LastRun    *string         `json:"lastRun"`
+	NextRun    *string         `json:"nextRun"`
+}
+
+func (s *Store) ListCronJobs() ([]CronJob, error) {
+	rows, err := s.DB.Query("SELECT id, name, schedule, server_name, action, params, acl_rule, enabled, last_run, next_run FROM cron_jobs ORDER BY id")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var jobs []CronJob
+	for rows.Next() {
+		var j CronJob
+		var enabled int
+		if err := rows.Scan(&j.ID, &j.Name, &j.Schedule, &j.ServerName, &j.Action, &j.Params, &j.ACLRule, &enabled, &j.LastRun, &j.NextRun); err != nil {
+			return nil, err
+		}
+		j.Enabled = enabled == 1
+		jobs = append(jobs, j)
+	}
+	return jobs, nil
+}
+
+func (s *Store) ListEnabledCronJobs() ([]CronJob, error) {
+	rows, err := s.DB.Query("SELECT id, name, schedule, server_name, action, params, acl_rule, enabled, last_run, next_run FROM cron_jobs WHERE enabled = 1 ORDER BY id")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var jobs []CronJob
+	for rows.Next() {
+		var j CronJob
+		if err := rows.Scan(&j.ID, &j.Name, &j.Schedule, &j.ServerName, &j.Action, &j.Params, &j.ACLRule, &j.Enabled, &j.LastRun, &j.NextRun); err != nil {
+			return nil, err
+		}
+		jobs = append(jobs, j)
+	}
+	return jobs, nil
+}
+
+func (s *Store) GetCronJob(id int) (*CronJob, error) {
+	row := s.DB.QueryRow("SELECT id, name, schedule, server_name, action, params, acl_rule, enabled, last_run, next_run FROM cron_jobs WHERE id = ?", id)
+	var j CronJob
+	var enabled int
+	err := row.Scan(&j.ID, &j.Name, &j.Schedule, &j.ServerName, &j.Action, &j.Params, &j.ACLRule, &enabled, &j.LastRun, &j.NextRun)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	j.Enabled = enabled == 1
+	return &j, nil
+}
+
+func (s *Store) CreateCronJob(j *CronJob) error {
+	enabled := 0
+	if j.Enabled {
+		enabled = 1
+	}
+	if j.Params == nil {
+		j.Params = json.RawMessage("{}")
+	}
+	result, err := s.DB.Exec("INSERT INTO cron_jobs (name, schedule, server_name, action, params, acl_rule, enabled, last_run, next_run) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		j.Name, j.Schedule, j.ServerName, j.Action, string(j.Params), j.ACLRule, enabled, j.LastRun, j.NextRun)
+	if err != nil {
+		return err
+	}
+	id, _ := result.LastInsertId()
+	j.ID = int(id)
+	return nil
+}
+
+func (s *Store) UpdateCronJob(j *CronJob) error {
+	enabled := 0
+	if j.Enabled {
+		enabled = 1
+	}
+	if j.Params == nil {
+		j.Params = json.RawMessage("{}")
+	}
+	_, err := s.DB.Exec("UPDATE cron_jobs SET name = ?, schedule = ?, server_name = ?, action = ?, params = ?, acl_rule = ?, enabled = ?, last_run = ?, next_run = ? WHERE id = ?",
+		j.Name, j.Schedule, j.ServerName, j.Action, string(j.Params), j.ACLRule, enabled, j.LastRun, j.NextRun, j.ID)
+	return err
+}
+
+func (s *Store) DeleteCronJob(id int) error {
+	_, err := s.DB.Exec("DELETE FROM cron_jobs WHERE id = ?", id)
+	return err
+}
+
+func (s *Store) UpdateCronJobTimestamps(id int, lastRun, nextRun string) error {
+	_, err := s.DB.Exec("UPDATE cron_jobs SET last_run = ?, next_run = ? WHERE id = ?", lastRun, nextRun, id)
+	return err
+}
+
+type AuditLogEntry struct {
+	ID         int             `json:"id"`
+	Timestamp  string          `json:"timestamp"`
+	UserEmail  string          `json:"userEmail"`
+	ServerName string          `json:"serverName"`
+	Action     string          `json:"action"`
+	Params     json.RawMessage `json:"params"`
+	Result     string          `json:"result"`
+	Reason     string          `json:"reason"`
+	Source     string          `json:"source"`
+}
+
+func (s *Store) CreateAuditLog(entry *AuditLogEntry) error {
+	if entry.Params == nil {
+		entry.Params = json.RawMessage("{}")
+	}
+	result, err := s.DB.Exec("INSERT INTO audit_log (timestamp, user_email, server_name, action, params, result, reason, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+		entry.Timestamp, entry.UserEmail, entry.ServerName, entry.Action, string(entry.Params), entry.Result, entry.Reason, entry.Source)
+	if err != nil {
+		return err
+	}
+	id, _ := result.LastInsertId()
+	entry.ID = int(id)
+	return nil
+}
+
+func (s *Store) ListAuditLog(limit, offset int) ([]AuditLogEntry, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	rows, err := s.DB.Query("SELECT id, timestamp, user_email, server_name, action, params, result, reason, source FROM audit_log ORDER BY id DESC LIMIT ? OFFSET ?", limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var entries []AuditLogEntry
+	for rows.Next() {
+		var e AuditLogEntry
+		if err := rows.Scan(&e.ID, &e.Timestamp, &e.UserEmail, &e.ServerName, &e.Action, &e.Params, &e.Result, &e.Reason, &e.Source); err != nil {
+			return nil, err
+		}
+		entries = append(entries, e)
+	}
+	return entries, nil
+}
+
+func (s *Store) CleanupAuditLog(retentionDays int) error {
+	if retentionDays <= 0 {
+		return nil
+	}
+	_, err := s.DB.Exec("DELETE FROM audit_log WHERE timestamp < datetime('now', ?||' days')", fmt.Sprintf("-%d", retentionDays))
+	return err
+}
+
 func (bg *Background) URL() string {
 	if bg.ContentHash != "" {
 		return "/backgrounds/" + bg.ContentHash + "/" + bg.Filename
 	}
 	return "/backgrounds/" + bg.Filename
+}
+
+type Session struct {
+	ID        int    `json:"id"`
+	SessionID string `json:"sessionId"`
+	UserSub   string `json:"userSub"`
+	UserEmail string `json:"userEmail"`
+	UserRole  string `json:"userRole"`
+	CreatedAt string `json:"createdAt"`
+	ExpiresAt string `json:"expiresAt"`
+}
+
+func (s *Store) CreateSession(session *Session) error {
+	result, err := s.DB.Exec("INSERT INTO sessions (session_id, user_sub, user_email, user_role, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)",
+		session.SessionID, session.UserSub, session.UserEmail, session.UserRole, session.CreatedAt, session.ExpiresAt)
+	if err != nil {
+		return err
+	}
+	id, _ := result.LastInsertId()
+	session.ID = int(id)
+	return nil
+}
+
+func (s *Store) GetSession(sessionID string) (*Session, error) {
+	row := s.DB.QueryRow("SELECT id, session_id, user_sub, user_email, user_role, created_at, expires_at FROM sessions WHERE session_id = ?", sessionID)
+	var session Session
+	err := row.Scan(&session.ID, &session.SessionID, &session.UserSub, &session.UserEmail, &session.UserRole, &session.CreatedAt, &session.ExpiresAt)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &session, nil
+}
+
+func (s *Store) DeleteSession(sessionID string) error {
+	_, err := s.DB.Exec("DELETE FROM sessions WHERE session_id = ?", sessionID)
+	return err
+}
+
+func (s *Store) DeleteSessionsBySub(userSub string) error {
+	_, err := s.DB.Exec("DELETE FROM sessions WHERE user_sub = ?", userSub)
+	return err
+}
+
+func (s *Store) CleanupExpiredSessions() error {
+	_, err := s.DB.Exec("DELETE FROM sessions WHERE expires_at < datetime('now')")
+	return err
 }
 
 func (s *Store) ComputeMissingHashes(bgDir string) error {

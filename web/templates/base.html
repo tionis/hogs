@@ -329,6 +329,7 @@
 {{if .Authenticated}}
             {{if eq .UserRole "admin"}}<a href="/admin" class="btn btn-outline-light btn-sm">Admin</a>{{end}}
             {{if or (eq .UserRole "user") (eq .UserRole "admin")}}<a href="/my-servers" class="btn btn-outline-light btn-sm">My Servers</a>{{end}}
+            <a href="/help" class="btn btn-outline-light btn-sm">Help</a>
             <a href="/logout" class="btn btn-outline-danger btn-sm">Logout</a>
            {{else}}
             <a href="/login" class="btn btn-primary btn-sm">Login</a>

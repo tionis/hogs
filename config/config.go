@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"strconv"
 )
 
 // Config holds the application configuration.
@@ -23,10 +24,20 @@ type Config struct {
 	OIDCUserGroup   string
 	OIDCGroupsClaim string
 
+	// OIDC Back-Channel Logout
+	OIDCBackChannelLogoutEnabled bool
+
 	// Pterodactyl Configuration
 	PterodactylURL       string
 	PterodactylAppKey    string
 	PterodactylClientKey string
+
+	// Automation Configuration
+	CronEnabled              bool
+	CronQueueRetryInterval   int
+	CronQueueMaxRetry        int
+	AuditLogRetentionDays    int
+	PteroNodeRefreshInterval int
 }
 
 // LoadConfig reads configuration from environment variables or sets defaults.
@@ -54,10 +65,26 @@ func LoadConfig() *Config {
 		OIDCUserGroup:   getEnv("OIDC_USER_GROUP", ""),
 		OIDCGroupsClaim: getEnv("OIDC_GROUPS_CLAIM", "groups"),
 
+		OIDCBackChannelLogoutEnabled: getEnv("OIDC_BACKCHANNEL_LOGOUT", "true") == "true",
+
 		PterodactylURL:       getEnv("PTERODACTYL_URL", ""),
 		PterodactylAppKey:    getEnv("PTERODACTYL_APP_KEY", ""),
 		PterodactylClientKey: getEnv("PTERODACTYL_CLIENT_KEY", ""),
+
+		CronEnabled:              getEnv("HOGS_CRON_ENABLED", "true") == "true",
+		CronQueueRetryInterval:   mustAtoi(getEnv("HOGS_CRON_QUEUE_RETRY_INTERVAL", "30")),
+		CronQueueMaxRetry:        mustAtoi(getEnv("HOGS_CRON_QUEUE_MAX_RETRY", "10")),
+		AuditLogRetentionDays:    mustAtoi(getEnv("HOGS_AUDIT_LOG_RETENTION_DAYS", "90")),
+		PteroNodeRefreshInterval: mustAtoi(getEnv("HOGS_PTERO_NODE_REFRESH_INTERVAL", "300")),
 	}
+}
+
+func mustAtoi(s string) int {
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		return 0
+	}
+	return n
 }
 
 // getEnv retrieves an environment variable or returns a default value.

@@ -7,7 +7,9 @@ import (
 	"github.com/tionis/hogs/api"
 	"github.com/tionis/hogs/auth"
 	"github.com/tionis/hogs/config"
+	hogscron "github.com/tionis/hogs/cron"
 	"github.com/tionis/hogs/database"
+	"github.com/tionis/hogs/engine"
 	"github.com/tionis/hogs/query"
 	"github.com/tionis/hogs/web"
 	"log"
@@ -35,6 +37,8 @@ func main() {
 
 	cache := query.NewServerStatusCache()
 
+	eng := engine.NewEngine(store, cfg, cache)
+
 	authenticator, err := auth.NewAuthenticator(cfg, store)
 	if err != nil {
 		log.Printf("Warning: OIDC authentication could not be initialized: %v", err)
@@ -45,8 +49,17 @@ func main() {
 	}
 
 	serverHandler := api.NewServerHandler(store, cfg, cache, authenticator)
-	webHandler := web.NewWebHandler(store, cfg, authenticator)
-	pteroHandler := api.NewPterodactylHandler(store, cfg)
+	webHandler := web.NewWebHandler(store, cfg, authenticator, eng)
+	pteroHandler := api.NewPterodactylHandler(store, cfg, eng)
+	automationHandler := api.NewAutomationHandler(store, cfg, eng)
+
+	var scheduler *hogscron.Scheduler
+	if cfg.CronEnabled {
+		scheduler = hogscron.NewScheduler(store, eng)
+		if err := scheduler.Start(); err != nil {
+			log.Printf("Warning: cron scheduler failed to start: %v", err)
+		}
+	}
 
 	router := mux.NewRouter()
 
@@ -56,6 +69,7 @@ func main() {
 		router.HandleFunc("/login", authenticator.HandleLogin).Methods("GET")
 		router.HandleFunc("/logout", authenticator.HandleLogout).Methods("GET")
 		router.HandleFunc("/auth/callback", authenticator.HandleCallback).Methods("GET")
+		router.HandleFunc("/auth/backchannel-logout", authenticator.HandleBackChannelLogout).Methods("POST")
 
 		router.Handle("/admin", authenticator.RequireRole("admin")(http.HandlerFunc(webHandler.Admin))).Methods("GET")
 		router.Handle("/admin/servers/{id}", authenticator.RequireRole("admin")(http.HandlerFunc(webHandler.ServerEdit))).Methods("GET")
@@ -111,7 +125,31 @@ func main() {
 		router.Handle("/api/pterodactyl/servers", authenticator.RequireRole("admin")(http.HandlerFunc(pteroHandler.ListPteroServers))).Methods("GET")
 
 		router.Handle("/my-servers", authenticator.RequireRole("admin", "user")(http.HandlerFunc(webHandler.MyServers))).Methods("GET")
+
+		router.Handle("/admin/commands/{serverId}", authenticator.RequireRole("admin")(http.HandlerFunc(webHandler.CommandManager))).Methods("GET")
+		router.Handle("/admin/commands/add", authenticator.RequireRole("admin")(http.HandlerFunc(automationHandler.AddCommandSchema))).Methods("POST")
+		router.Handle("/admin/commands/update", authenticator.RequireRole("admin")(http.HandlerFunc(automationHandler.UpdateCommandSchema))).Methods("POST")
+		router.Handle("/admin/commands/delete", authenticator.RequireRole("admin")(http.HandlerFunc(automationHandler.DeleteCommandSchema))).Methods("POST")
+
+		router.Handle("/admin/constraints", authenticator.RequireRole("admin")(http.HandlerFunc(webHandler.ConstraintManager))).Methods("GET")
+		router.Handle("/admin/constraints/add", authenticator.RequireRole("admin")(http.HandlerFunc(automationHandler.AddConstraint))).Methods("POST")
+		router.Handle("/admin/constraints/update", authenticator.RequireRole("admin")(http.HandlerFunc(automationHandler.UpdateConstraint))).Methods("POST")
+		router.Handle("/admin/constraints/delete", authenticator.RequireRole("admin")(http.HandlerFunc(automationHandler.DeleteConstraint))).Methods("POST")
+
+		router.Handle("/admin/cron", authenticator.RequireRole("admin")(http.HandlerFunc(webHandler.CronManager))).Methods("GET")
+		router.Handle("/admin/cron/add", authenticator.RequireRole("admin")(http.HandlerFunc(automationHandler.AddCronJob))).Methods("POST")
+		router.Handle("/admin/cron/update", authenticator.RequireRole("admin")(http.HandlerFunc(automationHandler.UpdateCronJob))).Methods("POST")
+		router.Handle("/admin/cron/delete", authenticator.RequireRole("admin")(http.HandlerFunc(automationHandler.DeleteCronJob))).Methods("POST")
+
+		router.Handle("/admin/tags/{serverId}", authenticator.RequireRole("admin")(http.HandlerFunc(automationHandler.UpdateServerTags))).Methods("POST")
+		router.Handle("/admin/acl/{serverId}", authenticator.RequireRole("admin")(http.HandlerFunc(automationHandler.UpdateACLRule))).Methods("POST")
+
+		router.Handle("/api/audit", authenticator.RequireRole("admin")(http.HandlerFunc(automationHandler.GetAuditLog))).Methods("GET")
+		router.Handle("/api/constraints/test", authenticator.RequireRole("admin")(http.HandlerFunc(automationHandler.TestConstraint))).Methods("POST")
 	}
+	router.HandleFunc("/help", webHandler.Help).Methods("GET")
+	router.HandleFunc("/help/api.md", webHandler.HelpMarkdown).Methods("GET")
+
 	router.PathPrefix("/{serverName}/map/").HandlerFunc(serverHandler.MapProxy)
 	router.PathPrefix("/files/{serverName}/mods/").Handler(http.HandlerFunc(serverHandler.ServeModFiles))
 	router.PathPrefix("/assets/").Handler(http.HandlerFunc(webHandler.ServeAssets))
@@ -134,6 +172,10 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 	log.Println("Shutting down server...")
+
+	if scheduler != nil {
+		scheduler.Stop()
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

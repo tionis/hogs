@@ -192,6 +192,55 @@
         </form>
       </div>
     </div>
+
+    {{if .PteroConfigured}}
+    <div class="card mt-3">
+      <div class="card-header">Server Tags</div>
+      <div class="card-body">
+        <form id="tags-form" onsubmit="submitTags(event)">
+          <div class="mb-3" id="tags-container">
+          </div>
+          <button type="button" class="btn btn-sm btn-secondary mb-2" onclick="addTag()">+ Add Tag</button>
+          <button type="submit" class="btn btn-sm btn-primary">Save Tags</button>
+        </form>
+        <script>
+          const existingTags = [];
+          function addTag(val) {
+            const container = document.getElementById('tags-container');
+            const div = document.createElement('div');
+            div.className = 'input-group mb-2';
+            div.innerHTML = `<input type="text" class="form-control form-control-sm" name="tags" placeholder="e.g. minecraft, game, production" value="${val || ''}"><button type="button" class="btn btn-outline-danger btn-sm" onclick="this.parentElement.remove()">X</button>`;
+            container.appendChild(div);
+          }
+          function submitTags(e) {
+            e.preventDefault();
+            const tags = Array.from(document.querySelectorAll('#tags-container input[name="tags"]')).map(i => i.value).filter(v => v.trim());
+            fetch('/admin/tags/{{.Server.ID}}', {
+              method: 'POST',
+              headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+              body: tags.map(t => 'tags=' + encodeURIComponent(t)).join('&')
+            }).then(() => { location.reload(); });
+          }
+          {{range .ServerTags}}addTag("{{.}}");{{end}}
+        </script>
+      </div>
+    </div>
+
+    {{if .PteroLink}}
+    <div class="card mt-3">
+      <div class="card-header">ACL Rule</div>
+      <div class="card-body">
+        <form action="/admin/acl/{{.Server.ID}}" method="POST">
+          <div class="mb-3">
+            <textarea class="form-control form-control-sm" name="acl_rule" rows="3" placeholder='user.Role == "admin" || action in ["start", "stop", "restart"]'>{{.PteroLink.ACLRule}}</textarea>
+            <div class="form-text">Expression-based ACL. Leave empty to use legacy allowed_actions.</div>
+          </div>
+          <button type="submit" class="btn btn-sm btn-primary">Save ACL Rule</button>
+        </form>
+      </div>
+    </div>
+    {{end}}
+    {{end}}
   </div>
 </div>
 

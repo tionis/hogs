@@ -1,0 +1,79 @@
+{{define "title"}}Constraints{{end}}
+
+{{define "content"}}
+<nav aria-label="breadcrumb">
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="/admin">Admin</a></li>
+    <li class="breadcrumb-item active" aria-current="page">Constraints</li>
+  </ol>
+</nav>
+
+<h2>Constraints</h2>
+
+{{if .Constraints}}
+<div class="table-responsive">
+  <table class="table table-sm">
+    <thead><tr><th>Name</th><th>Description</th><th>Condition</th><th>Strategy</th><th>Priority</th><th>Enabled</th><th></th></tr></thead>
+    <tbody>
+      {{range .Constraints}}
+      <tr>
+        <td><strong>{{.Name}}</strong></td>
+        <td class="text-muted">{{.Description}}</td>
+        <td><code>{{.Condition}}</code></td>
+        <td><span class="badge {{if eq .Strategy "deny"}}bg-danger{{else if eq .Strategy "queue"}}bg-warning{{else}}bg-info{{end}}">{{.Strategy}}</span></td>
+        <td>{{.Priority}}</td>
+        <td>{{if .Enabled}}<span class="badge bg-success">Yes</span>{{else}}<span class="badge bg-secondary">No</span>{{end}}</td>
+        <td>
+          <form action="/admin/constraints/delete" method="POST" class="d-inline" onsubmit="return confirm('Delete this constraint?');">
+            <input type="hidden" name="id" value="{{.ID}}">
+            <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
+          </form>
+        </td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+</div>
+{{else}}
+<p class="text-muted">No constraints defined.</p>
+{{end}}
+
+<div class="card mt-4">
+  <div class="card-header">Add Constraint</div>
+  <div class="card-body">
+    <form action="/admin/constraints/add" method="POST">
+      <div class="row">
+        <div class="col-md-4 mb-3">
+          <label class="form-label">Name</label>
+          <input type="text" class="form-control form-control-sm" name="name" placeholder="one_game_per_node" required>
+        </div>
+        <div class="col-md-4 mb-3">
+          <label class="form-label">Strategy</label>
+          <select class="form-select form-select-sm" name="strategy">
+            <option value="deny" selected>Deny</option>
+            <option value="queue">Queue</option>
+            <option value="stop_oldest">Stop Oldest</option>
+          </select>
+        </div>
+        <div class="col-md-4 mb-3">
+          <label class="form-label">Priority</label>
+          <input type="number" class="form-control form-control-sm" name="priority" value="0">
+        </div>
+      </div>
+      <div class="mb-3">
+        <label class="form-label">Description</label>
+        <input type="text" class="form-control form-control-sm" name="description" placeholder="Only one game server per node at a time">
+      </div>
+      <div class="mb-3">
+        <label class="form-label">Condition (expr)</label>
+        <textarea class="form-control form-control-sm" name="condition" rows="3" placeholder='countRunning(filterByTag(serversOnNode(server.Node), "game")) &lt; 1' required></textarea>
+      </div>
+      <div class="form-check mb-3">
+        <input class="form-check-input" type="checkbox" name="enabled" id="new-constraint-enabled" checked>
+        <label class="form-check-label" for="new-constraint-enabled">Enabled</label>
+      </div>
+      <button type="submit" class="btn btn-primary">Add Constraint</button>
+    </form>
+  </div>
+</div>
+{{end}}

@@ -1,0 +1,136 @@
+{{define "title"}}Help{{end}}
+
+{{define "content"}}
+<div class="row">
+  <div class="col-lg-10 mx-auto">
+    <h2>HOGS Automation System</h2>
+    <p class="text-muted">Declarative rule engine for parameterized commands, expression-based ACLs, resource constraints, and cron scheduling.</p>
+
+    <div class="card mb-4">
+      <div class="card-header">Available Actions</div>
+      <div class="card-body">
+        <table class="table table-sm">
+          <thead><tr><th>Action</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>start</code></td><td>Start a server</td></tr>
+            <tr><td><code>stop</code></td><td>Stop a server</td></tr>
+            <tr><td><code>restart</code></td><td>Restart a server</td></tr>
+            <tr><td><code>whitelist</code></td><td>Add player to whitelist</td></tr>
+            <tr><td><code>command:&lt;name&gt;</code></td><td>Execute a parameterized command</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card mb-4">
+      <div class="card-header">Expression Language</div>
+      <div class="card-body">
+        <p>Expressions use <a href="https://expr-lang.org/" target="_blank">expr</a> syntax &mdash; a fast, safe expression engine for Go.</p>
+
+        <h5>Available Variables</h5>
+        <table class="table table-sm">
+          <thead><tr><th>Variable</th><th>Type</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>action</code></td><td>string</td><td>The requested action</td></tr>
+            <tr><td><code>server.ID</code></td><td>int</td><td>Server ID</td></tr>
+            <tr><td><code>server.Name</code></td><td>string</td><td>Server name</td></tr>
+            <tr><td><code>server.GameType</code></td><td>string</td><td>Game type</td></tr>
+            <tr><td><code>server.Tags</code></td><td>[]string</td><td>Server tags</td></tr>
+            <tr><td><code>server.Node</code></td><td>string</td><td>Pterodactyl node</td></tr>
+            <tr><td><code>server.Running</code></td><td>bool</td><td>Is server online</td></tr>
+            <tr><td><code>user.Email</code></td><td>string</td><td>Requesting user email</td></tr>
+            <tr><td><code>user.Role</code></td><td>string</td><td>User role (admin/user)</td></tr>
+            <tr><td><code>time.Hour</code></td><td>int</td><td>Current hour (0-23)</td></tr>
+            <tr><td><code>time.Weekday</code></td><td>time.Weekday</td><td>Current weekday</td></tr>
+          </tbody>
+        </table>
+
+        <h5>Helper Functions</h5>
+        <table class="table table-sm">
+          <thead><tr><th>Function</th><th>Signature</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>hasTag</code></td><td>(ServerEnv, string) bool</td><td>Check if server has a tag</td></tr>
+            <tr><td><code>serversOnNode</code></td><td>(string) []ServerEnv</td><td>Get servers on a node</td></tr>
+            <tr><td><code>runningOnNode</code></td><td>(string) []ServerEnv</td><td>Get running servers on a node</td></tr>
+            <tr><td><code>countRunning</code></td><td>([]ServerEnv) int</td><td>Count running servers</td></tr>
+            <tr><td><code>filterByTag</code></td><td>([]ServerEnv, string) []ServerEnv</td><td>Filter servers by tag</td></tr>
+            <tr><td><code>weekday</code></td><td>(string) time.Weekday</td><td>Parse weekday name</td></tr>
+          </tbody>
+        </table>
+
+        <h5>Example ACL Rules</h5>
+        <pre><code>user.Role == "admin" || action in ["start", "stop", "restart"]
+!hasTag(server, "production") || user.Role == "admin"
+action in ["start", "stop"] || (hasTag(server, "minecraft") && action matches "^command:")</code></pre>
+
+        <h5>Example Constraint Expressions</h5>
+        <pre><code>countRunning(filterByTag(serversOnNode(server.Node), "game")) &lt; 1
+!(time.Weekday == weekday("saturday") && time.Hour >= 2 && time.Hour &lt; 6)
+!hasTag(server, "production") || user.Role == "admin"</code></pre>
+      </div>
+    </div>
+
+    <div class="card mb-4">
+      <div class="card-header">Parameter Types</div>
+      <div class="card-body">
+        <table class="table table-sm">
+          <thead><tr><th>Type</th><th>Validation</th></tr></thead>
+          <tbody>
+            <tr><td><code>string</code></td><td>Optional <code>pattern</code> (regex), <code>minLength</code>, <code>maxLength</code></td></tr>
+            <tr><td><code>int</code></td><td>Optional <code>min</code>, <code>max</code></td></tr>
+            <tr><td><code>float</code></td><td>Optional <code>min</code>, <code>max</code></td></tr>
+            <tr><td><code>enum</code></td><td>Required <code>values</code> array</td></tr>
+            <tr><td><code>bool</code></td><td>Accepts <code>true</code>/<code>false</code>/<code>1</code>/<code>0</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card mb-4">
+      <div class="card-header">Constraint Strategies</div>
+      <div class="card-body">
+        <table class="table table-sm">
+          <thead><tr><th>Strategy</th><th>HTTP Response</th><th>Behavior</th></tr></thead>
+          <tbody>
+            <tr><td><code>deny</code></td><td>409 Conflict</td><td>Action is rejected</td></tr>
+            <tr><td><code>queue</code></td><td>202 Accepted</td><td>Retried every 30s for 5 min</td></tr>
+            <tr><td><code>stop_oldest</code></td><td>Proceeds</td><td>Oldest conflicting server is stopped first</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card mb-4">
+      <div class="card-header">Cron Syntax</div>
+      <div class="card-body">
+        <p>Standard cron format: <code>minute hour day-of-month month day-of-week</code></p>
+        <p>Example: <code>0 4 * * *</code> runs at 4:00 AM every day.</p>
+      </div>
+    </div>
+
+    {{if .Constraints}}
+    <div class="card mb-4">
+      <div class="card-header">Active Constraints</div>
+      <div class="card-body">
+        <table class="table table-sm">
+          <thead><tr><th>Name</th><th>Condition</th><th>Strategy</th><th>Priority</th><th>Enabled</th></tr></thead>
+          <tbody>
+            {{range .Constraints}}
+            <tr>
+              <td>{{.Name}}</td>
+              <td><code>{{.Condition}}</code></td>
+              <td>{{.Strategy}}</td>
+              <td>{{.Priority}}</td>
+              <td>{{if .Enabled}}<span class="badge bg-success">Yes</span>{{else}}<span class="badge bg-secondary">No</span>{{end}}</td>
+            </tr>
+            {{end}}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {{end}}
+
+    <p class="text-muted">Machine-readable version: <a href="/help/api.md">/help/api.md</a></p>
+  </div>
+</div>
+{{end}}

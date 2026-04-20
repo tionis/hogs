@@ -1,0 +1,77 @@
+{{define "title"}}Command Schemas{{end}}
+
+{{define "content"}}
+<nav aria-label="breadcrumb">
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="/admin">Admin</a></li>
+    <li class="breadcrumb-item active" aria-current="page">Commands: {{.Server.Name}}</li>
+  </ol>
+</nav>
+
+<h2>Command Schemas: {{.Server.Name}}</h2>
+
+{{if .CommandSchemas}}
+<div class="table-responsive">
+  <table class="table table-sm">
+    <thead><tr><th>Name</th><th>Display Name</th><th>Template</th><th>ACL Rule</th><th>Enabled</th><th></th></tr></thead>
+    <tbody>
+      {{range .CommandSchemas}}
+      <tr>
+        <td><code>{{.Name}}</code></td>
+        <td>{{.DisplayName}}</td>
+        <td><code>{{.Template}}</code></td>
+        <td>{{if .ACLRule}}<code>{{.ACLRule}}</code>{{else}}<span class="text-muted">inherit</span>{{end}}</td>
+        <td>{{if .Enabled}}<span class="badge bg-success">Yes</span>{{else}}<span class="badge bg-secondary">No</span>{{end}}</td>
+        <td>
+          <form action="/admin/commands/delete" method="POST" class="d-inline" onsubmit="return confirm('Delete this command schema?');">
+            <input type="hidden" name="id" value="{{.ID}}">
+            <input type="hidden" name="server_id" value="{{.ServerID}}">
+            <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
+          </form>
+        </td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+</div>
+{{else}}
+<p class="text-muted">No command schemas defined for this server.</p>
+{{end}}
+
+<div class="card mt-4">
+  <div class="card-header">Add Command Schema</div>
+  <div class="card-body">
+    <form action="/admin/commands/add" method="POST">
+      <input type="hidden" name="server_id" value="{{.Server.ID}}">
+      <div class="row">
+        <div class="col-md-4 mb-3">
+          <label class="form-label">Name (internal)</label>
+          <input type="text" class="form-control form-control-sm" name="name" placeholder="give_item" required pattern="[a-zA-Z0-9_]+">
+        </div>
+        <div class="col-md-4 mb-3">
+          <label class="form-label">Display Name</label>
+          <input type="text" class="form-control form-control-sm" name="display_name" placeholder="Give Item" required>
+        </div>
+        <div class="col-md-4 mb-3">
+          <label class="form-label">Template</label>
+          <input type="text" class="form-control form-control-sm" name="template" placeholder="give {player} {item} {count}" required>
+        </div>
+      </div>
+      <div class="mb-3">
+        <label class="form-label">Params (JSON)</label>
+        <textarea class="form-control form-control-sm" name="params" rows="4" placeholder='{"player":{"type":"string","pattern":"^[a-zA-Z0-9_]{3,16}$","required":true},"item":{"type":"enum","values":["diamond","iron_ingot"],"required":true},"count":{"type":"int","min":1,"max":64,"required":false,"default":"1"}}'></textarea>
+      </div>
+      <div class="mb-3">
+        <label class="form-label">ACL Rule (optional)</label>
+        <input type="text" class="form-control form-control-sm" name="acl_rule" placeholder='user.Role == "admin"'>
+      </div>
+      <div class="form-check mb-3">
+        <input class="form-check-input" type="checkbox" name="enabled" id="new-enabled" checked>
+        <label class="form-check-label" for="new-enabled">Enabled</label>
+      </div>
+      <button type="submit" class="btn btn-primary">Add Command Schema</button>
+      <a href="/admin/servers/{{.Server.ID}}" class="btn btn-secondary ms-2">Back to Server</a>
+    </form>
+  </div>
+</div>
+{{end}}

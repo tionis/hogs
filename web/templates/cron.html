@@ -1,0 +1,89 @@
+{{define "title"}}Cron Jobs{{end}}
+
+{{define "content"}}
+<nav aria-label="breadcrumb">
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="/admin">Admin</a></li>
+    <li class="breadcrumb-item active" aria-current="page">Cron Jobs</li>
+  </ol>
+</nav>
+
+<h2>Cron Jobs</h2>
+
+{{if .CronJobs}}
+<div class="table-responsive">
+  <table class="table table-sm">
+    <thead><tr><th>Name</th><th>Schedule</th><th>Server</th><th>Action</th><th>Enabled</th><th>Last Run</th><th></th></tr></thead>
+    <tbody>
+      {{range .CronJobs}}
+      <tr>
+        <td><strong>{{.Name}}</strong></td>
+        <td><code>{{.Schedule}}</code></td>
+        <td>{{.ServerName}}</td>
+        <td><code>{{.Action}}</code></td>
+        <td>{{if .Enabled}}<span class="badge bg-success">Yes</span>{{else}}<span class="badge bg-secondary">No</span>{{end}}</td>
+        <td class="text-muted">{{if .LastRun}}{{.LastRun}}{{else}}never{{end}}</td>
+        <td>
+          <form action="/admin/cron/delete" method="POST" class="d-inline" onsubmit="return confirm('Delete this cron job?');">
+            <input type="hidden" name="id" value="{{.ID}}">
+            <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
+          </form>
+        </td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+</div>
+{{else}}
+<p class="text-muted">No cron jobs defined.</p>
+{{end}}
+
+<div class="card mt-4">
+  <div class="card-header">Add Cron Job</div>
+  <div class="card-body">
+    <form action="/admin/cron/add" method="POST">
+      <div class="row">
+        <div class="col-md-3 mb-3">
+          <label class="form-label">Name</label>
+          <input type="text" class="form-control form-control-sm" name="name" placeholder="daily_restart" required>
+        </div>
+        <div class="col-md-3 mb-3">
+          <label class="form-label">Schedule</label>
+          <input type="text" class="form-control form-control-sm" name="schedule" placeholder="0 4 * * *" required>
+          <div class="form-text">minute hour day month weekday</div>
+        </div>
+        <div class="col-md-3 mb-3">
+          <label class="form-label">Server</label>
+          <select class="form-select form-select-sm" name="server_name" required>
+            <option value="">Select server...</option>
+            {{range .Servers}}
+            <option value="{{.Name}}">{{.Name}}</option>
+            {{end}}
+          </select>
+        </div>
+        <div class="col-md-3 mb-3">
+          <label class="form-label">Action</label>
+          <select class="form-select form-select-sm" name="action" required>
+            <option value="start">Start</option>
+            <option value="stop">Stop</option>
+            <option value="restart">Restart</option>
+          </select>
+        </div>
+      </div>
+      <div class="mb-3">
+        <label class="form-label">Params (JSON, optional)</label>
+        <input type="text" class="form-control form-control-sm" name="params" placeholder="{}">
+      </div>
+      <div class="mb-3">
+        <label class="form-label">ACL Rule Override (optional)</label>
+        <input type="text" class="form-control form-control-sm" name="acl_rule" placeholder="">
+      </div>
+      <div class="form-check mb-3">
+        <input class="form-check-input" type="checkbox" name="enabled" id="new-cron-enabled" checked>
+        <label class="form-check-label" for="new-cron-enabled">Enabled</label>
+      </div>
+      <button type="submit" class="btn btn-primary">Add Cron Job</button>
+    </form>
+  </div>
+</div>
+{{end}}

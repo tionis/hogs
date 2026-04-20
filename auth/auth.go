@@ -4,7 +4,9 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"log"
 	"net/http"
+	"time"
 
 	"github.com/tionis/hogs/config"
 	"github.com/tionis/hogs/database"
@@ -14,13 +16,16 @@ import (
 	"golang.org/x/oauth2"
 )
 
+const sessionCookieName = "hogs-session"
+
 type Authenticator struct {
-	Provider     *oidc.Provider
-	Config       oauth2.Config
-	Verifier     *oidc.IDTokenVerifier
-	SessionStore *sessions.CookieStore
-	Store        *database.Store
-	Cfg          *config.Config
+	Provider       *oidc.Provider
+	Config         oauth2.Config
+	Verifier       *oidc.IDTokenVerifier
+	LogoutVerifier *oidc.IDTokenVerifier
+	Store          *database.Store
+	Cfg            *config.Config
+	cookieStore    *sessions.CookieStore
 }
 
 func NewAuthenticator(cfg *config.Config, store *database.Store) (*Authenticator, error) {
@@ -39,6 +44,20 @@ func NewAuthenticator(cfg *config.Config, store *database.Store) (*Authenticator
 		ClientID: cfg.OIDCClientID,
 	}
 
+	logoutOidcConfig := &oidc.Config{
+		ClientID:          cfg.OIDCClientID,
+		SkipClientIDCheck: true,
+		SkipIssuerCheck:   true,
+	}
+
+	cookieStore := sessions.NewCookieStore([]byte(cfg.SessionSecret))
+	cookieStore.Options = &sessions.Options{
+		Path:     "/",
+		MaxAge:   86400 * 30,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	}
+
 	return &Authenticator{
 		Provider: provider,
 		Config: oauth2.Config{
@@ -48,10 +67,11 @@ func NewAuthenticator(cfg *config.Config, store *database.Store) (*Authenticator
 			Endpoint:     provider.Endpoint(),
 			Scopes:       []string{oidc.ScopeOpenID, "profile", "email"},
 		},
-		Verifier:     provider.Verifier(oidcConfig),
-		SessionStore: sessions.NewCookieStore([]byte(cfg.SessionSecret)),
-		Store:        store,
-		Cfg:          cfg,
+		Verifier:       provider.Verifier(oidcConfig),
+		LogoutVerifier: provider.Verifier(logoutOidcConfig),
+		Store:          store,
+		Cfg:            cfg,
+		cookieStore:    cookieStore,
 	}, nil
 }
 
@@ -62,7 +82,7 @@ func (a *Authenticator) HandleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	session, _ := a.SessionStore.Get(r, "hogs-session")
+	session, _ := a.cookieStore.Get(r, sessionCookieName)
 	session.Values["state"] = state
 	session.Save(r, w)
 
@@ -70,7 +90,7 @@ func (a *Authenticator) HandleLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *Authenticator) HandleCallback(w http.ResponseWriter, r *http.Request) {
-	session, _ := a.SessionStore.Get(r, "hogs-session")
+	session, _ := a.cookieStore.Get(r, sessionCookieName)
 
 	state := r.URL.Query().Get("state")
 	if session.Values["state"] != state {
@@ -114,12 +134,112 @@ func (a *Authenticator) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	session.Values["user_email"] = claims.Email
-	session.Values["authenticated"] = true
-	session.Values["user_role"] = role
+	sessionID, err := generateRandomState()
+	if err != nil {
+		http.Error(w, "Failed to create session", http.StatusInternalServerError)
+		return
+	}
+
+	expiresAt := time.Now().UTC().Add(30 * 24 * time.Hour).Format(time.RFC3339)
+	dbSession := &database.Session{
+		SessionID: sessionID,
+		UserSub:   claims.Sub,
+		UserEmail: claims.Email,
+		UserRole:  role,
+		CreatedAt: time.Now().UTC().Format(time.RFC3339),
+		ExpiresAt: expiresAt,
+	}
+	if err := a.Store.CreateSession(dbSession); err != nil {
+		http.Error(w, "Failed to create session", http.StatusInternalServerError)
+		return
+	}
+
+	session.Values["session_id"] = sessionID
+	session.Values["state"] = ""
 	session.Save(r, w)
 
 	http.Redirect(w, r, "/admin", http.StatusFound)
+}
+
+func (a *Authenticator) HandleLogout(w http.ResponseWriter, r *http.Request) {
+	session, _ := a.cookieStore.Get(r, sessionCookieName)
+
+	if sessionID, ok := session.Values["session_id"].(string); ok && sessionID != "" {
+		a.Store.DeleteSession(sessionID)
+	}
+
+	session.Values["session_id"] = ""
+	session.Options.MaxAge = -1
+	session.Save(r, w)
+	http.Redirect(w, r, "/", http.StatusFound)
+}
+
+func (a *Authenticator) HandleBackChannelLogout(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+
+	logoutToken := r.FormValue("logout_token")
+	if logoutToken == "" {
+		http.Error(w, "Missing logout_token", http.StatusBadRequest)
+		return
+	}
+
+	idToken, err := a.LogoutVerifier.Verify(r.Context(), logoutToken)
+	if err != nil {
+		log.Printf("Back-channel logout: token verification failed: %v", err)
+		http.Error(w, "Invalid logout token", http.StatusBadRequest)
+		return
+	}
+
+	var claims struct {
+		Sub    string                 `json:"sub"`
+		Sid    string                 `json:"sid"`
+		Events map[string]interface{} `json:"events"`
+	}
+	if err := idToken.Claims(&claims); err != nil {
+		log.Printf("Back-channel logout: failed to parse claims: %v", err)
+		http.Error(w, "Invalid token claims", http.StatusBadRequest)
+		return
+	}
+
+	if len(claims.Events) == 0 {
+		http.Error(w, "Missing events claim", http.StatusBadRequest)
+		return
+	}
+
+	if claims.Sub != "" {
+		if err := a.Store.DeleteSessionsBySub(claims.Sub); err != nil {
+			log.Printf("Back-channel logout: failed to delete sessions for sub %s: %v", claims.Sub, err)
+			http.Error(w, "Internal error", http.StatusInternalServerError)
+			return
+		}
+		log.Printf("Back-channel logout: invalidated sessions for sub=%s", claims.Sub)
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (a *Authenticator) getSession(r *http.Request) *database.Session {
+	session, _ := a.cookieStore.Get(r, sessionCookieName)
+	sessionID, ok := session.Values["session_id"].(string)
+	if !ok || sessionID == "" {
+		return nil
+	}
+
+	dbSession, err := a.Store.GetSession(sessionID)
+	if err != nil || dbSession == nil {
+		return nil
+	}
+
+	expiresAt, err := time.Parse(time.RFC3339, dbSession.ExpiresAt)
+	if err != nil || time.Now().UTC().After(expiresAt) {
+		a.Store.DeleteSession(sessionID)
+		return nil
+	}
+
+	return dbSession
 }
 
 func extractGroups(idToken *oidc.IDToken, claimName string) []string {
@@ -195,20 +315,10 @@ func (a *Authenticator) provisionUser(email, role string) error {
 	return a.Store.TouchUserLastLogin(user.ID)
 }
 
-func (a *Authenticator) HandleLogout(w http.ResponseWriter, r *http.Request) {
-	session, _ := a.SessionStore.Get(r, "hogs-session")
-	session.Values["authenticated"] = false
-	session.Values["user_email"] = ""
-	session.Values["user_role"] = ""
-	session.Options.MaxAge = -1
-	session.Save(r, w)
-	http.Redirect(w, r, "/", http.StatusFound)
-}
-
 func (a *Authenticator) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		session, _ := a.SessionStore.Get(r, "hogs-session")
-		if auth, ok := session.Values["authenticated"].(bool); !ok || !auth {
+		dbSession := a.getSession(r)
+		if dbSession == nil {
 			http.Redirect(w, r, "/login", http.StatusFound)
 			return
 		}
@@ -223,13 +333,12 @@ func (a *Authenticator) RequireRole(roles ...string) func(http.Handler) http.Han
 	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			session, _ := a.SessionStore.Get(r, "hogs-session")
-			if auth, ok := session.Values["authenticated"].(bool); !ok || !auth {
+			dbSession := a.getSession(r)
+			if dbSession == nil {
 				http.Redirect(w, r, "/login", http.StatusFound)
 				return
 			}
-			role, _ := session.Values["user_role"].(string)
-			if !roleSet[role] {
+			if !roleSet[dbSession.UserRole] {
 				http.Error(w, "Forbidden", http.StatusForbidden)
 				return
 			}
@@ -239,27 +348,37 @@ func (a *Authenticator) RequireRole(roles ...string) func(http.Handler) http.Han
 }
 
 func (a *Authenticator) IsAuthenticated(r *http.Request) bool {
-	session, _ := a.SessionStore.Get(r, "hogs-session")
-	auth, ok := session.Values["authenticated"].(bool)
-	return ok && auth
+	return a.getSession(r) != nil
 }
 
 func (a *Authenticator) GetUserEmail(r *http.Request) string {
-	session, _ := a.SessionStore.Get(r, "hogs-session")
-	email, ok := session.Values["user_email"].(string)
-	if !ok {
+	dbSession := a.getSession(r)
+	if dbSession == nil {
 		return ""
 	}
-	return email
+	return dbSession.UserEmail
 }
 
 func (a *Authenticator) GetUserRole(r *http.Request) string {
-	session, _ := a.SessionStore.Get(r, "hogs-session")
-	role, ok := session.Values["user_role"].(string)
-	if !ok {
+	dbSession := a.getSession(r)
+	if dbSession == nil {
 		return ""
 	}
-	return role
+	return dbSession.UserRole
+}
+
+func (a *Authenticator) GetSessionID(r *http.Request) string {
+	dbSession := a.getSession(r)
+	if dbSession == nil {
+		return ""
+	}
+	return dbSession.SessionID
+}
+
+func (a *Authenticator) CleanupSessions() {
+	if err := a.Store.CleanupExpiredSessions(); err != nil {
+		log.Printf("Warning: session cleanup failed: %v", err)
+	}
 }
 
 func generateRandomState() (string, error) {

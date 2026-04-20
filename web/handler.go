@@ -2,11 +2,14 @@ package web
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"embed"
 	"encoding/json"
+	"fmt"
 	"github.com/tionis/hogs/auth"
 	"github.com/tionis/hogs/config"
 	"github.com/tionis/hogs/database"
+	"github.com/tionis/hogs/engine"
 	"github.com/tionis/hogs/modmanager"
 	"html/template"
 	"io"
@@ -28,11 +31,12 @@ type WebHandler struct {
 	Store  *database.Store
 	Config *config.Config
 	Auth   *auth.Authenticator
+	Engine *engine.Engine
 }
 
 // NewWebHandler creates a new WebHandler.
-func NewWebHandler(store *database.Store, cfg *config.Config, auth *auth.Authenticator) *WebHandler {
-	return &WebHandler{Store: store, Config: cfg, Auth: auth}
+func NewWebHandler(store *database.Store, cfg *config.Config, auth *auth.Authenticator, eng *engine.Engine) *WebHandler {
+	return &WebHandler{Store: store, Config: cfg, Auth: auth, Engine: eng}
 }
 
 type BackgroundURLs struct {
@@ -99,6 +103,7 @@ type PterodactylLinkData struct {
 	PteroServerID   string                        `json:"pteroServerId"`
 	PteroIdentifier string                        `json:"pteroIdentifier"`
 	AllowedActions  []string                      `json:"allowedActions"`
+	ACLRule         string                        `json:"aclRule"`
 	Commands        []database.PterodactylCommand `json:"commands"`
 }
 
@@ -504,15 +509,22 @@ func (h *WebHandler) ServerEdit(w http.ResponseWriter, r *http.Request) {
 				PteroServerID:   link.PteroServerID,
 				PteroIdentifier: link.PteroIdentifier,
 				AllowedActions:  actions,
+				ACLRule:         link.ACLRule,
 				Commands:        commands,
 			}
 		}
+	}
+
+	serverTags, _ := h.Store.GetServerTags(server.ID)
+	if serverTags == nil {
+		serverTags = []string{}
 	}
 
 	data := struct {
 		Server          *database.Server
 		PteroConfigured bool
 		PteroLink       *PterodactylLinkData
+		ServerTags      []string
 		Authenticated   bool
 		UserRole        string
 		SiteName        string
@@ -522,6 +534,7 @@ func (h *WebHandler) ServerEdit(w http.ResponseWriter, r *http.Request) {
 		Server:          server,
 		PteroConfigured: h.Config.PterodactylURL != "",
 		PteroLink:       pteroLink,
+		ServerTags:      serverTags,
 		Authenticated:   true,
 		UserRole:        "admin",
 		SiteName:        h.siteName(),
@@ -837,4 +850,252 @@ func (h *WebHandler) MyServers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	buf.WriteTo(w)
+}
+
+func (h *WebHandler) CommandManager(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	serverID, err := strconv.Atoi(vars["serverId"])
+	if err != nil {
+		http.Error(w, "Invalid server ID", http.StatusBadRequest)
+		return
+	}
+
+	server, err := h.Store.GetServer(serverID)
+	if err != nil || server == nil {
+		http.Error(w, "Server not found", http.StatusNotFound)
+		return
+	}
+
+	schemas, _ := h.Store.ListCommandSchemas(serverID)
+	if schemas == nil {
+		schemas = []database.CommandSchema{}
+	}
+
+	data := struct {
+		Server         *database.Server
+		CommandSchemas []database.CommandSchema
+		Authenticated  bool
+		UserRole       string
+		SiteName       string
+		UserEmail      string
+		BackgroundURLs BackgroundURLs
+	}{
+		Server:         server,
+		CommandSchemas: schemas,
+		Authenticated:  true,
+		UserRole:       "admin",
+		SiteName:       h.siteName(),
+		UserEmail:      h.Auth.GetUserEmail(r),
+		BackgroundURLs: h.pickBackgrounds([]string{"home"}),
+	}
+
+	tmpl, err := template.New("base.html").Funcs(sharedFuncMap()).ParseFS(templateFS, "templates/base.html", "templates/commands.html")
+	if err != nil {
+		http.Error(w, "Template error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, data); err != nil {
+		http.Error(w, "Render error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	buf.WriteTo(w)
+}
+
+func (h *WebHandler) ConstraintManager(w http.ResponseWriter, r *http.Request) {
+	constraints, _ := h.Store.ListConstraints()
+	if constraints == nil {
+		constraints = []database.Constraint{}
+	}
+
+	data := struct {
+		Constraints    []database.Constraint
+		Authenticated  bool
+		UserRole       string
+		SiteName       string
+		UserEmail      string
+		BackgroundURLs BackgroundURLs
+	}{
+		Constraints:    constraints,
+		Authenticated:  true,
+		UserRole:       "admin",
+		SiteName:       h.siteName(),
+		UserEmail:      h.Auth.GetUserEmail(r),
+		BackgroundURLs: h.pickBackgrounds([]string{"home"}),
+	}
+
+	tmpl, err := template.New("base.html").Funcs(sharedFuncMap()).ParseFS(templateFS, "templates/base.html", "templates/constraints.html")
+	if err != nil {
+		http.Error(w, "Template error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, data); err != nil {
+		http.Error(w, "Render error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	buf.WriteTo(w)
+}
+
+func (h *WebHandler) CronManager(w http.ResponseWriter, r *http.Request) {
+	jobs, _ := h.Store.ListCronJobs()
+	if jobs == nil {
+		jobs = []database.CronJob{}
+	}
+
+	servers, _ := h.Store.ListServers()
+	if servers == nil {
+		servers = []database.Server{}
+	}
+
+	data := struct {
+		CronJobs       []database.CronJob
+		Servers        []database.Server
+		Authenticated  bool
+		UserRole       string
+		SiteName       string
+		UserEmail      string
+		BackgroundURLs BackgroundURLs
+	}{
+		CronJobs:       jobs,
+		Servers:        servers,
+		Authenticated:  true,
+		UserRole:       "admin",
+		SiteName:       h.siteName(),
+		UserEmail:      h.Auth.GetUserEmail(r),
+		BackgroundURLs: h.pickBackgrounds([]string{"home"}),
+	}
+
+	tmpl, err := template.New("base.html").Funcs(sharedFuncMap()).ParseFS(templateFS, "templates/base.html", "templates/cron.html")
+	if err != nil {
+		http.Error(w, "Template error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, data); err != nil {
+		http.Error(w, "Render error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	buf.WriteTo(w)
+}
+
+func (h *WebHandler) Help(w http.ResponseWriter, r *http.Request) {
+	constraints, _ := h.Store.ListConstraints()
+
+	data := struct {
+		Constraints    []database.Constraint
+		SiteName       string
+		Authenticated  bool
+		UserRole       string
+		BackgroundURLs BackgroundURLs
+	}{
+		Constraints:    constraints,
+		SiteName:       h.siteName(),
+		Authenticated:  h.Auth != nil && h.Auth.IsAuthenticated(r),
+		UserRole:       h.userRole(r),
+		BackgroundURLs: h.pickBackgrounds([]string{"home"}),
+	}
+
+	tmpl, err := template.New("base.html").Funcs(sharedFuncMap()).ParseFS(templateFS, "templates/base.html", "templates/help.html")
+	if err != nil {
+		http.Error(w, "Template error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, data); err != nil {
+		http.Error(w, "Render error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	buf.WriteTo(w)
+}
+
+func (h *WebHandler) HelpMarkdown(w http.ResponseWriter, r *http.Request) {
+	constraints, _ := h.Store.ListConstraints()
+	jobs, _ := h.Store.ListCronJobs()
+
+	md := "# HOGS Automation API Reference\n\n"
+	md += "## Available Actions\n\n"
+	md += "| Action | Description |\n|--------|-------------|\n"
+	md += "| `start` | Start a server |\n"
+	md += "| `stop` | Stop a server |\n"
+	md += "| `restart` | Restart a server |\n"
+	md += "| `whitelist` | Add player to whitelist |\n"
+	md += "| `command:<name>` | Execute a parameterized command |\n\n"
+
+	md += "## Expression Language\n\n"
+	md += "Expressions use [expr](https://expr-lang.org/) syntax.\n\n"
+	md += "### Available Variables\n\n"
+	md += "| Variable | Type | Description |\n|----------|------|-------------|\n"
+	md += "| `action` | `string` | The requested action |\n"
+	md += "| `server.ID` | `int` | Server ID |\n"
+	md += "| `server.Name` | `string` | Server name |\n"
+	md += "| `server.GameType` | `string` | Game type |\n"
+	md += "| `server.Tags` | `[]string` | Server tags |\n"
+	md += "| `server.Node` | `string` | Pterodactyl node |\n"
+	md += "| `server.Running` | `bool` | Is server online |\n"
+	md += "| `user.Email` | `string` | Requesting user email |\n"
+	md += "| `user.Role` | `string` | User role (admin/user) |\n"
+	md += "| `time.Hour` | `int` | Current hour (0-23) |\n"
+	md += "| `time.Weekday` | `time.Weekday` | Current weekday |\n\n"
+
+	md += "### Helper Functions\n\n"
+	md += "| Function | Signature | Description |\n|----------|-----------|-------------|\n"
+	md += "| `hasTag` | `(ServerEnv, string) bool` | Check if server has a tag |\n"
+	md += "| `serversOnNode` | `(string) []ServerEnv` | Get servers on a node |\n"
+	md += "| `runningOnNode` | `(string) []ServerEnv` | Get running servers on a node |\n"
+	md += "| `countRunning` | `([]ServerEnv) int` | Count running servers |\n"
+	md += "| `filterByTag` | `([]ServerEnv, string) []ServerEnv` | Filter servers by tag |\n"
+	md += "| `weekday` | `(string) time.Weekday` | Parse weekday name |\n\n"
+
+	md += "## Active Constraints\n\n"
+	if len(constraints) == 0 {
+		md += "No constraints configured.\n\n"
+	} else {
+		md += "| Name | Condition | Strategy | Priority | Enabled |\n|------|-----------|----------|----------|---------|\n"
+		for _, c := range constraints {
+			enabledStr := "Yes"
+			if !c.Enabled {
+				enabledStr = "No"
+			}
+			md += fmt.Sprintf("| %s | `%s` | %s | %d | %s |\n", c.Name, c.Condition, c.Strategy, c.Priority, enabledStr)
+		}
+		md += "\n"
+	}
+
+	md += "## Cron Jobs\n\n"
+	if len(jobs) == 0 {
+		md += "No cron jobs configured.\n\n"
+	} else {
+		md += "| Name | Schedule | Server | Action | Enabled |\n|------|----------|--------|--------|---------|\n"
+		for _, j := range jobs {
+			enabledStr := "Yes"
+			if !j.Enabled {
+				enabledStr = "No"
+			}
+			md += fmt.Sprintf("| %s | `%s` | %s | %s | %s |\n", j.Name, j.Schedule, j.ServerName, j.Action, enabledStr)
+		}
+		md += "\n"
+	}
+
+	md += "## Parameter Types\n\n"
+	md += "| Type | Validation |\n|------|------------|\n"
+	md += "| `string` | Optional `pattern` (regex), `minLength`, `maxLength` |\n"
+	md += "| `int` | Optional `min`, `max` |\n"
+	md += "| `float` | Optional `min`, `max` |\n"
+	md += "| `enum` | Required `values` array |\n"
+	md += "| `bool` | Accepts `true`/`false`/`1`/`0` |\n"
+
+	md += "\n## Cron Syntax\n\n"
+	md += "Standard cron format: `minute hour day-of-month month day-of-week`\n"
+	md += "Example: `0 4 * * *` runs at 4:00 AM every day.\n"
+
+	contentHash := fmt.Sprintf("%x", sha256.Sum256([]byte(md)))[:16]
+
+	w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+	w.Header().Set("Server-Hogs-Help-Version", contentHash)
+	w.Write([]byte(md))
 }

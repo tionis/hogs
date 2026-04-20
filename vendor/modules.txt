@@ -1,6 +1,27 @@
 # github.com/coreos/go-oidc/v3 v3.17.0
 ## explicit; go 1.24.0
 github.com/coreos/go-oidc/v3/oidc
+# github.com/expr-lang/expr v1.17.8
+## explicit; go 1.18
+github.com/expr-lang/expr
+github.com/expr-lang/expr/ast
+github.com/expr-lang/expr/builtin
+github.com/expr-lang/expr/checker
+github.com/expr-lang/expr/checker/nature
+github.com/expr-lang/expr/compiler
+github.com/expr-lang/expr/conf
+github.com/expr-lang/expr/file
+github.com/expr-lang/expr/internal/deref
+github.com/expr-lang/expr/internal/ring
+github.com/expr-lang/expr/optimizer
+github.com/expr-lang/expr/parser
+github.com/expr-lang/expr/parser/lexer
+github.com/expr-lang/expr/parser/operator
+github.com/expr-lang/expr/parser/utils
+github.com/expr-lang/expr/patcher
+github.com/expr-lang/expr/types
+github.com/expr-lang/expr/vm
+github.com/expr-lang/expr/vm/runtime
 # github.com/go-jose/go-jose/v4 v4.1.3
 ## explicit; go 1.24.0
 github.com/go-jose/go-jose/v4
@@ -36,6 +57,9 @@ github.com/mcstatus-io/mcutil/v4/proto
 github.com/mcstatus-io/mcutil/v4/response
 github.com/mcstatus-io/mcutil/v4/status
 github.com/mcstatus-io/mcutil/v4/util
+# github.com/robfig/cron/v3 v3.0.1
+## explicit; go 1.12
+github.com/robfig/cron/v3
 # golang.org/x/oauth2 v0.34.0
 ## explicit; go 1.24.0
 golang.org/x/oauth2

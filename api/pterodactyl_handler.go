@@ -9,16 +9,18 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/tionis/hogs/config"
 	"github.com/tionis/hogs/database"
+	"github.com/tionis/hogs/engine"
 	"github.com/tionis/hogs/pterodactyl"
 )
 
 type PterodactylHandler struct {
 	Store  *database.Store
 	Config *config.Config
+	Engine *engine.Engine
 }
 
-func NewPterodactylHandler(store *database.Store, cfg *config.Config) *PterodactylHandler {
-	return &PterodactylHandler{Store: store, Config: cfg}
+func NewPterodactylHandler(store *database.Store, cfg *config.Config, eng *engine.Engine) *PterodactylHandler {
+	return &PterodactylHandler{Store: store, Config: cfg, Engine: eng}
 }
 
 func (h *PterodactylHandler) client() *pterodactyl.Client {
@@ -255,9 +257,18 @@ func (h *PterodactylHandler) ServerAction(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	if !isActionAllowed(link.AllowedActions, action) {
-		http.Error(w, "Action not permitted for this server", http.StatusForbidden)
-		return
+	user := h.getUserEnv(r)
+	if h.Engine != nil {
+		result := h.Engine.Evaluate(server, action, nil, user)
+		if !result.Allowed {
+			http.Error(w, result.Reason, result.Status)
+			return
+		}
+	} else {
+		if !isActionAllowed(link.AllowedActions, action) {
+			http.Error(w, "Action not permitted for this server", http.StatusForbidden)
+			return
+		}
 	}
 
 	c := h.client()
@@ -303,6 +314,27 @@ func (h *PterodactylHandler) ServerAction(w http.ResponseWriter, r *http.Request
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
+func (h *PterodactylHandler) getUserEnv(r *http.Request) *engine.UserEnv {
+	email := ""
+	role := ""
+	if r != nil {
+		email = r.FormValue("user_email")
+		role = r.FormValue("user_role")
+	}
+	if email == "" {
+		email = "anonymous"
+	}
+	if role == "" {
+		role = "user"
+	}
+	return &engine.UserEnv{Email: email, Role: role}
+}
+
+func (h *PterodactylHandler) evaluateACLEnabled(link *database.PterodactylLink, server *database.Server, action string, user *engine.UserEnv) bool {
+	result := h.Engine.Evaluate(server, action, nil, user)
+	return result.Allowed
+}
+
 func (h *PterodactylHandler) SendCommand(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	serverName := vars["serverName"]
@@ -324,9 +356,19 @@ func (h *PterodactylHandler) SendCommand(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if !isActionAllowed(link.AllowedActions, "command:"+command) {
-		http.Error(w, "Command not permitted for this server", http.StatusForbidden)
-		return
+	action := "command:" + command
+	user := h.getUserEnv(r)
+	if h.Engine != nil {
+		result := h.Engine.Evaluate(server, action, nil, user)
+		if !result.Allowed {
+			http.Error(w, result.Reason, result.Status)
+			return
+		}
+	} else {
+		if !isActionAllowed(link.AllowedActions, action) {
+			http.Error(w, "Command not permitted for this server", http.StatusForbidden)
+			return
+		}
 	}
 
 	c := h.client()
@@ -386,8 +428,11 @@ func (h *PterodactylHandler) WhitelistSet(w http.ResponseWriter, r *http.Request
 	}
 
 	if !isActionAllowed(link.AllowedActions, "whitelist") {
-		http.Error(w, "Whitelist action not permitted for this server", http.StatusForbidden)
-		return
+		user := h.getUserEnv(r)
+		if h.Engine == nil || !h.evaluateACLEnabled(link, server, "whitelist", user) {
+			http.Error(w, "Whitelist action not permitted for this server", http.StatusForbidden)
+			return
+		}
 	}
 
 	c := h.client()
