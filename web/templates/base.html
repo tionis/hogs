@@ -391,8 +391,7 @@
       });
 
       document.addEventListener("DOMContentLoaded", function() {
-        const statusElements = document.querySelectorAll('.server-status-poller');
-        statusElements.forEach(el => {
+        function updateServerStatus(el) {
           const serverName = el.dataset.server;
           const gameType = el.dataset.gameType || 'minecraft';
           const serverState = el.dataset.state || 'auto';
@@ -400,6 +399,7 @@
             el.innerHTML = `<span class="text-muted">${serverState.charAt(0).toUpperCase() + serverState.slice(1)}</span>`;
             return;
           }
+          el.dataset.polling = 'true';
           fetch(`/api/servers/${serverName}/status`)
             .then(r => r.json())
             .then(data => {
@@ -437,6 +437,9 @@
                     badgeEl.innerText = 'Offline';
                 }
               }
+              if (typeof window.onServerStatusUpdate === 'function') {
+                window.onServerStatusUpdate(serverName, data);
+              }
             })
             .catch(e => {
               el.innerHTML = `<span class="status-offline">Error</span>`;
@@ -446,7 +449,13 @@
                   badgeEl.innerText = 'Error';
               }
             });
-        });
+        }
+
+        const statusElements = document.querySelectorAll('.server-status-poller');
+        statusElements.forEach(updateServerStatus);
+        setInterval(() => {
+          document.querySelectorAll('.server-status-poller[data-polling="true"]').forEach(updateServerStatus);
+        }, 30000);
       });
     </script>
   </body>

@@ -175,9 +175,55 @@
  </div>
 
 <script>
+window.onServerStatusUpdate = function(serverName, data) {
+    const gameType = "{{.Server.GameType}}";
+
+    const playerListEl = document.getElementById(`player-list-${serverName}`);
+    if (playerListEl) {
+        if (data.playerList && data.playerList.length > 0) {
+            const names = data.playerList.map(p => p.name).join(', ');
+            playerListEl.innerHTML = `<strong>Online:</strong> ${names}`;
+        } else {
+            playerListEl.textContent = 'No players online';
+        }
+    }
+
+    if (!data.online) return;
+
+    if (gameType === 'minecraft') {
+        const el = document.getElementById('game-detail-minecraft');
+        if (el) {
+            el.style.display = 'block';
+            const verEl = document.getElementById('mc-version');
+            if (verEl && data.version) verEl.textContent = data.version;
+            const motdEl = document.getElementById('mc-motd');
+            if (motdEl && data.serverMessage) motdEl.textContent = data.serverMessage;
+        }
+    }
+
+    if (gameType === 'satisfactory') {
+        const el = document.getElementById('game-detail-satisfactory');
+        if (el) {
+            el.style.display = 'block';
+            const sessEl = document.getElementById('sf-session');
+            if (sessEl && data.mapName) sessEl.textContent = data.mapName;
+            const nameEl = document.getElementById('sf-servername');
+            if (nameEl && data.serverMessage) nameEl.textContent = data.serverMessage;
+        }
+    }
+
+    if (gameType === 'factorio') {
+        const el = document.getElementById('game-detail-factorio');
+        if (el) {
+            el.style.display = 'block';
+            const verEl = document.getElementById('fa-version');
+            if (verEl && data.version) verEl.textContent = data.version;
+        }
+    }
+};
+
 document.addEventListener("DOMContentLoaded", function() {
     const serverName = "{{.Server.Name}}";
-    const gameType = "{{.Server.GameType}}";
     const userEmail = "{{.UserEmail}}";
     const container = document.getElementById('file-browser');
     
@@ -208,44 +254,6 @@ document.addEventListener("DOMContentLoaded", function() {
       })
       .catch(() => {});
     }
-
-    fetch(`/api/servers/${serverName}/status`)
-    .then(r => r.json())
-    .then(data => {
-      if (!data.online) return;
-
-      if (gameType === 'minecraft') {
-        const el = document.getElementById('game-detail-minecraft');
-        if (el) {
-          el.style.display = 'block';
-          const verEl = document.getElementById('mc-version');
-          if (verEl && data.version) verEl.textContent = data.version;
-          const motdEl = document.getElementById('mc-motd');
-          if (motdEl && data.serverMessage) motdEl.textContent = data.serverMessage;
-        }
-      }
-
-      if (gameType === 'satisfactory') {
-        const el = document.getElementById('game-detail-satisfactory');
-        if (el) {
-          el.style.display = 'block';
-          const sessEl = document.getElementById('sf-session');
-          if (sessEl && data.mapName) sessEl.textContent = data.mapName;
-          const nameEl = document.getElementById('sf-servername');
-          if (nameEl && data.serverMessage) nameEl.textContent = data.serverMessage;
-        }
-      }
-
-      if (gameType === 'factorio') {
-        const el = document.getElementById('game-detail-factorio');
-        if (el) {
-          el.style.display = 'block';
-          const verEl = document.getElementById('fa-version');
-          if (verEl && data.version) verEl.textContent = data.version;
-        }
-      }
-    })
-    .catch(() => {});
 });
 
 function renderFileTree(item, serverName) {

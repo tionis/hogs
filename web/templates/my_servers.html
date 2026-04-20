@@ -16,7 +16,7 @@
           <a href="/{{.Server.Name}}" class="text-decoration-none">{{.Server.Name}}</a>
           <span class="game-badge ms-1" style="{{gameBadgeCSS .Server.GameType}}; font-size:0.6em;">{{.Server.GameType | gameIcon}}{{.Server.GameType | gameDisplayName}}</span>
         </h5>
-        <div class="server-status-poller small mb-2" data-server="{{.Server.Name}}" data-game-type="{{.Server.GameType}}">Checking...</div>
+        <div class="server-status-poller small mb-2" data-server="{{.Server.Name}}" data-game-type="{{.Server.GameType}}" data-state="{{.Server.State}}">Checking...</div>
         {{if .PteroLink}}
         <div class="d-flex flex-wrap gap-1">
           {{if inList "start" .AllowedActions}}<span class="badge bg-success">Start</span>{{end}}
