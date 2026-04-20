@@ -90,12 +90,12 @@
                 </div>
                 <div class="d-flex gap-1">
                   <button type="submit" class="btn btn-sm btn-outline-primary">Save</button>
-                  <form action="/admin/backgrounds/delete" method="POST" class="d-inline" onsubmit="return confirm('Delete this background?');">
-                    <input type="hidden" name="id" value="{{.ID}}">
-                    <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
-                  </form>
+                  <button type="submit" class="btn btn-sm btn-outline-danger" form="delete-{{.ID}}">Delete</button>
                 </div>
               </div>
+            </form>
+            <form id="delete-{{.ID}}" action="/admin/backgrounds/delete" method="POST" class="d-none" onsubmit="return confirm('Delete this background?');">
+              <input type="hidden" name="id" value="{{.ID}}">
             </form>
           </div>
         </div>
