@@ -1305,3 +1305,112 @@ func (s *Store) GetSCIMGroupsForUser(userID int) ([]SCIMGroup, error) {
 	}
 	return groups, nil
 }
+
+type Agent struct {
+	ID           int             `json:"id"`
+	Name         string          `json:"name"`
+	Token        string          `json:"token"`
+	NodeName     string          `json:"nodeName"`
+	Capabilities json.RawMessage `json:"capabilities"`
+	CreatedAt    string          `json:"createdAt"`
+	LastSeen     *string         `json:"lastSeen"`
+	Online       bool            `json:"online"`
+}
+
+func (s *Store) CreateAgent(a *Agent) error {
+	if a.Capabilities == nil {
+		a.Capabilities = json.RawMessage("[]")
+	}
+	result, err := s.DB.Exec("INSERT INTO agents (name, token, node_name, capabilities) VALUES (?, ?, ?, ?)",
+		a.Name, a.Token, a.NodeName, string(a.Capabilities))
+	if err != nil {
+		return err
+	}
+	id, _ := result.LastInsertId()
+	a.ID = int(id)
+	return nil
+}
+
+func (s *Store) GetAgent(id int) (*Agent, error) {
+	row := s.DB.QueryRow("SELECT id, name, token, node_name, capabilities, created_at, last_seen, online FROM agents WHERE id = ?", id)
+	var a Agent
+	var online int
+	err := row.Scan(&a.ID, &a.Name, &a.Token, &a.NodeName, &a.Capabilities, &a.CreatedAt, &a.LastSeen, &online)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	a.Online = online == 1
+	return &a, nil
+}
+
+func (s *Store) GetAgentByToken(token string) (*Agent, error) {
+	row := s.DB.QueryRow("SELECT id, name, token, node_name, capabilities, created_at, last_seen, online FROM agents WHERE token = ?", token)
+	var a Agent
+	var online int
+	err := row.Scan(&a.ID, &a.Name, &a.Token, &a.NodeName, &a.Capabilities, &a.CreatedAt, &a.LastSeen, &online)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	a.Online = online == 1
+	return &a, nil
+}
+
+func (s *Store) GetAgentByNodeName(nodeName string) (*Agent, error) {
+	row := s.DB.QueryRow("SELECT id, name, token, node_name, capabilities, created_at, last_seen, online FROM agents WHERE node_name = ?", nodeName)
+	var a Agent
+	var online int
+	err := row.Scan(&a.ID, &a.Name, &a.Token, &a.NodeName, &a.Capabilities, &a.CreatedAt, &a.LastSeen, &online)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	a.Online = online == 1
+	return &a, nil
+}
+
+func (s *Store) ListAgents() ([]Agent, error) {
+	rows, err := s.DB.Query("SELECT id, name, token, node_name, capabilities, created_at, last_seen, online FROM agents ORDER BY id")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var agents []Agent
+	for rows.Next() {
+		var a Agent
+		var online int
+		if err := rows.Scan(&a.ID, &a.Name, &a.Token, &a.NodeName, &a.Capabilities, &a.CreatedAt, &a.LastSeen, &online); err != nil {
+			return nil, err
+		}
+		a.Online = online == 1
+		agents = append(agents, a)
+	}
+	return agents, nil
+}
+
+func (s *Store) UpdateAgentOnline(id int, online bool) error {
+	onlineInt := 0
+	if online {
+		onlineInt = 1
+	}
+	_, err := s.DB.Exec("UPDATE agents SET online = ?, last_seen = CURRENT_TIMESTAMP WHERE id = ?", onlineInt, id)
+	return err
+}
+
+func (s *Store) UpdateAgentCapabilities(id int, capabilities json.RawMessage) error {
+	_, err := s.DB.Exec("UPDATE agents SET capabilities = ? WHERE id = ?", string(capabilities), id)
+	return err
+}
+
+func (s *Store) DeleteAgent(id int) error {
+	_, err := s.DB.Exec("DELETE FROM agents WHERE id = ?", id)
+	return err
+}

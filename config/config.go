@@ -42,6 +42,10 @@ type Config struct {
 	CronQueueMaxRetry        int
 	AuditLogRetentionDays    int
 	PteroNodeRefreshInterval int
+
+	// Agent Configuration
+	AgentEnabled      bool
+	AgentHeartbeatSec int
 }
 
 // LoadConfig reads configuration from environment variables or sets defaults.
@@ -83,6 +87,9 @@ func LoadConfig() *Config {
 		CronQueueMaxRetry:        mustAtoi(getEnv("HOGS_CRON_QUEUE_MAX_RETRY", "10")),
 		AuditLogRetentionDays:    mustAtoi(getEnv("HOGS_AUDIT_LOG_RETENTION_DAYS", "90")),
 		PteroNodeRefreshInterval: mustAtoi(getEnv("HOGS_PTERO_NODE_REFRESH_INTERVAL", "300")),
+
+		AgentEnabled:      getEnv("HOGS_AGENT_ENABLED", "true") == "true",
+		AgentHeartbeatSec: mustAtoi(getEnv("HOGS_AGENT_HEARTBEAT_SEC", "30")),
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"path/filepath"
 
+	"github.com/tionis/hogs/agent"
 	"github.com/tionis/hogs/api"
 	"github.com/tionis/hogs/auth"
 	"github.com/tionis/hogs/config"
@@ -58,6 +59,12 @@ func main() {
 	if cfg.SCIMEnabled && cfg.SCIMBearerToken != "" {
 		scimHandler = scim.NewHandler(store, cfg, authenticator)
 		log.Println("SCIM 2.0 endpoint enabled at /scim/v2/")
+	}
+
+	var agentHub *agent.Hub
+	if cfg.AgentEnabled {
+		agentHub = agent.NewHub(store, cfg)
+		log.Println("Agent WebSocket endpoint enabled at /agent/ws")
 	}
 
 	var scheduler *hogscron.Scheduler
@@ -156,6 +163,10 @@ func main() {
 	}
 	router.HandleFunc("/help", webHandler.Help).Methods("GET")
 	router.HandleFunc("/help/api.md", webHandler.HelpMarkdown).Methods("GET")
+
+	if agentHub != nil {
+		router.HandleFunc("/agent/ws", agentHub.ServeWS)
+	}
 
 	if scimHandler != nil {
 		scimRouter := router.PathPrefix("/scim/v2").Subrouter()
