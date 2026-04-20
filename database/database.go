@@ -211,6 +211,20 @@ func (s *Store) ListServers() ([]Server, error) {
 	return servers, nil
 }
 
+func (s *Store) GetServer(id int) (*Server, error) {
+	row := s.DB.QueryRow("SELECT "+serverColumns+" FROM servers WHERE id = ?", id)
+
+	srv, err := scanServer(row)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	return srv, nil
+}
+
 func (s *Store) GetServerByName(name string) (*Server, error) {
 	row := s.DB.QueryRow("SELECT "+serverColumns+" FROM servers WHERE name = ?", name)
 

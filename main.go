@@ -58,6 +58,7 @@ func main() {
 		router.HandleFunc("/auth/callback", authenticator.HandleCallback).Methods("GET")
 
 		router.Handle("/admin", authenticator.RequireRole("admin")(http.HandlerFunc(webHandler.Admin))).Methods("GET")
+		router.Handle("/admin/servers/{id}", authenticator.RequireRole("admin")(http.HandlerFunc(webHandler.ServerEdit))).Methods("GET")
 		router.Handle("/admin/servers/add", authenticator.RequireRole("admin")(http.HandlerFunc(webHandler.HandleServerCreate))).Methods("POST")
 		router.Handle("/admin/servers/update", authenticator.RequireRole("admin")(http.HandlerFunc(webHandler.HandleServerUpdate))).Methods("POST")
 		router.Handle("/admin/servers/delete", authenticator.RequireRole("admin")(http.HandlerFunc(webHandler.HandleServerDelete))).Methods("POST")

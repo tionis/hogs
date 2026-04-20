@@ -28,36 +28,22 @@
     <tbody>
       {{range .Servers}}
       <tr>
-        <td>{{.Server.ID}}</td>
-        <td>{{.Server.Name}}</td>
-        <td>{{.Server.Address}}</td>
-        <td><span class="game-badge" style="{{gameBadgeCSS .Server.GameType}}">{{.Server.GameType | gameIcon}}{{.Server.GameType | gameDisplayName}}</span></td>
+        <td>{{.ID}}</td>
+        <td>{{.Name}}</td>
+        <td>{{.Address}}</td>
+        <td><span class="game-badge" style="{{gameBadgeCSS .GameType}}">{{.GameType | gameIcon}}{{.GameType | gameDisplayName}}</span></td>
         <td>
-          {{if eq .Server.State "online"}}<span class="badge bg-success">Online</span>{{end}}
-          {{if eq .Server.State "offline"}}<span class="badge bg-danger">Offline</span>{{end}}
-          {{if eq .Server.State "planned"}}<span class="badge bg-warning me-1">Planned</span>{{end}}
-          {{if eq .Server.State "maintenance"}}<span class="badge bg-warning me-1">Maintenance</span>{{end}}
-          {{if eq .Server.State "auto"}}<span class="badge bg-secondary">Auto</span>{{end}}
+          {{if eq .State "online"}}<span class="badge bg-success">Online</span>{{end}}
+          {{if eq .State "offline"}}<span class="badge bg-danger">Offline</span>{{end}}
+          {{if eq .State "planned"}}<span class="badge bg-warning me-1">Planned</span>{{end}}
+          {{if eq .State "maintenance"}}<span class="badge bg-warning me-1">Maintenance</span>{{end}}
+          {{if eq .State "auto"}}<span class="badge bg-secondary">Auto</span>{{end}}
         </td>
         <td>
-          <a href="/admin/files/{{.Server.Name}}" class="btn btn-sm btn-outline-info me-1">Files</a>
-          <button class="btn btn-sm btn-outline-primary"
-            data-bs-toggle="modal"
-            data-bs-target="#editServerModal"
-            data-id="{{.Server.ID}}"
-            data-name="{{.Server.Name}}"
-            data-address="{{.Server.Address}}"
-            data-description="{{.Server.Description}}"
-            data-mapurl="{{.Server.MapURL}}"
-            data-modurl="{{.Server.ModURL}}"
-            data-gametype="{{.Server.GameType}}"
-            data-state="{{.Server.State}}"
-            data-showmotd="{{.Server.ShowMOTD}}"
-            data-metadata='{{.Server.Metadata | json}}'>
-            Edit
-          </button>
-          <form action="/admin/servers/delete" method="POST" class="d-inline" onsubmit="return confirm('Are you sure you want to delete {{.Server.Name}}?');">
-            <input type="hidden" name="id" value="{{.Server.ID}}">
+          <a href="/admin/files/{{.Name}}" class="btn btn-sm btn-outline-info me-1">Files</a>
+          <a href="/admin/servers/{{.ID}}" class="btn btn-sm btn-outline-primary me-1">Edit</a>
+          <form action="/admin/servers/delete" method="POST" class="d-inline" onsubmit="return confirm('Are you sure you want to delete {{.Name}}?');">
+            <input type="hidden" name="id" value="{{.ID}}">
             <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
           </form>
         </td>
@@ -66,108 +52,6 @@
     </tbody>
   </table>
 </div>
-
-{{if .PteroConfigured}}
-<div class="mt-4">
-  <h3>Pterodactyl Integration</h3>
-  <p class="text-muted small">Link servers to your Pterodactyl panel for power actions, whitelisting, and approved commands.</p>
-  {{range .Servers}}
-  {{with $row := .}}
-  <div class="card mb-3">
-    <div class="card-header">{{.Server.Name}}</div>
-    <div class="card-body">
-      {{if .PteroLink}}
-      <p><strong>Linked:</strong> <code>{{.PteroLink.PteroServerID}}</code></p>
-      <div class="d-flex gap-2 mb-3">
-        <form action="/admin/pterodactyl/link" method="POST" class="mb-3" onsubmit="return collectActionCheckboxes(this)">
-          <input type="hidden" name="server_id" value="{{.Server.ID}}">
-          <input type="hidden" name="allowed_actions" value="">
-          <input type="hidden" name="ptero_identifier" value="{{.PteroLink.PteroIdentifier}}">
-          <div class="row g-2 align-items-end">
-            <div class="col-md-4">
-              <label class="form-label">Pterodactyl Server UUID</label>
-              <input type="text" class="form-control form-control-sm" name="ptero_server_id" value="{{.PteroLink.PteroServerID}}" list="ptero-server-list" required>
-              <datalist id="ptero-server-list"></datalist>
-            </div>
-            <div class="col-md-6">
-              <label class="form-label">Allowed Actions</label>
-              <div class="d-flex flex-wrap gap-3">
-                <div class="form-check"><input class="form-check-input" type="checkbox" name="action_start" id="action-start-{{.Server.ID}}" {{if inList "start" .PteroLink.AllowedActions}}checked{{end}}><label class="form-check-label" for="action-start-{{.Server.ID}}">Start</label></div>
-                <div class="form-check"><input class="form-check-input" type="checkbox" name="action_stop" id="action-stop-{{.Server.ID}}" {{if inList "stop" .PteroLink.AllowedActions}}checked{{end}}><label class="form-check-label" for="action-stop-{{.Server.ID}}">Stop</label></div>
-                <div class="form-check"><input class="form-check-input" type="checkbox" name="action_restart" id="action-restart-{{.Server.ID}}" {{if inList "restart" .PteroLink.AllowedActions}}checked{{end}}><label class="form-check-label" for="action-restart-{{.Server.ID}}">Restart</label></div>
-                <div class="form-check"><input class="form-check-input" type="checkbox" name="action_whitelist" id="action-whitelist-{{.Server.ID}}" {{if inList "whitelist" .PteroLink.AllowedActions}}checked{{end}}><label class="form-check-label" for="action-whitelist-{{.Server.ID}}">Whitelist</label></div>
-                {{range .PteroLink.Commands}}<div class="form-check"><input class="form-check-input" type="checkbox" name="action_command_{{.Command}}" id="action-cmd-{{.ID}}" {{if inList (printf "command:%s" .Command) $row.PteroLink.AllowedActions}}checked{{end}}><label class="form-check-label" for="action-cmd-{{.ID}}">{{.DisplayName}}</label></div>{{end}}
-              </div>
-            </div>
-            <div class="col-md-2"><button type="submit" class="btn btn-sm btn-primary">Update</button></div>
-          </div>
-        </form>
-        <form action="/admin/pterodactyl/unlink" method="POST" onsubmit="return confirm('Unlink this server from Pterodactyl?');">
-          <input type="hidden" name="server_id" value="{{.Server.ID}}">
-          <button type="submit" class="btn btn-sm btn-outline-danger">Unlink</button>
-        </form>
-      </div>
-      {{if .PteroLink.Commands}}
-      <h6>Approved Commands</h6>
-      <table class="table table-sm">
-        <thead><tr><th>Command</th><th>Display Name</th><th></th></tr></thead>
-        <tbody>
-          {{range .PteroLink.Commands}}
-          <tr>
-            <td><code>{{.Command}}</code></td>
-            <td>{{.DisplayName}}</td>
-            <td>
-              <form action="/admin/pterodactyl/commands/delete" method="POST" class="d-inline">
-                <input type="hidden" name="command_id" value="{{.ID}}">
-                <button type="submit" class="btn btn-sm btn-outline-danger">Remove</button>
-              </form>
-            </td>
-          </tr>
-          {{end}}
-        </tbody>
-      </table>
-      {{end}}
-      <form action="/admin/pterodactyl/commands/add" method="POST" class="row g-2 align-items-end">
-        <input type="hidden" name="server_id" value="{{.Server.ID}}">
-        <div class="col-md-4">
-          <input type="text" class="form-control form-control-sm" name="command" placeholder="Command (e.g. seed)">
-        </div>
-        <div class="col-md-4">
-          <input type="text" class="form-control form-control-sm" name="display_name" placeholder="Display name (e.g. Random Seed)">
-        </div>
-        <div class="col-md-2">
-          <button type="submit" class="btn btn-sm btn-outline-primary">Add Command</button>
-        </div>
-      </form>
-      {{else}}
-      <form action="/admin/pterodactyl/link" method="POST" class="row g-2 align-items-end" onsubmit="return collectActionCheckboxes(this)">
-        <input type="hidden" name="server_id" value="{{.Server.ID}}">
-        <input type="hidden" name="allowed_actions" value="">
-        <input type="hidden" name="ptero_identifier" value="">
-        <div class="col-md-4">
-          <label class="form-label">Pterodactyl Server UUID</label>
-          <input type="text" class="form-control form-control-sm" name="ptero_server_id" placeholder="abc-123-def" list="ptero-server-list" required>
-        </div>
-        <div class="col-md-5">
-          <label class="form-label">Allowed Actions</label>
-          <div class="d-flex flex-wrap gap-3">
-            <div class="form-check"><input class="form-check-input" type="checkbox" name="action_start" id="new-action-start-{{.Server.ID}}" checked><label class="form-check-label" for="new-action-start-{{.Server.ID}}">Start</label></div>
-            <div class="form-check"><input class="form-check-input" type="checkbox" name="action_stop" id="new-action-stop-{{.Server.ID}}" checked><label class="form-check-label" for="new-action-stop-{{.Server.ID}}">Stop</label></div>
-            <div class="form-check"><input class="form-check-input" type="checkbox" name="action_restart" id="new-action-restart-{{.Server.ID}}" checked><label class="form-check-label" for="new-action-restart-{{.Server.ID}}">Restart</label></div>
-            <div class="form-check"><input class="form-check-input" type="checkbox" name="action_whitelist" id="new-action-whitelist-{{.Server.ID}}"><label class="form-check-label" for="new-action-whitelist-{{.Server.ID}}">Whitelist</label></div>
-          </div>
-        </div>
-        <div class="col-md-3">
-          <button type="submit" class="btn btn-sm btn-primary">Link</button>
-        </div>
-      </form>
-      {{end}}
-    </div>
-  </div>
-  {{end}}
-  {{end}}
-</div>
-{{end}}
 
 <div class="mt-5 text-muted small">
   <p>Logged in as: <strong>{{.UserEmail}}</strong></p>
@@ -247,80 +131,6 @@
   </div>
 </div>
 
-<!-- Edit Server Modal -->
-<div class="modal fade" id="editServerModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog">
-    <div class="modal-content">
-      <form action="/admin/servers/update" method="POST">
-        <input type="hidden" name="id" id="editId">
-        <div class="modal-header">
-          <h5 class="modal-title">Edit Server</h5>
-          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-        </div>
-        <div class="modal-body">
-          <div class="mb-3">
-            <label for="editName" class="form-label">Name (Unique ID)</label>
-            <input type="text" class="form-control" id="editName" name="name" required pattern="[a-zA-Z0-9_-]+" title="Alphanumeric, dashes, underscores only">
-          </div>
-          <div class="mb-3">
-            <label for="editAddress" class="form-label">Server Address</label>
-            <input type="text" class="form-control" id="editAddress" name="address" placeholder="host:port (optional)">
-          </div>
-          <div class="mb-3">
-            <label for="editDescription" class="form-label">Description</label>
-            <textarea class="form-control" id="editDescription" name="description" rows="2"></textarea>
-          </div>
-          <div class="row">
-            <div class="col-md-6 mb-3">
-              <label for="editGameType" class="form-label">Game Type</label>
-              <select class="form-select" id="editGameType" name="game_type" onchange="toggleGameFields('edit')">
-                <option value="minecraft">Minecraft</option>
-                <option value="satisfactory">Satisfactory</option>
-                <option value="factorio">Factorio</option>
-                <option value="valheim">Valheim</option>
-              </select>
-            </div>
-            <div class="col-md-6 mb-3">
-              <label for="editState" class="form-label">State</label>
-              <select class="form-select" id="editState" name="state">
-                <option value="online">Online</option>
-                <option value="offline">Offline</option>
-                <option value="planned">Planned</option>
-                <option value="maintenance">Maintenance</option>
-                <option value="auto">Auto</option>
-              </select>
-            </div>
-          </div>
-          <div class="mb-3" id="edit-mapurl-group">
-            <label for="editMapURL" class="form-label">Map URL</label>
-            <input type="url" class="form-control" id="editMapURL" name="map_url">
-          </div>
-          <div class="mb-3" id="edit-modurl-group">
-            <label for="editModURL" class="form-label">Mod Pack URL</label>
-            <input type="text" class="form-control" id="editModURL" name="mod_url">
-          </div>
-          <div class="mb-3" id="edit-showmotd-group">
-            <div class="form-check">
-              <input class="form-check-input" type="checkbox" id="editShowMOTD" name="show_motd">
-              <label class="form-check-label" for="editShowMOTD">Show Server Message (MOTD)</label>
-            </div>
-          </div>
-          <div class="mb-3">
-            <label class="form-label">Metadata</label>
-            <div id="editMetadataContainer"></div>
-            <button type="button" class="btn btn-sm btn-secondary mt-2" onclick="addMetadataRow('editMetadataContainer')">+ Add Property</button>
-            <div class="form-text">Satisfactory: add <code>api_token</code>; Factorio: add <code>rcon_password</code></div>
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-          <button type="submit" class="btn btn-primary">Save Changes</button>
-        </div>
-      </form>
-    </div>
-  </div>
-</div>
-
 <script>
   function addMetadataRow(containerId, key = '', value = '') {
     const container = document.getElementById(containerId);
@@ -341,68 +151,5 @@
   }
 
   toggleGameFields('add');
-
-  var editModal = document.getElementById('editServerModal');
-  editModal.addEventListener('show.bs.modal', function (event) {
-    var button = event.relatedTarget;
-    
-    document.getElementById('editId').value = button.getAttribute('data-id');
-    document.getElementById('editName').value = button.getAttribute('data-name');
-    document.getElementById('editAddress').value = button.getAttribute('data-address');
-    document.getElementById('editDescription').value = button.getAttribute('data-description');
-    document.getElementById('editMapURL').value = button.getAttribute('data-mapurl');
-    document.getElementById('editModURL').value = button.getAttribute('data-modurl');
-    document.getElementById('editGameType').value = button.getAttribute('data-gametype');
-    document.getElementById('editState').value = button.getAttribute('data-state');
-    document.getElementById('editShowMOTD').checked = button.getAttribute('data-showmotd') === 'true';
-
-    toggleGameFields('edit');
-
-    const container = document.getElementById('editMetadataContainer');
-    container.innerHTML = '';
-    const metadata = JSON.parse(button.getAttribute('data-metadata'));
-    if (metadata) {
-      for (const [key, value] of Object.entries(metadata)) {
-        addMetadataRow('editMetadataContainer', key, value);
-      }
-    }
-  });
-
-  function collectActionCheckboxes(form) {
-    const actions = [];
-    const checks = form.querySelectorAll('input[type="checkbox"][name^="action_"]:checked');
-    checks.forEach(cb => {
-      const name = cb.name.replace(/^action_/, '');
-      if (name.startsWith('command_')) {
-        actions.push('command:' + name.replace(/^command_/, ''));
-      } else {
-        actions.push(name);
-      }
-    });
-    form.querySelector('input[name="allowed_actions"]').value = JSON.stringify(actions);
-    return true;
-  }
-
-  fetch('/api/pterodactyl/servers')
-    .then(r => { if (!r.ok) throw new Error('Not configured'); return r.json(); })
-    .then(servers => {
-      const dl = document.getElementById('ptero-server-list');
-      if (!dl) return;
-      servers.forEach(s => {
-        const opt = document.createElement('option');
-        opt.value = s.uuid;
-        opt.label = s.name + ' (' + s.identifier + ')';
-        opt.dataset.identifier = s.identifier;
-        dl.appendChild(opt);
-      });
-      document.querySelectorAll('input[list="ptero-server-list"]').forEach(input => {
-        input.addEventListener('change', function() {
-          const selected = dl.querySelector(`option[value="${this.value}"]`);
-          const hiddenId = this.closest('form').querySelector('input[name="ptero_identifier"]');
-          if (selected && hiddenId) hiddenId.value = selected.dataset.identifier || '';
-        });
-      });
-    })
-    .catch(() => {});
 </script>
 {{end}}

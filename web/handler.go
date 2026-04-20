@@ -81,36 +81,6 @@ type PterodactylLinkData struct {
 	Commands        []database.PterodactylCommand `json:"commands"`
 }
 
-type AdminServerRow struct {
-	Server    database.Server
-	PteroLink *PterodactylLinkData
-}
-
-func (h *WebHandler) adminServerRows(servers []database.Server) []AdminServerRow {
-	rows := make([]AdminServerRow, len(servers))
-	for i, srv := range servers {
-		row := AdminServerRow{Server: srv}
-		link, err := h.Store.GetPterodactylLink(srv.ID)
-		if err == nil && link != nil {
-			var actions []string
-			json.Unmarshal([]byte(link.AllowedActions), &actions)
-			commands, _ := h.Store.ListPterodactylCommands(srv.ID)
-			if commands == nil {
-				commands = []database.PterodactylCommand{}
-			}
-			row.PteroLink = &PterodactylLinkData{
-				ServerID:        srv.ID,
-				PteroServerID:   link.PteroServerID,
-				PteroIdentifier: link.PteroIdentifier,
-				AllowedActions:  actions,
-				Commands:        commands,
-			}
-		}
-		rows[i] = row
-	}
-	return rows
-}
-
 func (h *WebHandler) siteName() string {
 	name, err := h.Store.GetSetting("site_name")
 	if err != nil || name == "" {
@@ -422,21 +392,19 @@ func (h *WebHandler) Admin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := struct {
-		Servers         []AdminServerRow
-		Authenticated   bool
-		UserRole        string
-		SiteName        string
-		UserEmail       string
-		BackgroundURLs  BackgroundURLs
-		PteroConfigured bool
+		Servers        []database.Server
+		Authenticated  bool
+		UserRole       string
+		SiteName       string
+		UserEmail      string
+		BackgroundURLs BackgroundURLs
 	}{
-		Servers:         h.adminServerRows(servers),
-		Authenticated:   true,
-		UserRole:        "admin",
-		SiteName:        h.siteName(),
-		UserEmail:       h.Auth.GetUserEmail(r),
-		BackgroundURLs:  h.pickBackgrounds(""),
-		PteroConfigured: h.Config.PterodactylURL != "",
+		Servers:        servers,
+		Authenticated:  true,
+		UserRole:       "admin",
+		SiteName:       h.siteName(),
+		UserEmail:      h.Auth.GetUserEmail(r),
+		BackgroundURLs: h.pickBackgrounds(""),
 	}
 
 	tmpl, err := template.New("base.html").Funcs(sharedFuncMap()).ParseFS(templateFS, "templates/base.html", "templates/admin.html")
@@ -481,6 +449,79 @@ func (h *WebHandler) HandleServerCreate(w http.ResponseWriter, r *http.Request) 
 }
 
 // HandleServerUpdate handles updating an existing server.
+func (h *WebHandler) ServerEdit(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	idStr := vars["id"]
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		http.Error(w, "Invalid server ID", http.StatusBadRequest)
+		return
+	}
+
+	server, err := h.Store.GetServer(id)
+	if err != nil {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+	if server == nil {
+		http.Error(w, "Server not found", http.StatusNotFound)
+		return
+	}
+
+	var pteroLink *PterodactylLinkData
+	if h.Config.PterodactylURL != "" {
+		link, _ := h.Store.GetPterodactylLink(server.ID)
+		if link != nil {
+			var actions []string
+			json.Unmarshal([]byte(link.AllowedActions), &actions)
+			commands, _ := h.Store.ListPterodactylCommands(server.ID)
+			if commands == nil {
+				commands = []database.PterodactylCommand{}
+			}
+			pteroLink = &PterodactylLinkData{
+				ServerID:        server.ID,
+				PteroServerID:   link.PteroServerID,
+				PteroIdentifier: link.PteroIdentifier,
+				AllowedActions:  actions,
+				Commands:        commands,
+			}
+		}
+	}
+
+	data := struct {
+		Server          *database.Server
+		PteroConfigured bool
+		PteroLink       *PterodactylLinkData
+		Authenticated   bool
+		UserRole        string
+		SiteName        string
+		UserEmail       string
+		BackgroundURLs  BackgroundURLs
+	}{
+		Server:          server,
+		PteroConfigured: h.Config.PterodactylURL != "",
+		PteroLink:       pteroLink,
+		Authenticated:   true,
+		UserRole:        "admin",
+		SiteName:        h.siteName(),
+		UserEmail:       h.Auth.GetUserEmail(r),
+		BackgroundURLs:  h.pickBackgrounds(""),
+	}
+
+	tmpl, err := template.New("base.html").Funcs(sharedFuncMap()).ParseFS(templateFS, "templates/base.html", "templates/server_edit.html")
+	if err != nil {
+		http.Error(w, "Template error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, data); err != nil {
+		http.Error(w, "Render error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	buf.WriteTo(w)
+}
+
 func (h *WebHandler) HandleServerUpdate(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "Invalid form data", http.StatusBadRequest)
@@ -511,7 +552,7 @@ func (h *WebHandler) HandleServerUpdate(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	http.Redirect(w, r, "/admin", http.StatusFound)
+	http.Redirect(w, r, "/admin/servers/"+strconv.Itoa(id), http.StatusFound)
 }
 
 // parseMetadata helper to extract metadata from form

@@ -138,7 +138,12 @@ func (h *PterodactylHandler) LinkServer(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
-	http.Redirect(w, r, "/admin", http.StatusFound)
+	srv, _ := h.Store.GetServer(serverID)
+	if srv != nil {
+		http.Redirect(w, r, "/admin/servers/"+strconv.Itoa(serverID), http.StatusFound)
+	} else {
+		http.Redirect(w, r, "/admin", http.StatusFound)
+	}
 }
 
 func (h *PterodactylHandler) UnlinkServer(w http.ResponseWriter, r *http.Request) {
@@ -158,7 +163,12 @@ func (h *PterodactylHandler) UnlinkServer(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	http.Redirect(w, r, "/admin", http.StatusFound)
+	srv, _ := h.Store.GetServer(serverID)
+	if srv != nil {
+		http.Redirect(w, r, "/admin/servers/"+strconv.Itoa(serverID), http.StatusFound)
+	} else {
+		http.Redirect(w, r, "/admin", http.StatusFound)
+	}
 }
 
 func (h *PterodactylHandler) AddCommand(w http.ResponseWriter, r *http.Request) {
@@ -189,7 +199,12 @@ func (h *PterodactylHandler) AddCommand(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	http.Redirect(w, r, "/admin", http.StatusFound)
+	srv, _ := h.Store.GetServer(serverID)
+	if srv != nil {
+		http.Redirect(w, r, "/admin/servers/"+strconv.Itoa(serverID), http.StatusFound)
+	} else {
+		http.Redirect(w, r, "/admin", http.StatusFound)
+	}
 }
 
 func (h *PterodactylHandler) DeleteCommand(w http.ResponseWriter, r *http.Request) {
@@ -209,6 +224,13 @@ func (h *PterodactylHandler) DeleteCommand(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	serverIDStr := r.FormValue("server_id")
+	if serverIDStr != "" {
+		if sid, err := strconv.Atoi(serverIDStr); err == nil {
+			http.Redirect(w, r, "/admin/servers/"+strconv.Itoa(sid), http.StatusFound)
+			return
+		}
+	}
 	http.Redirect(w, r, "/admin", http.StatusFound)
 }
 
