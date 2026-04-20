@@ -16,33 +16,21 @@
 <div class="card mb-4">
   <div class="card-header">Upload New Background</div>
   <div class="card-body">
-    <form action="/admin/backgrounds/upload" method="POST" enctype="multipart/form-data">
+    <form action="/admin/backgrounds/upload" method="POST" enctype="multipart/form-data" id="upload-form">
       <div class="row">
-        <div class="col-md-5 mb-3">
+        <div class="col-md-4 mb-3">
           <label for="file" class="form-label">Image File</label>
           <input class="form-control" type="file" id="file" name="file" accept="image/*" required>
           <div class="form-text">JPG, PNG, or WebP. Recommended: 1920x1080 or larger.</div>
         </div>
-        <div class="col-md-3 mb-3">
-          <label for="theme_mode" class="form-label">Theme Mode</label>
-          <select class="form-select" id="theme_mode" name="theme_mode">
-            <option value="all">All Themes</option>
-            <option value="dark">Dark Only</option>
-            <option value="light">Light Only</option>
-          </select>
-          <div class="form-text">Which theme mode should this image appear in?</div>
-        </div>
-        <div class="col-md-3 mb-3">
-          <label for="game_type" class="form-label">Game Type</label>
-          <select class="form-select" id="game_type" name="game_type">
-            <option value="all">All Games</option>
-            <option value="minecraft">Minecraft</option>
-            <option value="satisfactory">Satisfactory</option>
-            <option value="factorio">Factorio</option>
-            <option value="valheim">Valheim</option>
-            <option value="starrupture">Star Rupture</option>
-          </select>
-          <div class="form-text">Assign to a specific game or show for all?</div>
+        <div class="col-md-7 mb-3">
+          <label class="form-label">Tags</label>
+          <div class="d-flex flex-wrap gap-1 mb-1">
+            {{range .AvailableTags}}
+            <button type="button" class="btn btn-sm btn-outline-primary tag-btn" data-tag="{{.Value}}" data-group="{{.Group}}" onclick="toggleUploadTag(this)">{{.DisplayName}}</button>
+            {{end}}
+          </div>
+          <div class="form-text">Select which contexts this background should appear in.</div>
         </div>
         <div class="col-md-1 mb-3 d-flex align-items-end">
           <button type="submit" class="btn btn-primary w-100">Upload</button>
@@ -53,52 +41,40 @@
 </div>
 
 {{if .Backgrounds}}
+<form action="/admin/backgrounds/update" method="POST" id="bulk-form">
 <div class="card">
-  <div class="card-header">Current Backgrounds</div>
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span>Current Backgrounds</span>
+    <button type="submit" class="btn btn-primary btn-sm">Save All Changes</button>
+  </div>
   <div class="card-body">
     <div class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-4">
-      {{range .Backgrounds}}
+      {{range $bg := .Backgrounds}}
       <div class="col">
-        <div class="card h-100 {{if not .Enabled}}opacity-50{{end}}">
-          <img src="{{.URL}}" class="card-img-top" alt="Background" style="height: 140px; object-fit: cover; border-radius: 12px 12px 0 0;">
+        <div class="card h-100 {{if not $bg.Enabled}}opacity-50{{end}}">
+          <img src="{{$bg.URL}}" class="card-img-top" alt="Background" style="height: 140px; object-fit: cover; border-radius: 12px 12px 0 0;">
           <div class="card-body">
-            <form action="/admin/backgrounds/update" method="POST">
-              <input type="hidden" name="id" value="{{.ID}}">
-              <div class="mb-2">
-                <div class="row g-2">
-                  <div class="col-6">
-                    <select class="form-select form-select-sm" name="theme_mode">
-                      <option value="all" {{if eq .ThemeMode "all"}}selected{{end}}>All Themes</option>
-                      <option value="dark" {{if eq .ThemeMode "dark"}}selected{{end}}>Dark Only</option>
-                      <option value="light" {{if eq .ThemeMode "light"}}selected{{end}}>Light Only</option>
-                    </select>
-                  </div>
-                  <div class="col-6">
-                    <select class="form-select form-select-sm" name="game_type">
-                      <option value="all" {{if eq .GameType "all"}}selected{{end}}>All Games</option>
-                      <option value="minecraft" {{if eq .GameType "minecraft"}}selected{{end}}>Minecraft</option>
-                      <option value="satisfactory" {{if eq .GameType "satisfactory"}}selected{{end}}>Satisfactory</option>
-                      <option value="factorio" {{if eq .GameType "factorio"}}selected{{end}}>Factorio</option>
-                      <option value="valheim" {{if eq .GameType "valheim"}}selected{{end}}>Valheim</option>
-                      <option value="starrupture" {{if eq .GameType "starrupture"}}selected{{end}}>Star Rupture</option>
-                    </select>
-                  </div>
-                </div>
+            <input type="hidden" name="id" value="{{$bg.ID}}">
+            {{range $tag := $bg.Tags}}<input type="hidden" name="tags_{{$bg.ID}}" value="{{$tag}}">{{end}}
+            <div class="mb-2">
+              <label class="form-label" style="font-size: 0.8rem; color: var(--text-secondary);">Tags</label>
+              <div class="d-flex flex-wrap gap-1">
+                {{range $.AvailableTags}}
+                <button type="button" class="btn btn-sm {{if inList .Value $bg.Tags}}btn-primary{{else}}btn-outline-primary{{end}} bg-tag-btn"
+                  data-bg-id="{{$bg.ID}}"
+                  data-tag="{{.Value}}"
+                  data-group="{{.Group}}"
+                  onclick="toggleBgTag(this, {{$bg.ID}})">{{.DisplayName}}</button>
+                {{end}}
               </div>
-              <div class="d-flex justify-content-between align-items-center">
-                <div class="form-check">
-                  <input class="form-check-input" type="checkbox" name="enabled" id="enabled-{{.ID}}" {{if .Enabled}}checked{{end}}>
-                  <label class="form-check-label" for="enabled-{{.ID}}" style="font-size: 0.875rem;">Enabled</label>
-                </div>
-                <div class="d-flex gap-1">
-                  <button type="submit" class="btn btn-sm btn-outline-primary">Save</button>
-                  <button type="submit" class="btn btn-sm btn-outline-danger" form="delete-{{.ID}}">Delete</button>
-                </div>
+            </div>
+            <div class="d-flex justify-content-between align-items-center">
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" name="enabled_{{$bg.ID}}" id="enabled-{{$bg.ID}}" {{if $bg.Enabled}}checked{{end}}>
+                <label class="form-check-label" for="enabled-{{$bg.ID}}" style="font-size: 0.875rem;">Enabled</label>
               </div>
-            </form>
-            <form id="delete-{{.ID}}" action="/admin/backgrounds/delete" method="POST" class="d-none" onsubmit="return confirm('Delete this background?');">
-              <input type="hidden" name="id" value="{{.ID}}">
-            </form>
+              <button type="button" class="btn btn-sm btn-outline-danger" onclick="deleteBg({{$bg.ID}})">Delete</button>
+            </div>
           </div>
         </div>
       </div>
@@ -106,9 +82,56 @@
     </div>
   </div>
 </div>
+</form>
 {{else}}
 <div class="text-center py-4" style="color: var(--text-secondary);">
   <p>No backgrounds uploaded yet. Upload one above to add some character to the landing page.</p>
 </div>
 {{end}}
+
+<form id="delete-form" action="/admin/backgrounds/delete" method="POST" class="d-none" onsubmit="return confirm('Delete this background?');">
+  <input type="hidden" name="id" id="delete-id" value="">
+</form>
+
+<script>
+function toggleUploadTag(btn) {
+  btn.classList.toggle('btn-primary');
+  btn.classList.toggle('btn-outline-primary');
+  syncUploadHiddenFields();
+}
+
+function syncUploadHiddenFields() {
+  document.querySelectorAll('#upload-form input[type=hidden][name=tags]').forEach(el => el.remove());
+  document.querySelectorAll('#upload-form .tag-btn.btn-primary').forEach(btn => {
+    const input = document.createElement('input');
+    input.type = 'hidden';
+    input.name = 'tags';
+    input.value = btn.dataset.tag;
+    document.getElementById('upload-form').appendChild(input);
+  });
+}
+
+function toggleBgTag(btn, bgId) {
+  btn.classList.toggle('btn-primary');
+  btn.classList.toggle('btn-outline-primary');
+  syncBgHiddenFields(bgId);
+}
+
+function syncBgHiddenFields(bgId) {
+  const form = document.getElementById('bulk-form');
+  form.querySelectorAll(`input[type=hidden][name="tags_${bgId}"]`).forEach(el => el.remove());
+  document.querySelectorAll(`.bg-tag-btn[data-bg-id="${bgId}"].btn-primary`).forEach(btn => {
+    const input = document.createElement('input');
+    input.type = 'hidden';
+    input.name = 'tags_' + bgId;
+    input.value = btn.dataset.tag;
+    form.appendChild(input);
+  });
+}
+
+function deleteBg(id) {
+  document.getElementById('delete-id').value = id;
+  document.getElementById('delete-form').submit();
+}
+</script>
 {{end}}

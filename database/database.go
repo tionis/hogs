@@ -10,6 +10,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/database/sqlite3"
@@ -303,16 +304,15 @@ func (s *Store) DeleteServer(id int) error {
 }
 
 type Background struct {
-	ID          int    `json:"id"`
-	Filename    string `json:"filename"`
-	ContentHash string `json:"contentHash"`
-	ThemeMode   string `json:"themeMode"`
-	GameType    string `json:"gameType"`
-	Enabled     bool   `json:"enabled"`
+	ID          int      `json:"id"`
+	Filename    string   `json:"filename"`
+	ContentHash string   `json:"contentHash"`
+	Enabled     bool     `json:"enabled"`
+	Tags        []string `json:"tags"`
 }
 
 func (s *Store) ListBackgrounds() ([]Background, error) {
-	rows, err := s.DB.Query("SELECT id, filename, content_hash, theme_mode, game_type, enabled FROM backgrounds ORDER BY uploaded_at DESC")
+	rows, err := s.DB.Query("SELECT id, filename, content_hash, enabled FROM backgrounds ORDER BY uploaded_at DESC")
 	if err != nil {
 		return nil, err
 	}
@@ -322,17 +322,18 @@ func (s *Store) ListBackgrounds() ([]Background, error) {
 	for rows.Next() {
 		var bg Background
 		var enabled int
-		if err := rows.Scan(&bg.ID, &bg.Filename, &bg.ContentHash, &bg.ThemeMode, &bg.GameType, &enabled); err != nil {
+		if err := rows.Scan(&bg.ID, &bg.Filename, &bg.ContentHash, &enabled); err != nil {
 			return nil, err
 		}
 		bg.Enabled = enabled == 1
+		bg.Tags, _ = s.GetBackgroundTags(bg.ID)
 		bgs = append(bgs, bg)
 	}
 	return bgs, nil
 }
 
 func (s *Store) CreateBackground(bg *Background) error {
-	stmt, err := s.DB.Prepare("INSERT INTO backgrounds (filename, content_hash, theme_mode, game_type, enabled) VALUES (?, ?, ?, ?, ?)")
+	stmt, err := s.DB.Prepare("INSERT INTO backgrounds (filename, content_hash, enabled) VALUES (?, ?, ?)")
 	if err != nil {
 		return err
 	}
@@ -341,22 +342,63 @@ func (s *Store) CreateBackground(bg *Background) error {
 	if !bg.Enabled {
 		enabled = 0
 	}
-	result, err := stmt.Exec(bg.Filename, bg.ContentHash, bg.ThemeMode, bg.GameType, enabled)
+	result, err := stmt.Exec(bg.Filename, bg.ContentHash, enabled)
 	if err != nil {
 		return err
 	}
 	id, _ := result.LastInsertId()
 	bg.ID = int(id)
+	if err := s.SetBackgroundTags(bg.ID, bg.Tags); err != nil {
+		return err
+	}
 	return nil
 }
 
-func (s *Store) DeleteBackground(id int) error {
-	stmt, err := s.DB.Prepare("DELETE FROM backgrounds WHERE id=?")
+func (s *Store) GetBackgroundTags(backgroundID int) ([]string, error) {
+	rows, err := s.DB.Query("SELECT tag FROM background_tags WHERE background_id = ? ORDER BY tag", backgroundID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var tags []string
+	for rows.Next() {
+		var tag string
+		if err := rows.Scan(&tag); err != nil {
+			return nil, err
+		}
+		tags = append(tags, tag)
+	}
+	return tags, nil
+}
+
+func (s *Store) SetBackgroundTags(backgroundID int, tags []string) error {
+	_, err := s.DB.Exec("DELETE FROM background_tags WHERE background_id = ?", backgroundID)
+	if err != nil {
+		return err
+	}
+	if len(tags) == 0 {
+		return nil
+	}
+	stmt, err := s.DB.Prepare("INSERT INTO background_tags (background_id, tag) VALUES (?, ?)")
 	if err != nil {
 		return err
 	}
 	defer stmt.Close()
-	_, err = stmt.Exec(id)
+	for _, tag := range tags {
+		if _, err := stmt.Exec(backgroundID, tag); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Store) DeleteBackground(id int) error {
+	_, err := s.DB.Exec("DELETE FROM background_tags WHERE background_id = ?", id)
+	if err != nil {
+		return err
+	}
+	_, err = s.DB.Exec("DELETE FROM backgrounds WHERE id = ?", id)
 	return err
 }
 
@@ -365,25 +407,36 @@ func (s *Store) UpdateBackground(bg *Background) error {
 	if bg.Enabled {
 		enabled = 1
 	}
-	_, err := s.DB.Exec("UPDATE backgrounds SET theme_mode = ?, game_type = ?, enabled = ? WHERE id = ?", bg.ThemeMode, bg.GameType, enabled, bg.ID)
-	return err
+	_, err := s.DB.Exec("UPDATE backgrounds SET enabled = ? WHERE id = ?", enabled, bg.ID)
+	if err != nil {
+		return err
+	}
+	return s.SetBackgroundTags(bg.ID, bg.Tags)
 }
 
-func (s *Store) GetRandomBackground(theme, gameType string) (*Background, error) {
-	query := "SELECT id, filename, content_hash, theme_mode, game_type, enabled FROM backgrounds WHERE enabled = 1 AND (theme_mode = ? OR theme_mode = 'all')"
-	args := []interface{}{theme}
-
-	if gameType != "" && gameType != "all" {
-		query += " AND (game_type = ? OR game_type = 'all')"
-		args = append(args, gameType)
+func (s *Store) GetRandomBackground(tags []string) (*Background, error) {
+	if len(tags) == 0 {
+		return nil, nil
 	}
 
-	query += " ORDER BY RANDOM() LIMIT 1"
+	query := `SELECT b.id, b.filename, b.content_hash, b.enabled
+		FROM backgrounds b
+		JOIN background_tags bt ON b.id = bt.background_id
+		WHERE b.enabled = 1 AND bt.tag IN (` + placeholders(len(tags)) + `)
+		GROUP BY b.id
+		HAVING COUNT(DISTINCT bt.tag) = ?
+		ORDER BY RANDOM() LIMIT 1`
+
+	args := make([]interface{}, len(tags)+1)
+	for i, t := range tags {
+		args[i] = t
+	}
+	args[len(tags)] = len(tags)
 
 	row := s.DB.QueryRow(query, args...)
 	var bg Background
 	var enabled int
-	err := row.Scan(&bg.ID, &bg.Filename, &bg.ContentHash, &bg.ThemeMode, &bg.GameType, &enabled)
+	err := row.Scan(&bg.ID, &bg.Filename, &bg.ContentHash, &enabled)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
@@ -391,7 +444,16 @@ func (s *Store) GetRandomBackground(theme, gameType string) (*Background, error)
 		return nil, err
 	}
 	bg.Enabled = enabled == 1
+	bg.Tags, _ = s.GetBackgroundTags(bg.ID)
 	return &bg, nil
+}
+
+func placeholders(n int) string {
+	parts := make([]string, n)
+	for i := range parts {
+		parts[i] = "?"
+	}
+	return strings.Join(parts, ",")
 }
 
 func (s *Store) GetSetting(key string) (string, error) {

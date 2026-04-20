@@ -255,13 +255,18 @@ func isValidServerName(name string) bool {
 }
 
 func (h *ServerHandler) GetBackground(w http.ResponseWriter, r *http.Request) {
-	theme := r.URL.Query().Get("theme")
-	if theme == "" {
-		theme = "all"
+	var tags []string
+	if t := r.URL.Query().Get("theme"); t != "" {
+		tags = append(tags, t)
 	}
-	gameType := r.URL.Query().Get("game")
+	if g := r.URL.Query().Get("game"); g != "" {
+		tags = append(tags, g)
+	}
+	if len(tags) == 0 {
+		tags = []string{"home", "dark"}
+	}
 
-	bg, err := h.Store.GetRandomBackground(theme, gameType)
+	bg, err := h.Store.GetRandomBackground(tags)
 	if err != nil {
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
@@ -275,10 +280,9 @@ func (h *ServerHandler) GetBackground(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"background": map[string]interface{}{
-			"id":        bg.ID,
-			"url":       bg.URL(),
-			"themeMode": bg.ThemeMode,
-			"gameType":  bg.GameType,
+			"id":   bg.ID,
+			"url":  bg.URL(),
+			"tags": bg.Tags,
 		},
 	})
 }
@@ -314,14 +318,7 @@ func (h *ServerHandler) UploadBackground(w http.ResponseWriter, r *http.Request)
 	hash := sha256.Sum256(fileData)
 	contentHash := hex.EncodeToString(hash[:])[:16]
 
-	themeMode := r.FormValue("theme_mode")
-	if themeMode == "" {
-		themeMode = "all"
-	}
-	gameType := r.FormValue("game_type")
-	if gameType == "" {
-		gameType = "all"
-	}
+	tags := r.Form["tags"]
 
 	bgDir := filepath.Join(h.Config.GameDataPath, "backgrounds")
 	if err := os.MkdirAll(bgDir, 0755); err != nil {
@@ -341,8 +338,7 @@ func (h *ServerHandler) UploadBackground(w http.ResponseWriter, r *http.Request)
 	bg := &database.Background{
 		Filename:    filename,
 		ContentHash: contentHash,
-		ThemeMode:   themeMode,
-		GameType:    gameType,
+		Tags:        tags,
 	}
 
 	if err := h.Store.CreateBackground(bg); err != nil {
@@ -393,39 +389,32 @@ func (h *ServerHandler) DeleteBackground(w http.ResponseWriter, r *http.Request)
 	http.Redirect(w, r, "/admin/backgrounds", http.StatusFound)
 }
 
-func (h *ServerHandler) UpdateBackground(w http.ResponseWriter, r *http.Request) {
+func (h *ServerHandler) BulkUpdateBackgrounds(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "Invalid form data", http.StatusBadRequest)
 		return
 	}
 
-	idStr := r.FormValue("id")
-	id, err := strconv.Atoi(idStr)
-	if err != nil {
-		http.Error(w, "Invalid ID", http.StatusBadRequest)
-		return
-	}
+	ids := r.Form["id"]
+	for _, idStr := range ids {
+		id, err := strconv.Atoi(idStr)
+		if err != nil {
+			continue
+		}
+		enabled := r.FormValue("enabled_"+idStr) == "on"
+		tagKey := "tags_" + idStr
+		tags := r.Form[tagKey]
 
-	themeMode := r.FormValue("theme_mode")
-	if themeMode == "" {
-		themeMode = "all"
-	}
-	gameType := r.FormValue("game_type")
-	if gameType == "" {
-		gameType = "all"
-	}
-	enabled := r.FormValue("enabled") == "on"
+		bg := &database.Background{
+			ID:      id,
+			Enabled: enabled,
+			Tags:    tags,
+		}
 
-	bg := &database.Background{
-		ID:        id,
-		ThemeMode: themeMode,
-		GameType:  gameType,
-		Enabled:   enabled,
-	}
-
-	if err := h.Store.UpdateBackground(bg); err != nil {
-		http.Error(w, "Failed to update background", http.StatusInternalServerError)
-		return
+		if err := h.Store.UpdateBackground(bg); err != nil {
+			http.Error(w, "Failed to update background", http.StatusInternalServerError)
+			return
+		}
 	}
 
 	http.Redirect(w, r, "/admin/backgrounds", http.StatusFound)

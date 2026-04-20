@@ -96,7 +96,7 @@ func main() {
 	if authenticator != nil {
 		router.Handle("/admin/backgrounds", authenticator.RequireRole("admin")(http.HandlerFunc(webHandler.BackgroundManager))).Methods("GET")
 		router.Handle("/admin/backgrounds/upload", authenticator.RequireRole("admin")(http.HandlerFunc(serverHandler.UploadBackground))).Methods("POST")
-		router.Handle("/admin/backgrounds/update", authenticator.RequireRole("admin")(http.HandlerFunc(serverHandler.UpdateBackground))).Methods("POST")
+		router.Handle("/admin/backgrounds/update", authenticator.RequireRole("admin")(http.HandlerFunc(serverHandler.BulkUpdateBackgrounds))).Methods("POST")
 		router.Handle("/admin/backgrounds/delete", authenticator.RequireRole("admin")(http.HandlerFunc(serverHandler.DeleteBackground))).Methods("POST")
 		router.Handle("/admin/settings", authenticator.RequireRole("admin")(http.HandlerFunc(webHandler.Settings))).Methods("GET", "POST")
 

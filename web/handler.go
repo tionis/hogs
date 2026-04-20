@@ -40,24 +40,45 @@ type BackgroundURLs struct {
 	Light string
 }
 
-func (h *WebHandler) pickBackgrounds(gameType string) BackgroundURLs {
+type BackgroundTagOption struct {
+	Value       string
+	DisplayName string
+	Group       string
+}
+
+func AvailableBackgroundTags() []BackgroundTagOption {
+	return []BackgroundTagOption{
+		{Value: "dark", DisplayName: "Dark", Group: "Theme"},
+		{Value: "light", DisplayName: "Light", Group: "Theme"},
+		{Value: "home", DisplayName: "Home", Group: "Page"},
+		{Value: "minecraft", DisplayName: "Minecraft", Group: "Game"},
+		{Value: "satisfactory", DisplayName: "Satisfactory", Group: "Game"},
+		{Value: "factorio", DisplayName: "Factorio", Group: "Game"},
+		{Value: "valheim", DisplayName: "Valheim", Group: "Game"},
+		{Value: "starrupture", DisplayName: "Star Rupture", Group: "Game"},
+	}
+}
+
+func (h *WebHandler) pickBackgrounds(contextTags []string) BackgroundURLs {
 	urls := BackgroundURLs{}
 
-	dark, err := h.Store.GetRandomBackground("dark", gameType)
+	darkTags := append([]string{"dark"}, contextTags...)
+	dark, err := h.Store.GetRandomBackground(darkTags)
 	if err == nil && dark != nil {
 		urls.Dark = dark.URL()
 	} else {
-		dark, err = h.Store.GetRandomBackground("all", gameType)
+		dark, err = h.Store.GetRandomBackground([]string{"dark"})
 		if err == nil && dark != nil {
 			urls.Dark = dark.URL()
 		}
 	}
 
-	light, err := h.Store.GetRandomBackground("light", gameType)
+	lightTags := append([]string{"light"}, contextTags...)
+	light, err := h.Store.GetRandomBackground(lightTags)
 	if err == nil && light != nil {
 		urls.Light = light.URL()
 	} else {
-		light, err = h.Store.GetRandomBackground("all", gameType)
+		light, err = h.Store.GetRandomBackground([]string{"light"})
 		if err == nil && light != nil {
 			urls.Light = light.URL()
 		}
@@ -128,7 +149,7 @@ func (h *WebHandler) FileManager(w http.ResponseWriter, r *http.Request) {
 		SiteName:       h.siteName(),
 		UserEmail:      h.Auth.GetUserEmail(r),
 		Files:          modTree,
-		BackgroundURLs: h.pickBackgrounds(""),
+		BackgroundURLs: h.pickBackgrounds([]string{"home"}),
 	}
 
 	tmpl, err := template.New("base.html").Funcs(sharedFuncMap()).ParseFS(templateFS, "templates/base.html", "templates/filemanager.html")
@@ -290,7 +311,7 @@ func (h *WebHandler) Home(w http.ResponseWriter, r *http.Request) {
 		Authenticated:  isAuthenticated,
 		UserRole:       h.userRole(r),
 		SiteName:       h.siteName(),
-		BackgroundURLs: h.pickBackgrounds(""),
+		BackgroundURLs: h.pickBackgrounds([]string{"home"}),
 	}
 
 	tmpl, err := template.New("base.html").Funcs(sharedFuncMap()).ParseFS(templateFS, "templates/base.html", "templates/index.html")
@@ -347,7 +368,7 @@ func (h *WebHandler) ServerDetail(w http.ResponseWriter, r *http.Request) {
 		UserRole:        h.userRole(r),
 		UserEmail:       h.Auth.GetUserEmail(r),
 		SiteName:        h.siteName(),
-		BackgroundURLs:  h.pickBackgrounds(server.GameType),
+		BackgroundURLs:  h.pickBackgrounds([]string{server.GameType}),
 		PteroConfigured: h.Config.PterodactylURL != "",
 		PteroLink:       nil,
 		PteroCommands:   nil,
@@ -404,7 +425,7 @@ func (h *WebHandler) Admin(w http.ResponseWriter, r *http.Request) {
 		UserRole:       "admin",
 		SiteName:       h.siteName(),
 		UserEmail:      h.Auth.GetUserEmail(r),
-		BackgroundURLs: h.pickBackgrounds(""),
+		BackgroundURLs: h.pickBackgrounds([]string{"home"}),
 	}
 
 	tmpl, err := template.New("base.html").Funcs(sharedFuncMap()).ParseFS(templateFS, "templates/base.html", "templates/admin.html")
@@ -505,7 +526,7 @@ func (h *WebHandler) ServerEdit(w http.ResponseWriter, r *http.Request) {
 		UserRole:        "admin",
 		SiteName:        h.siteName(),
 		UserEmail:       h.Auth.GetUserEmail(r),
-		BackgroundURLs:  h.pickBackgrounds(""),
+		BackgroundURLs:  h.pickBackgrounds([]string{"home"}),
 	}
 
 	tmpl, err := template.New("base.html").Funcs(sharedFuncMap()).ParseFS(templateFS, "templates/base.html", "templates/server_edit.html")
@@ -605,8 +626,11 @@ func (h *WebHandler) BackgroundManager(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	availableTags := AvailableBackgroundTags()
+
 	data := struct {
 		Backgrounds    []database.Background
+		AvailableTags  []BackgroundTagOption
 		Authenticated  bool
 		UserRole       string
 		SiteName       string
@@ -614,11 +638,12 @@ func (h *WebHandler) BackgroundManager(w http.ResponseWriter, r *http.Request) {
 		BackgroundURLs BackgroundURLs
 	}{
 		Backgrounds:    backgrounds,
+		AvailableTags:  availableTags,
 		Authenticated:  true,
 		UserRole:       "admin",
 		SiteName:       h.siteName(),
 		UserEmail:      h.Auth.GetUserEmail(r),
-		BackgroundURLs: h.pickBackgrounds(""),
+		BackgroundURLs: h.pickBackgrounds([]string{"home"}),
 	}
 
 	var buf bytes.Buffer
@@ -669,7 +694,7 @@ func (h *WebHandler) Settings(w http.ResponseWriter, r *http.Request) {
 		Authenticated:  true,
 		UserRole:       "admin",
 		UserEmail:      h.Auth.GetUserEmail(r),
-		BackgroundURLs: h.pickBackgrounds(""),
+		BackgroundURLs: h.pickBackgrounds([]string{"home"}),
 	}
 
 	tmpl, err := template.New("base.html").Funcs(sharedFuncMap()).ParseFS(templateFS, "templates/base.html", "templates/settings.html")
@@ -706,7 +731,7 @@ func (h *WebHandler) Users(w http.ResponseWriter, r *http.Request) {
 		UserRole:       "admin",
 		SiteName:       h.siteName(),
 		UserEmail:      h.Auth.GetUserEmail(r),
-		BackgroundURLs: h.pickBackgrounds(""),
+		BackgroundURLs: h.pickBackgrounds([]string{"home"}),
 	}
 
 	tmpl, err := template.New("base.html").Funcs(sharedFuncMap()).ParseFS(templateFS, "templates/base.html", "templates/users.html")
@@ -797,7 +822,7 @@ func (h *WebHandler) MyServers(w http.ResponseWriter, r *http.Request) {
 		Authenticated:  true,
 		UserRole:       h.userRole(r),
 		SiteName:       h.siteName(),
-		BackgroundURLs: h.pickBackgrounds(""),
+		BackgroundURLs: h.pickBackgrounds([]string{"home"}),
 	}
 
 	tmpl, err := template.New("base.html").Funcs(sharedFuncMap()).ParseFS(templateFS, "templates/base.html", "templates/my_servers.html")
