@@ -11,6 +11,7 @@ import (
 	"github.com/tionis/hogs/database"
 	"github.com/tionis/hogs/engine"
 	"github.com/tionis/hogs/query"
+	"github.com/tionis/hogs/scim"
 	"github.com/tionis/hogs/web"
 	"log"
 	"net/http"
@@ -52,6 +53,12 @@ func main() {
 	webHandler := web.NewWebHandler(store, cfg, authenticator, eng)
 	pteroHandler := api.NewPterodactylHandler(store, cfg, eng)
 	automationHandler := api.NewAutomationHandler(store, cfg, eng)
+
+	var scimHandler *scim.Handler
+	if cfg.SCIMEnabled && cfg.SCIMBearerToken != "" {
+		scimHandler = scim.NewHandler(store, cfg, authenticator)
+		log.Println("SCIM 2.0 endpoint enabled at /scim/v2/")
+	}
 
 	var scheduler *hogscron.Scheduler
 	if cfg.CronEnabled {
@@ -149,6 +156,30 @@ func main() {
 	}
 	router.HandleFunc("/help", webHandler.Help).Methods("GET")
 	router.HandleFunc("/help/api.md", webHandler.HelpMarkdown).Methods("GET")
+
+	if scimHandler != nil {
+		scimRouter := router.PathPrefix("/scim/v2").Subrouter()
+		scimRouter.Use(scimHandler.BearerAuth)
+
+		scimRouter.HandleFunc("/ServiceProviderConfig", scimHandler.ServiceProviderConfig).Methods("GET")
+		scimRouter.HandleFunc("/Schemas", scimHandler.Schemas).Methods("GET")
+		scimRouter.HandleFunc("/Schemas/urn:ietf:params:scim:schemas:core:2.0:User", scimHandler.SchemaUser).Methods("GET")
+		scimRouter.HandleFunc("/Schemas/urn:ietf:params:scim:schemas:core:2.0:Group", scimHandler.SchemaGroup).Methods("GET")
+
+		scimRouter.HandleFunc("/Users", scimHandler.ListUsers).Methods("GET")
+		scimRouter.HandleFunc("/Users", scimHandler.CreateUser).Methods("POST")
+		scimRouter.HandleFunc("/Users/{id}", scimHandler.GetUser).Methods("GET")
+		scimRouter.HandleFunc("/Users/{id}", scimHandler.ReplaceUser).Methods("PUT")
+		scimRouter.HandleFunc("/Users/{id}", scimHandler.PatchUser).Methods("PATCH")
+		scimRouter.HandleFunc("/Users/{id}", scimHandler.DeleteUser).Methods("DELETE")
+
+		scimRouter.HandleFunc("/Groups", scimHandler.ListGroups).Methods("GET")
+		scimRouter.HandleFunc("/Groups", scimHandler.CreateGroup).Methods("POST")
+		scimRouter.HandleFunc("/Groups/{id}", scimHandler.GetGroup).Methods("GET")
+		scimRouter.HandleFunc("/Groups/{id}", scimHandler.ReplaceGroup).Methods("PUT")
+		scimRouter.HandleFunc("/Groups/{id}", scimHandler.PatchGroup).Methods("PATCH")
+		scimRouter.HandleFunc("/Groups/{id}", scimHandler.DeleteGroup).Methods("DELETE")
+	}
 
 	router.PathPrefix("/{serverName}/map/").HandlerFunc(serverHandler.MapProxy)
 	router.PathPrefix("/files/{serverName}/mods/").Handler(http.HandlerFunc(serverHandler.ServeModFiles))

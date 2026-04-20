@@ -474,11 +474,14 @@ func (s *Store) SetSetting(key, value string) error {
 }
 
 type User struct {
-	ID        int    `json:"id"`
-	Email     string `json:"email"`
-	Role      string `json:"role"`
-	FirstSeen string `json:"firstSeen"`
-	LastLogin string `json:"lastLogin"`
+	ID          int    `json:"id"`
+	Email       string `json:"email"`
+	Role        string `json:"role"`
+	FirstSeen   string `json:"firstSeen"`
+	LastLogin   string `json:"lastLogin"`
+	ExternalID  string `json:"externalId"`
+	DisplayName string `json:"displayName"`
+	Active      bool   `json:"active"`
 }
 
 func (s *Store) CreateUser(email, role string) (*User, error) {
@@ -494,15 +497,17 @@ func (s *Store) CreateUser(email, role string) (*User, error) {
 }
 
 func (s *Store) GetUserByEmail(email string) (*User, error) {
-	row := s.DB.QueryRow("SELECT id, email, role, first_seen, last_login FROM users WHERE email = ?", email)
+	row := s.DB.QueryRow("SELECT id, email, role, first_seen, last_login, external_id, display_name, active FROM users WHERE email = ?", email)
 	var u User
-	err := row.Scan(&u.ID, &u.Email, &u.Role, &u.FirstSeen, &u.LastLogin)
+	var active int
+	err := row.Scan(&u.ID, &u.Email, &u.Role, &u.FirstSeen, &u.LastLogin, &u.ExternalID, &u.DisplayName, &active)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
 		return nil, err
 	}
+	u.Active = active == 1
 	return &u, nil
 }
 
@@ -517,7 +522,7 @@ func (s *Store) TouchUserLastLogin(id int) error {
 }
 
 func (s *Store) ListUsers() ([]User, error) {
-	rows, err := s.DB.Query("SELECT id, email, role, first_seen, last_login FROM users ORDER BY id")
+	rows, err := s.DB.Query("SELECT id, email, role, first_seen, last_login, external_id, display_name, active FROM users ORDER BY id")
 	if err != nil {
 		return nil, err
 	}
@@ -526,9 +531,11 @@ func (s *Store) ListUsers() ([]User, error) {
 	var users []User
 	for rows.Next() {
 		var u User
-		if err := rows.Scan(&u.ID, &u.Email, &u.Role, &u.FirstSeen, &u.LastLogin); err != nil {
+		var active int
+		if err := rows.Scan(&u.ID, &u.Email, &u.Role, &u.FirstSeen, &u.LastLogin, &u.ExternalID, &u.DisplayName, &active); err != nil {
 			return nil, err
 		}
+		u.Active = active == 1
 		users = append(users, u)
 	}
 	return users, nil
@@ -1107,4 +1114,194 @@ func (s *Store) ComputeMissingHashes(bgDir string) error {
 		}
 	}
 	return nil
+}
+
+func (s *Store) GetUserByID(id int) (*User, error) {
+	row := s.DB.QueryRow("SELECT id, email, role, first_seen, last_login, external_id, display_name, active FROM users WHERE id = ?", id)
+	var u User
+	var active int
+	err := row.Scan(&u.ID, &u.Email, &u.Role, &u.FirstSeen, &u.LastLogin, &u.ExternalID, &u.DisplayName, &active)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	u.Active = active == 1
+	return &u, nil
+}
+
+func (s *Store) GetUserByExternalID(externalID string) (*User, error) {
+	row := s.DB.QueryRow("SELECT id, email, role, first_seen, last_login, external_id, display_name, active FROM users WHERE external_id = ?", externalID)
+	var u User
+	var active int
+	err := row.Scan(&u.ID, &u.Email, &u.Role, &u.FirstSeen, &u.LastLogin, &u.ExternalID, &u.DisplayName, &active)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	u.Active = active == 1
+	return &u, nil
+}
+
+func (s *Store) UpdateUserSCIM(id int, externalID, displayName string, active bool) error {
+	activeInt := 0
+	if active {
+		activeInt = 1
+	}
+	_, err := s.DB.Exec("UPDATE users SET external_id = ?, display_name = ?, active = ? WHERE id = ?", externalID, displayName, activeInt, id)
+	return err
+}
+
+func (s *Store) SetUserActive(id int, active bool) error {
+	activeInt := 0
+	if active {
+		activeInt = 1
+	}
+	_, err := s.DB.Exec("UPDATE users SET active = ? WHERE id = ?", activeInt, id)
+	return err
+}
+
+type SCIMGroup struct {
+	ID          int    `json:"id"`
+	ExternalID  string `json:"externalId"`
+	DisplayName string `json:"displayName"`
+	CreatedAt   string `json:"createdAt"`
+}
+
+func (s *Store) CreateSCIMGroup(g *SCIMGroup) error {
+	result, err := s.DB.Exec("INSERT INTO scim_groups (external_id, display_name) VALUES (?, ?)", g.ExternalID, g.DisplayName)
+	if err != nil {
+		return err
+	}
+	id, _ := result.LastInsertId()
+	g.ID = int(id)
+	return nil
+}
+
+func (s *Store) GetSCIMGroup(id int) (*SCIMGroup, error) {
+	row := s.DB.QueryRow("SELECT id, external_id, display_name, created_at FROM scim_groups WHERE id = ?", id)
+	var g SCIMGroup
+	err := row.Scan(&g.ID, &g.ExternalID, &g.DisplayName, &g.CreatedAt)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &g, nil
+}
+
+func (s *Store) GetSCIMGroupByName(displayName string) (*SCIMGroup, error) {
+	row := s.DB.QueryRow("SELECT id, external_id, display_name, created_at FROM scim_groups WHERE display_name = ?", displayName)
+	var g SCIMGroup
+	err := row.Scan(&g.ID, &g.ExternalID, &g.DisplayName, &g.CreatedAt)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &g, nil
+}
+
+func (s *Store) ListSCIMGroups() ([]SCIMGroup, error) {
+	rows, err := s.DB.Query("SELECT id, external_id, display_name, created_at FROM scim_groups ORDER BY id")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var groups []SCIMGroup
+	for rows.Next() {
+		var g SCIMGroup
+		if err := rows.Scan(&g.ID, &g.ExternalID, &g.DisplayName, &g.CreatedAt); err != nil {
+			return nil, err
+		}
+		groups = append(groups, g)
+	}
+	return groups, nil
+}
+
+func (s *Store) UpdateSCIMGroup(id int, externalID, displayName string) error {
+	_, err := s.DB.Exec("UPDATE scim_groups SET external_id = ?, display_name = ? WHERE id = ?", externalID, displayName, id)
+	return err
+}
+
+func (s *Store) DeleteSCIMGroup(id int) error {
+	_, err := s.DB.Exec("DELETE FROM scim_groups WHERE id = ?", id)
+	return err
+}
+
+func (s *Store) SetSCIMGroupMembers(groupID int, userIDs []int) error {
+	_, err := s.DB.Exec("DELETE FROM scim_group_members WHERE group_id = ?", groupID)
+	if err != nil {
+		return err
+	}
+	if len(userIDs) == 0 {
+		return nil
+	}
+	stmt, err := s.DB.Prepare("INSERT INTO scim_group_members (group_id, user_id) VALUES (?, ?)")
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+	for _, uid := range userIDs {
+		if _, err := stmt.Exec(groupID, uid); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Store) AddSCIMGroupMember(groupID, userID int) error {
+	_, err := s.DB.Exec("INSERT OR IGNORE INTO scim_group_members (group_id, user_id) VALUES (?, ?)", groupID, userID)
+	return err
+}
+
+func (s *Store) RemoveSCIMGroupMember(groupID, userID int) error {
+	_, err := s.DB.Exec("DELETE FROM scim_group_members WHERE group_id = ? AND user_id = ?", groupID, userID)
+	return err
+}
+
+func (s *Store) GetSCIMGroupMembers(groupID int) ([]User, error) {
+	rows, err := s.DB.Query(`SELECT u.id, u.email, u.role, u.first_seen, u.last_login, u.external_id, u.display_name, u.active
+		FROM users u JOIN scim_group_members gm ON u.id = gm.user_id WHERE gm.group_id = ? ORDER BY u.id`, groupID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var users []User
+	for rows.Next() {
+		var u User
+		var active int
+		if err := rows.Scan(&u.ID, &u.Email, &u.Role, &u.FirstSeen, &u.LastLogin, &u.ExternalID, &u.DisplayName, &active); err != nil {
+			return nil, err
+		}
+		u.Active = active == 1
+		users = append(users, u)
+	}
+	return users, nil
+}
+
+func (s *Store) GetSCIMGroupsForUser(userID int) ([]SCIMGroup, error) {
+	rows, err := s.DB.Query(`SELECT g.id, g.external_id, g.display_name, g.created_at
+		FROM scim_groups g JOIN scim_group_members gm ON g.id = gm.group_id WHERE gm.user_id = ? ORDER BY g.id`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var groups []SCIMGroup
+	for rows.Next() {
+		var g SCIMGroup
+		if err := rows.Scan(&g.ID, &g.ExternalID, &g.DisplayName, &g.CreatedAt); err != nil {
+			return nil, err
+		}
+		groups = append(groups, g)
+	}
+	return groups, nil
 }

@@ -27,6 +27,10 @@ type Config struct {
 	// OIDC Back-Channel Logout
 	OIDCBackChannelLogoutEnabled bool
 
+	// SCIM Configuration
+	SCIMEnabled     bool
+	SCIMBearerToken string
+
 	// Pterodactyl Configuration
 	PterodactylURL       string
 	PterodactylAppKey    string
@@ -66,6 +70,9 @@ func LoadConfig() *Config {
 		OIDCGroupsClaim: getEnv("OIDC_GROUPS_CLAIM", "groups"),
 
 		OIDCBackChannelLogoutEnabled: getEnv("OIDC_BACKCHANNEL_LOGOUT", "true") == "true",
+
+		SCIMEnabled:     getEnv("SCIM_ENABLED", "false") == "true",
+		SCIMBearerToken: getEnv("SCIM_BEARER_TOKEN", ""),
 
 		PterodactylURL:       getEnv("PTERODACTYL_URL", ""),
 		PterodactylAppKey:    getEnv("PTERODACTYL_APP_KEY", ""),
