@@ -300,18 +300,20 @@ All action paths (user-triggered, cron-triggered, API-triggered) go through the 
 - Once all servers are agent-managed, Pterodactyl dependency can be fully removed
 - PterodactylBackend becomes optional; `PterodactylURL` can be empty
 
-#### 3.5 Server Templates
-- New `server_templates` table: id, name, game_type, default_settings, default_commands, default_acl, default_tags
-- Pre-defined templates: "Vanilla Minecraft", "Modded Minecraft", "Valheim", "Satisfactory", "Factorio"
-- Template selection on server creation page
-- Auto-populate metadata, commands, tags from template
+#### 3.5 Server Templates ✅
+- Migration 000024 creates `server_templates` table (id, name, game_type, default_settings, default_commands, default_acl, default_tags, description)
+- `ServerTemplate` model with JSON fields for settings, commands, and tags
+- CRUD: ListServerTemplates, GetServerTemplate (by ID or name), CreateServerTemplate, DeleteServerTemplate
+- Admin endpoints: GET /api/templates, POST /api/templates/create, POST /api/templates/delete
+- **Still needed**: Admin UI template selector on server creation page
 
-#### 3.6 Webhook Outgoing
-- New `webhooks` table: id, url, secret, events[], enabled
-- Post event payloads to external URLs on: server start/stop, constraint violation, cron result, backup completion
-- Retry logic with exponential backoff
-- HMAC signature for verification
-- Admin UI at `/admin/webhooks`
+#### 3.6 Webhook Outgoing ✅
+- Migration 000025 creates `webhooks` table (id, name, url, secret, events, enabled, created_at)
+- `Webhook` model with HMAC-SHA256 signature verification
+- `webhook/dispatcher.go`: async event dispatcher, filters by event type, supports wildcard
+- Pre-built event constructors: `ServerEvent`, `CronEvent`, `AgentEvent`
+- Admin endpoints: GET /api/webhooks, POST /api/webhooks/create, POST /api/webhooks/delete, GET /api/webhooks/test
+- Secrets never exposed in API responses
 
 #### 3.7 Dark/Light Theme Consistency
 - Audit all admin pages for hardcoded colors
@@ -324,10 +326,15 @@ All action paths (user-triggered, cron-triggered, API-triggered) go through the 
 - Default to English, community-contributed translations
 - Start with: English, German
 
-#### 3.9 Secret Management Hardening ✅ (partial)
+#### 3.9 Secret Management Hardening ✅
+- Agent tokens are now stored as SHA-256 hashes in DB (`token_hash` column)
+- `token_prefix` column (first 8 chars) for display in admin UI instead of full token
+- `Agent.Token` has `json:"token,omitempty"` — only populated on creation response, never in list/get
+- `GetAgentByToken` hashes the provided token and looks up by `token_hash`
+- `CreateAgent` auto-generates hash and prefix from plaintext token
+- API key authentication uses same `HashAPIKey` function for consistent hashing
 - Agent binary supports TLS client certificates: `HOGS_AGENT_TLS_CERT` and `HOGS_AGENT_TLS_KEY`
-- Migration 000023 adds `token_hash` and `token_prefix` columns to `agents` table (preparatory)
-- **Still needed**: Hash agent tokens in DB on creation, compare against hash on connect, token rotation endpoint/admin UI, encrypt restic passwords at rest
+- **Still needed**: Token rotation endpoint/admin UI, encrypt restic passwords at rest
 
 #### 3.10 Health Check Endpoints ✅
 - HOGS `/healthz` endpoint now reports database connectivity with structured JSON response
