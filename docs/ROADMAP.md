@@ -268,13 +268,14 @@ All action paths (user-triggered, cron-triggered, API-triggered) go through the 
 
 ### Priority 3: Nice-to-Have (polish items)
 
-#### 3.1 API Key Authentication
-- New `api_keys` table: id, name, key_hash, role, created_at, last_used, expires_at
-- API key auth middleware (alternative to OIDC session)
-- Key generation with `hogs_` prefix
-- Admin page at `/admin/api-keys` to manage keys
-- Key permissions tied to role (admin/user) or scoped per-server
-- Used for: cron scripts, CI/CD, external integrations
+#### 3.1 API Key Authentication ✅
+- Migration 000022 creates `api_keys` table (id, name, key_hash, key_prefix, role, created_at, last_used, expires_at)
+- `GenerateAPIKey()` generates `hogs_`-prefixed keys with SHA-256 hash storage
+- `auth/APIKeyAuthenticator` validates Bearer tokens against stored hashes
+- `auth/APIKeyMiddleware` runs before CSRF middleware, sets API key in request context
+- Admin endpoints: `GET /api/api-keys` (list), `POST /api/api-keys` (create), `POST /api/api-keys/delete` (delete)
+- Key expiry support via optional `expires_at` field
+- `GetAPIKeyFromContext()` helper for role-based authorization in handlers
 
 #### 3.2 Agent Provisioning Flow
 - One-click "Add Agent" button generates token + shows install command:
@@ -323,11 +324,10 @@ All action paths (user-triggered, cron-triggered, API-triggered) go through the 
 - Default to English, community-contributed translations
 - Start with: English, German
 
-#### 3.9 Secret Management Hardening
-- Hash agent tokens in DB (bcrypt or SHA-256 with salt), compare against hash on connect
-- Add SCIM/agent token rotation endpoint or admin UI
-- Encrypt restic passwords at rest using a server-side encryption key (HOGS_ENCRYPTION_KEY env var)
-- Add TLS option to hogs-agent (`HOGS_AGENT_TLS=true`, `HOGS_AGENT_TLS_CERT`, `HOGS_AGENT_TLS_KEY`)
+#### 3.9 Secret Management Hardening ✅ (partial)
+- Agent binary supports TLS client certificates: `HOGS_AGENT_TLS_CERT` and `HOGS_AGENT_TLS_KEY`
+- Migration 000023 adds `token_hash` and `token_prefix` columns to `agents` table (preparatory)
+- **Still needed**: Hash agent tokens in DB on creation, compare against hash on connect, token rotation endpoint/admin UI, encrypt restic passwords at rest
 
 #### 3.10 Health Check Endpoints ✅
 - HOGS `/healthz` endpoint now reports database connectivity with structured JSON response
