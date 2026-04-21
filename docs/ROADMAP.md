@@ -222,13 +222,11 @@ All action paths (user-triggered, cron-triggered, API-triggered) go through the 
 - Configurable per-server and per-user notification preferences
 - Notification queue with retry logic
 
-#### 2.4 Dashboard Overview
-- New `/admin/dashboard` or enhance existing `/admin` with:
-  - Total servers, online/offline counts
-  - Agent connectivity overview (connected/disconnected per node)
-  - Recent events (last 10 audit log entries)
-  - Quick action buttons (start all, stop all on node)
-  - Resource usage summary if agents report metrics
+#### 2.4 Dashboard Overview ✅
+- New `GET /api/dashboard` endpoint: total/online/offline/maintenance/planned server counts, game type breakdown, agent connectivity (connected/disconnected), cron status, last 10 audit entries
+- New `GET /api/dashboard/agents` endpoint: list all agents with online/offline connection status
+- Both endpoints require admin role
+- **Still needed**: Admin UI page rendering this data
 
 #### 2.5 Server Resource Metrics ✅
 - Agent status reports now store metrics in `server_metrics` table (migration 000021)
@@ -250,12 +248,14 @@ All action paths (user-triggered, cron-triggered, API-triggered) go through the 
 - Command execution UI for parameterized commands (rendered from command schemas)
 - Whitelist button (for games that support it)
 
-#### 2.8 Rate Limiting
-- Rate limit login attempts (5/minute per IP)
-- Rate limit SCIM endpoints (100/minute per token)
-- Rate limit agent WebSocket messages (per-connection throttle)
-- Rate limit public API endpoints (60/minute per IP)
-- Configurable via environment variables or admin settings
+#### 2.8 Rate Limiting ✅
+- New `api/ratelimit.go`: IP-based sliding window rate limiter
+- Login endpoints: 5 requests/minute per IP (`HOGS_RATE_LIMIT_LOGIN`)
+- Public API endpoints: 60 requests/minute per IP (`HOGS_RATE_LIMIT_API`)
+- SCIM endpoints: 100 requests/minute per token (`HOGS_RATE_LIMIT_SCIM`)
+- Respects `X-Forwarded-For` header for reverse proxy deployments
+- Periodic cleanup goroutine removes expired entries every 5 minutes
+- Agent WebSocket messages: not rate-limited (low volume, per-connection)
 
 #### 2.9 CSRF Protection ✅
 - Added `auth/CSRFMiddleware` using HMAC-signed double-submit cookie pattern
