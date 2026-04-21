@@ -93,6 +93,10 @@ func main() {
 
 	router := mux.NewRouter()
 
+	csrfSecret := cfg.SessionSecret
+	csrfExemptPrefixes := []string{"/agent/ws", "/scim/v2", "/auth/callback", "/auth/backchannel-logout", "/api/"}
+	csrfRouter := auth.CSRFMiddleware(csrfSecret, csrfExemptPrefixes, router)
+
 	router.HandleFunc("/", webHandler.Home).Methods("GET")
 
 	if authenticator != nil {
@@ -232,7 +236,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:    ":" + cfg.Port,
-		Handler: router,
+		Handler: csrfRouter,
 	}
 
 	go func() {
