@@ -1333,45 +1333,31 @@ func (s *Store) CreateAgent(a *Agent) error {
 
 func (s *Store) GetAgent(id int) (*Agent, error) {
 	row := s.DB.QueryRow("SELECT id, name, token, node_name, capabilities, created_at, last_seen, online FROM agents WHERE id = ?", id)
-	var a Agent
-	var online int
-	err := row.Scan(&a.ID, &a.Name, &a.Token, &a.NodeName, &a.Capabilities, &a.CreatedAt, &a.LastSeen, &online)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, nil
-		}
-		return nil, err
-	}
-	a.Online = online == 1
-	return &a, nil
+	return scanAgent(row)
 }
 
 func (s *Store) GetAgentByToken(token string) (*Agent, error) {
 	row := s.DB.QueryRow("SELECT id, name, token, node_name, capabilities, created_at, last_seen, online FROM agents WHERE token = ?", token)
-	var a Agent
-	var online int
-	err := row.Scan(&a.ID, &a.Name, &a.Token, &a.NodeName, &a.Capabilities, &a.CreatedAt, &a.LastSeen, &online)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, nil
-		}
-		return nil, err
-	}
-	a.Online = online == 1
-	return &a, nil
+	return scanAgent(row)
 }
 
 func (s *Store) GetAgentByNodeName(nodeName string) (*Agent, error) {
 	row := s.DB.QueryRow("SELECT id, name, token, node_name, capabilities, created_at, last_seen, online FROM agents WHERE node_name = ?", nodeName)
+	return scanAgent(row)
+}
+
+func scanAgent(row *sql.Row) (*Agent, error) {
 	var a Agent
 	var online int
-	err := row.Scan(&a.ID, &a.Name, &a.Token, &a.NodeName, &a.Capabilities, &a.CreatedAt, &a.LastSeen, &online)
+	var caps []byte
+	err := row.Scan(&a.ID, &a.Name, &a.Token, &a.NodeName, &caps, &a.CreatedAt, &a.LastSeen, &online)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
 		return nil, err
 	}
+	a.Capabilities = json.RawMessage(caps)
 	a.Online = online == 1
 	return &a, nil
 }
@@ -1387,9 +1373,11 @@ func (s *Store) ListAgents() ([]Agent, error) {
 	for rows.Next() {
 		var a Agent
 		var online int
-		if err := rows.Scan(&a.ID, &a.Name, &a.Token, &a.NodeName, &a.Capabilities, &a.CreatedAt, &a.LastSeen, &online); err != nil {
+		var caps []byte
+		if err := rows.Scan(&a.ID, &a.Name, &a.Token, &a.NodeName, &caps, &a.CreatedAt, &a.LastSeen, &online); err != nil {
 			return nil, err
 		}
+		a.Capabilities = json.RawMessage(caps)
 		a.Online = online == 1
 		agents = append(agents, a)
 	}
