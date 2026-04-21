@@ -49,6 +49,11 @@ type Config struct {
 
 	// Metrics Configuration
 	MetricsRetentionDays int
+
+	// Rate Limiting
+	RateLimitLogin int
+	RateLimitAPI   int
+	RateLimitSCIM  int
 }
 
 // LoadConfig reads configuration from environment variables or sets defaults.
@@ -95,6 +100,10 @@ func LoadConfig() *Config {
 		AgentHeartbeatSec: mustAtoi(getEnv("HOGS_AGENT_HEARTBEAT_SEC", "30")),
 
 		MetricsRetentionDays: mustAtoi(getEnv("HOGS_METRICS_RETENTION_DAYS", "7")),
+
+		RateLimitLogin: mustAtoi(getEnv("HOGS_RATE_LIMIT_LOGIN", "5")),
+		RateLimitAPI:   mustAtoi(getEnv("HOGS_RATE_LIMIT_API", "60")),
+		RateLimitSCIM:  mustAtoi(getEnv("HOGS_RATE_LIMIT_SCIM", "100")),
 	}
 }
 

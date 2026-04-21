@@ -102,6 +102,20 @@ func main() {
 		}
 	}
 
+	loginLimiter := api.NewRateLimiter(cfg.RateLimitLogin, time.Minute)
+	apiLimiter := api.NewRateLimiter(cfg.RateLimitAPI, time.Minute)
+	scimLimiter := api.NewRateLimiter(cfg.RateLimitSCIM, time.Minute)
+
+	go func() {
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			loginLimiter.Cleanup()
+			apiLimiter.Cleanup()
+			scimLimiter.Cleanup()
+		}
+	}()
+
 	router := mux.NewRouter()
 
 	csrfSecret := cfg.SessionSecret
@@ -111,7 +125,7 @@ func main() {
 	router.HandleFunc("/", webHandler.Home).Methods("GET")
 
 	if authenticator != nil {
-		router.HandleFunc("/login", authenticator.HandleLogin).Methods("GET")
+		router.Handle("/login", loginLimiter.Middleware(http.HandlerFunc(authenticator.HandleLogin))).Methods("GET")
 		router.HandleFunc("/logout", authenticator.HandleLogout).Methods("GET")
 		router.HandleFunc("/auth/callback", authenticator.HandleCallback).Methods("GET")
 		router.HandleFunc("/auth/backchannel-logout", authenticator.HandleBackChannelLogout).Methods("POST")
@@ -138,9 +152,9 @@ func main() {
 		}).Methods("GET")
 	}
 
-	router.HandleFunc("/api/servers", serverHandler.GetServers).Methods("GET")
-	router.HandleFunc("/api/servers/{serverName}/status", serverHandler.GetServerStatus).Methods("GET")
-	router.HandleFunc("/api/servers/{serverName}/mods", serverHandler.GetServerMods).Methods("GET")
+	router.Handle("/api/servers", apiLimiter.Middleware(http.HandlerFunc(serverHandler.GetServers))).Methods("GET")
+	router.Handle("/api/servers/{serverName}/status", apiLimiter.Middleware(http.HandlerFunc(serverHandler.GetServerStatus))).Methods("GET")
+	router.Handle("/api/servers/{serverName}/mods", apiLimiter.Middleware(http.HandlerFunc(serverHandler.GetServerMods))).Methods("GET")
 	router.HandleFunc("/api/backgrounds", serverHandler.GetBackground).Methods("GET")
 	router.HandleFunc("/backgrounds/{contentHash}/{filename}", serverHandler.ServeBackgroundFile).Methods("GET")
 	router.HandleFunc("/healthz", serverHandler.Healthz).Methods("GET")
@@ -219,6 +233,9 @@ func main() {
 	if scimHandler != nil {
 		scimRouter := router.PathPrefix("/scim/v2").Subrouter()
 		scimRouter.Use(scimHandler.BearerAuth)
+		scimRouter.Use(func(next http.Handler) http.Handler {
+			return scimLimiter.Middleware(next)
+		})
 
 		scimRouter.HandleFunc("/ServiceProviderConfig", scimHandler.ServiceProviderConfig).Methods("GET")
 		scimRouter.HandleFunc("/Schemas", scimHandler.Schemas).Methods("GET")
