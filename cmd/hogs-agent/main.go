@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -98,6 +99,9 @@ var (
 	dataDir     string
 	resticBin   string
 	unitPrefix  string
+	tlsCert     string
+	tlsKey      string
+	healthAddr  string
 )
 
 func main() {
@@ -110,6 +114,9 @@ func main() {
 	dataDir = envOr("HOGS_AGENT_DATA_DIR", "/opt/game-servers")
 	resticBin = envOr("HOGS_AGENT_RESTIC_BIN", "restic")
 	unitPrefix = envOr("HOGS_AGENT_UNIT_PREFIX", "")
+	tlsCert = envOr("HOGS_AGENT_TLS_CERT", "")
+	tlsKey = envOr("HOGS_AGENT_TLS_KEY", "")
+	healthAddr = envOr("HOGS_AGENT_HEALTH_ADDR", "")
 
 	if agentToken == "" {
 		log.Fatal("HOGS_AGENT_TOKEN is required")
@@ -118,7 +125,6 @@ func main() {
 		serviceName = serverName
 	}
 
-	healthAddr := envOr("HOGS_AGENT_HEALTH_ADDR", "")
 	go func() {
 		if healthAddr == "" {
 			return
@@ -168,7 +174,21 @@ func connectAndServe(interrupt chan os.Signal) error {
 	u.RawQuery = q.Encode()
 
 	log.Printf("Connecting to %s...", u.String())
-	c, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
+
+	dialer := websocket.DefaultDialer
+	if tlsCert != "" && tlsKey != "" {
+		cert, err := tls.LoadX509KeyPair(tlsCert, tlsKey)
+		if err != nil {
+			return fmt.Errorf("failed to load TLS cert/key: %w", err)
+		}
+		dialer = &websocket.Dialer{
+			TLSClientConfig: &tls.Config{
+				Certificates: []tls.Certificate{cert},
+			},
+		}
+	}
+
+	c, _, err := dialer.Dial(u.String(), nil)
 	if err != nil {
 		return fmt.Errorf("dial failed: %w", err)
 	}
