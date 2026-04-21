@@ -87,6 +87,7 @@ func main() {
 
 	pteroHandler := api.NewPterodactylHandler(store, cfg, eng, agentHub)
 	automationHandler := api.NewAutomationHandler(store, cfg, eng)
+	dashboardHandler := api.NewDashboardHandler(store, cfg, eng, agentHub)
 
 	var scimHandler *scim.Handler
 	if cfg.SCIMEnabled && cfg.SCIMBearerToken != "" {
@@ -206,6 +207,9 @@ func main() {
 
 		router.Handle("/api/audit", authenticator.RequireRole("admin")(http.HandlerFunc(automationHandler.GetAuditLog))).Methods("GET")
 		router.Handle("/api/constraints/test", authenticator.RequireRole("admin")(http.HandlerFunc(automationHandler.TestConstraint))).Methods("POST")
+
+		router.Handle("/api/dashboard", authenticator.RequireRole("admin")(http.HandlerFunc(dashboardHandler.Overview))).Methods("GET")
+		router.Handle("/api/dashboard/agents", authenticator.RequireRole("admin")(http.HandlerFunc(dashboardHandler.AgentList))).Methods("GET")
 	}
 	router.HandleFunc("/help", webHandler.Help).Methods("GET")
 	router.HandleFunc("/help/api.md", webHandler.HelpMarkdown).Methods("GET")
