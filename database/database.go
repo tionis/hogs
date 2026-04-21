@@ -1314,6 +1314,78 @@ func (s *Store) DeleteServerTemplate(id int) error {
 	return err
 }
 
+type Webhook struct {
+	ID        int             `json:"id"`
+	Name      string          `json:"name"`
+	URL       string          `json:"url"`
+	Secret    string          `json:"-"`
+	Events    json.RawMessage `json:"events"`
+	Enabled   bool            `json:"enabled"`
+	CreatedAt string          `json:"createdAt"`
+}
+
+func (s *Store) ListWebhooks() ([]Webhook, error) {
+	rows, err := s.DB.Query("SELECT id, name, url, secret, events, enabled, created_at FROM webhooks ORDER BY id")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var webhooks []Webhook
+	for rows.Next() {
+		var w Webhook
+		var enabled int
+		var events []byte
+		if err := rows.Scan(&w.ID, &w.Name, &w.URL, &w.Secret, &events, &enabled, &w.CreatedAt); err != nil {
+			return nil, err
+		}
+		w.Events = json.RawMessage(events)
+		w.Enabled = enabled == 1
+		webhooks = append(webhooks, w)
+	}
+	return webhooks, nil
+}
+
+func (s *Store) GetWebhook(id int) (*Webhook, error) {
+	row := s.DB.QueryRow("SELECT id, name, url, secret, events, enabled, created_at FROM webhooks WHERE id = ?", id)
+	var w Webhook
+	var enabled int
+	var events []byte
+	err := row.Scan(&w.ID, &w.Name, &w.URL, &w.Secret, &events, &enabled, &w.CreatedAt)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	w.Events = json.RawMessage(events)
+	w.Enabled = enabled == 1
+	return &w, nil
+}
+
+func (s *Store) CreateWebhook(w *Webhook) error {
+	if w.Events == nil {
+		w.Events = json.RawMessage("[]")
+	}
+	enabled := 0
+	if w.Enabled {
+		enabled = 1
+	}
+	result, err := s.DB.Exec("INSERT INTO webhooks (name, url, secret, events, enabled) VALUES (?, ?, ?, ?, ?)",
+		w.Name, w.URL, w.Secret, string(w.Events), enabled)
+	if err != nil {
+		return err
+	}
+	id, _ := result.LastInsertId()
+	w.ID = int(id)
+	return nil
+}
+
+func (s *Store) DeleteWebhook(id int) error {
+	_, err := s.DB.Exec("DELETE FROM webhooks WHERE id = ?", id)
+	return err
+}
+
 func (bg *Background) URL() string {
 	if bg.ContentHash != "" {
 		return "/backgrounds/" + bg.ContentHash + "/" + bg.Filename

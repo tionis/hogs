@@ -14,6 +14,7 @@ import (
 	"github.com/tionis/hogs/query"
 	"github.com/tionis/hogs/scim"
 	"github.com/tionis/hogs/web"
+	"github.com/tionis/hogs/webhook"
 	"log"
 	"net/http"
 	"os"
@@ -90,6 +91,8 @@ func main() {
 	dashboardHandler := api.NewDashboardHandler(store, cfg, eng, agentHub)
 	apiKeyHandler := api.NewAPIKeyHandler(store)
 	templateHandler := api.NewTemplateHandler(store)
+	webhookDispatcher := webhook.NewDispatcher(store)
+	webhookHandler := api.NewWebhookHandler(store, webhookDispatcher)
 
 	var scimHandler *scim.Handler
 	if cfg.SCIMEnabled && cfg.SCIMBearerToken != "" {
@@ -221,6 +224,11 @@ func main() {
 		router.Handle("/api/templates", authenticator.RequireRole("admin")(http.HandlerFunc(templateHandler.ListTemplates))).Methods("GET")
 		router.Handle("/api/templates/create", authenticator.RequireRole("admin")(http.HandlerFunc(templateHandler.CreateTemplate))).Methods("POST")
 		router.Handle("/api/templates/delete", authenticator.RequireRole("admin")(http.HandlerFunc(templateHandler.DeleteTemplate))).Methods("POST")
+
+		router.Handle("/api/webhooks", authenticator.RequireRole("admin")(http.HandlerFunc(webhookHandler.ListWebhooks))).Methods("GET")
+		router.Handle("/api/webhooks/create", authenticator.RequireRole("admin")(http.HandlerFunc(webhookHandler.CreateWebhook))).Methods("POST")
+		router.Handle("/api/webhooks/delete", authenticator.RequireRole("admin")(http.HandlerFunc(webhookHandler.DeleteWebhook))).Methods("POST")
+		router.Handle("/api/webhooks/test", authenticator.RequireRole("admin")(http.HandlerFunc(webhookHandler.TestWebhook))).Methods("GET")
 	}
 	router.HandleFunc("/help", webHandler.Help).Methods("GET")
 	router.HandleFunc("/help/api.md", webHandler.HelpMarkdown).Methods("GET")
