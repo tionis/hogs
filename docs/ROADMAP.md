@@ -128,31 +128,25 @@ All action paths (user-triggered, cron-triggered, API-triggered) go through the 
 
 ### Priority 1: Critical Gaps (panel feels incomplete without these)
 
-#### 1.1 Agent Admin UI
-- Admin page at `/admin/agents` to list, create, delete agents
-- Auto-generate agent tokens on creation
-- Show online/offline status and last-seen timestamp
-- One-click "copy install command" that outputs the `hogs-agent` systemd unit + env vars
-- Edit agent name, node assignment, capabilities
+#### 1.1 Agent Admin UI ✅ (API layer)
+- GET /api/agents — list all agents with online/offline connectivity status from Hub
+- GET /api/agents/{id} — agent details with real-time connectivity status
+- POST /api/agents — create agent (auto-generates `hogs_`-prefixed token, returned once in response)
+- PUT /api/agents/{id} — update agent name, node assignment, capabilities
+- POST /api/agents/{id}/regenerate-token — token rotation, new token returned once
+- POST /api/agents/delete — delete agent
+- **Still needed**: Admin HTML page at `/admin/agents`
 
-#### 1.2 Agent File Manager UI
-- Browse remote filesystem via agent WebSocket (directory listing, file read/write/delete)
-- Upload files from browser (base64 over WS → agent writes to disk)
-- Download files from agent (agent reads → base64 over WS → browser)
-- Create/delete directories
-- Show at `/admin/files/{serverName}` for agent-managed servers (reuse existing file manager pattern)
+#### 1.3 Audit Log Viewer ✅ (API layer)
+- GET /api/audit — returns `{entries, limit, offset}` with pagination support
+- GET /api/audit/export?format=json|csv — export full audit log as downloadable JSON or CSV
+- **Still needed**: Admin HTML page at `/admin/audit` with filtering UI
 
-#### 1.3 Audit Log Viewer
-- Admin page at `/admin/audit` showing recent entries with filtering (by user, server, action, result)
-- Pagination (limit/offset already in API)
-- Show all columns: timestamp, user, server, action, params, result, reason, source
-- CSV/JSON export button
-
-#### 1.4 Constraint Tester UI
-- Add interactive expression tester to `/admin/constraints` page
-- Pre-fill environment with server list and time context
-- Show result (true/false) and any evaluation errors
-- Live syntax highlighting/validation
+#### 1.4 Constraint Tester ✅ (API layer)
+- POST /api/constraints/test — evaluate expression with server/user/time environment
+- Pre-fills environment with server list, user roles, time context
+- Returns `{result, error}` — boolean result or compilation error
+- **Still needed**: Interactive UI in `/admin/constraints` page
 
 #### 1.5 Console Streaming via journald
 - WebSocket proxy from browser → HOGS server → agent for live console I/O
@@ -162,11 +156,10 @@ All action paths (user-triggered, cron-triggered, API-triggered) go through the 
 - Show console on server detail page with input field for commands
 - Console input is sent as `command` messages routed to `podman exec`
 
-#### 1.6 Agent-Aware Server Edit Page
-- Server edit page detects whether server is Pterodactyl-managed or agent-managed (via `node` field)
-- For agent-managed servers: show agent connectivity status, file manager link, backup controls, console link, no Pterodactyl link form
-- For Pterodactyl-managed servers: show existing Pterodactyl link form as-is
-- Add node selector dropdown (populated from registered agents) on server edit page
+#### 1.6 Agent-Aware Server Edit ✅ (API layer)
+- PterodactylHandler.LinkServer now accepts `node` form field to assign agent-managed servers
+- Node field stored in PterodactylLink and used by resolveBackend() for routing
+- **Still needed**: Node selector dropdown in server edit page UI
 
 #### 1.7 Backend Routing for Actions/Commands ✅
 - PterodactylHandler now uses `resolveBackend()` to determine whether a server is agent-managed or Pterodactyl-managed
