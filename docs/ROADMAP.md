@@ -207,11 +207,13 @@ All action paths (user-triggered, cron-triggered, API-triggered) go through the 
 - Backup history with snapshot ID, size, date
 - Restic repo initialization from UI (`restic init`)
 
-#### 2.2 Cron Job History
-- Add `last_result` and `last_output` columns to `cron_jobs` table
-- Show success/failure status in cron manager page
-- Store last N results in a new `cron_job_logs` table for audit trail
-- Show recent execution log inline on cron job row
+#### 2.2 Cron Job History ✅
+- Added `last_result` and `last_output` columns to `cron_jobs` table (migration 000020)
+- New `cron_job_logs` table: id, cron_job_id, timestamp, result, output, duration_ms
+- Scheduler stores result and output after each job execution
+- `UpdateCronJobResult()` updates the cron job's last_result/last_output
+- `CreateCronJobLog()` and `ListCronJobLogs()` for audit trail
+- **Still needed**: Show success/failure in cron manager admin page
 
 #### 2.3 Notification/Alerting System
 - New `notifications` table: id, type, destination, enabled
@@ -254,11 +256,14 @@ All action paths (user-triggered, cron-triggered, API-triggered) go through the 
 - Rate limit public API endpoints (60/minute per IP)
 - Configurable via environment variables or admin settings
 
-#### 2.9 CSRF Protection
-- Add CSRF tokens to all state-changing POST forms
-- Use gorilla/csrf or equivalent middleware
-- Exempt API endpoints that use bearer auth (SCIM, agent WS)
-- Exempt webhook endpoints
+#### 2.9 CSRF Protection ✅
+- Added `auth/CSRFMiddleware` using HMAC-signed double-submit cookie pattern
+- Signs CSRF token with session secret (`SESSION_SECRET` env var)
+- GET/HEAD/OPTIONS requests set the `hogs-csrf` cookie and pass through
+- POST requests must include matching `csrf_token` form field or `X-CSRF-Token` header
+- Exempts `/agent/ws`, `/scim/v2/`, `/auth/callback`, `/auth/backchannel-logout`, `/api/`
+- `CSRFTokenFromRequest()` helper available for templates
+- Tests: token generation/verification, exempt paths, GET passthrough, POST rejection, valid token acceptance
 
 ### Priority 3: Nice-to-Have (polish items)
 
