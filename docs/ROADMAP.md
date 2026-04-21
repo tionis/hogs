@@ -216,8 +216,8 @@ All action paths (user-triggered, cron-triggered, API-triggered) go through the 
 - **Still needed**: Show success/failure in cron manager admin page
 
 #### 2.3 Notification/Alerting System
-- New `notifications` table: id, type, destination, enabled
-- Support channels: email (SMTP), webhook (Discord/Slack/custom), in-app
+- New `notifications` table: id, type (apprise/shoutrrr URL), destination, enabled
+- Use [apprise-go](https://github.com/scttfrdmn/apprise-go) or [shoutrrr](https://github.com/containrrr/shoutrtrr) as the notification backend for maximum flexibility — supports 100+ services via a single URL schema (Discord, Slack, email, Telegram, Pushover, Matrix, etc.)
 - Trigger events: server down/up, agent disconnect, backup failure, constraint violation, cron failure
 - Configurable per-server and per-user notification preferences
 - Notification queue with retry logic
