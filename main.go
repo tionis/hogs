@@ -11,6 +11,7 @@ import (
 	hogscron "github.com/tionis/hogs/cron"
 	"github.com/tionis/hogs/database"
 	"github.com/tionis/hogs/engine"
+	"github.com/tionis/hogs/notify"
 	"github.com/tionis/hogs/query"
 	"github.com/tionis/hogs/scim"
 	"github.com/tionis/hogs/web"
@@ -93,6 +94,8 @@ func main() {
 	templateHandler := api.NewTemplateHandler(store)
 	webhookDispatcher := webhook.NewDispatcher(store)
 	webhookHandler := api.NewWebhookHandler(store, webhookDispatcher)
+	notifyService := notify.NewService(store)
+	notificationHandler := api.NewNotificationHandler(store, notifyService)
 
 	var scimHandler *scim.Handler
 	if cfg.SCIMEnabled && cfg.SCIMBearerToken != "" {
@@ -230,6 +233,11 @@ func main() {
 		router.Handle("/api/webhooks/create", authenticator.RequireRole("admin")(http.HandlerFunc(webhookHandler.CreateWebhook))).Methods("POST")
 		router.Handle("/api/webhooks/delete", authenticator.RequireRole("admin")(http.HandlerFunc(webhookHandler.DeleteWebhook))).Methods("POST")
 		router.Handle("/api/webhooks/test", authenticator.RequireRole("admin")(http.HandlerFunc(webhookHandler.TestWebhook))).Methods("GET")
+
+		router.Handle("/api/notifications", authenticator.RequireRole("admin")(http.HandlerFunc(notificationHandler.ListChannels))).Methods("GET")
+		router.Handle("/api/notifications/create", authenticator.RequireRole("admin")(http.HandlerFunc(notificationHandler.CreateChannel))).Methods("POST")
+		router.Handle("/api/notifications/delete", authenticator.RequireRole("admin")(http.HandlerFunc(notificationHandler.DeleteChannel))).Methods("POST")
+		router.Handle("/api/notifications/test", authenticator.RequireRole("admin")(http.HandlerFunc(notificationHandler.TestChannel))).Methods("GET")
 	}
 	router.HandleFunc("/help", webHandler.Help).Methods("GET")
 	router.HandleFunc("/help/api.md", webHandler.HelpMarkdown).Methods("GET")

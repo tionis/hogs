@@ -1386,6 +1386,61 @@ func (s *Store) DeleteWebhook(id int) error {
 	return err
 }
 
+type NotificationChannel struct {
+	ID        int             `json:"id"`
+	Name      string          `json:"name"`
+	Type      string          `json:"type"`
+	URL       string          `json:"url"`
+	Events    json.RawMessage `json:"events"`
+	Enabled   bool            `json:"enabled"`
+	CreatedAt string          `json:"createdAt"`
+}
+
+func (s *Store) ListNotificationChannels() ([]NotificationChannel, error) {
+	rows, err := s.DB.Query("SELECT id, name, type, url, events, enabled, created_at FROM notification_channels ORDER BY id")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var channels []NotificationChannel
+	for rows.Next() {
+		var ch NotificationChannel
+		var enabled int
+		var events []byte
+		if err := rows.Scan(&ch.ID, &ch.Name, &ch.Type, &ch.URL, &events, &enabled, &ch.CreatedAt); err != nil {
+			return nil, err
+		}
+		ch.Events = json.RawMessage(events)
+		ch.Enabled = enabled == 1
+		channels = append(channels, ch)
+	}
+	return channels, nil
+}
+
+func (s *Store) CreateNotificationChannel(ch *NotificationChannel) error {
+	if ch.Events == nil {
+		ch.Events = json.RawMessage("[]")
+	}
+	enabled := 0
+	if ch.Enabled {
+		enabled = 1
+	}
+	result, err := s.DB.Exec("INSERT INTO notification_channels (name, type, url, events, enabled) VALUES (?, ?, ?, ?, ?)",
+		ch.Name, ch.Type, ch.URL, string(ch.Events), enabled)
+	if err != nil {
+		return err
+	}
+	id, _ := result.LastInsertId()
+	ch.ID = int(id)
+	return nil
+}
+
+func (s *Store) DeleteNotificationChannel(id int) error {
+	_, err := s.DB.Exec("DELETE FROM notification_channels WHERE id = ?", id)
+	return err
+}
+
 func (bg *Background) URL() string {
 	if bg.ContentHash != "" {
 		return "/backgrounds/" + bg.ContentHash + "/" + bg.Filename

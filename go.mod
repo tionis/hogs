@@ -16,6 +16,11 @@ require (
 )
 
 require (
+	github.com/containrrr/shoutrrr v0.8.0 // indirect
+	github.com/fatih/color v1.15.0 // indirect
 	github.com/go-jose/go-jose/v4 v4.1.3 // indirect
 	github.com/gorilla/securecookie v1.1.2 // indirect
+	github.com/mattn/go-colorable v0.1.13 // indirect
+	github.com/mattn/go-isatty v0.0.17 // indirect
+	golang.org/x/sys v0.38.0 // indirect
 )
