@@ -2,6 +2,7 @@ package cron
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"time"
 
@@ -93,34 +94,53 @@ func (s *Scheduler) executeJob(job database.CronJob, params map[string]string, u
 	}
 
 	action := job.Action
+	start := time.Now()
 
 	result := s.Engine.Evaluate(server, action, params, user)
 
+	var resultStr, output string
 	switch result.Result {
 	case "allowed":
-		s.executeAction(server, action, params)
+		resultStr = "success"
+		output = s.executeAction(server, action, params)
 	case "blocked":
+		resultStr = "blocked"
+		output = result.Reason
 		log.Printf("Cron job %q: blocked - %s", job.Name, result.Reason)
 	case "denied":
+		resultStr = "denied"
+		output = result.Reason
 		log.Printf("Cron job %q: denied - %s", job.Name, result.Reason)
 	case "queued":
+		resultStr = "queued"
 		log.Printf("Cron job %q: queued (not yet implemented as async)", job.Name)
 	default:
+		resultStr = result.Result
 		log.Printf("Cron job %q: unexpected result %q", job.Name, result.Result)
 	}
 
 	now := time.Now().UTC().Format(time.RFC3339)
 	s.Store.UpdateCronJobTimestamps(job.ID, now, "")
+	s.Store.UpdateCronJobResult(job.ID, resultStr, output)
+
+	s.Store.CreateCronJobLog(&database.CronJobLog{
+		CronJobID:  job.ID,
+		Timestamp:  now,
+		Result:     resultStr,
+		Output:     output,
+		DurationMs: int(time.Since(start).Milliseconds()),
+	})
 }
 
-func (s *Scheduler) executeAction(server *database.Server, action string, params map[string]string) {
+func (s *Scheduler) executeAction(server *database.Server, action string, params map[string]string) string {
 	link, err := s.Store.GetPterodactylLink(server.ID)
 	if err != nil || link == nil {
 		log.Printf("Cron action %s/%s: server not linked", server.Name, action)
-		return
+		return "server not linked"
 	}
 
 	log.Printf("Cron executing %s on %s", action, server.Name)
+	return fmt.Sprintf("cron %s on %s", action, server.Name)
 }
 
 func (s *Scheduler) AddJob(job *database.CronJob) error {

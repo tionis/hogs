@@ -872,10 +872,21 @@ type CronJob struct {
 	Enabled    bool            `json:"enabled"`
 	LastRun    *string         `json:"lastRun"`
 	NextRun    *string         `json:"nextRun"`
+	LastResult string          `json:"lastResult"`
+	LastOutput string          `json:"lastOutput"`
+}
+
+type CronJobLog struct {
+	ID         int    `json:"id"`
+	CronJobID  int    `json:"cronJobId"`
+	Timestamp  string `json:"timestamp"`
+	Result     string `json:"result"`
+	Output     string `json:"output"`
+	DurationMs int    `json:"durationMs"`
 }
 
 func (s *Store) ListCronJobs() ([]CronJob, error) {
-	rows, err := s.DB.Query("SELECT id, name, schedule, server_name, action, params, acl_rule, enabled, last_run, next_run FROM cron_jobs ORDER BY id")
+	rows, err := s.DB.Query("SELECT id, name, schedule, server_name, action, params, acl_rule, enabled, last_run, next_run, last_result, last_output FROM cron_jobs ORDER BY id")
 	if err != nil {
 		return nil, err
 	}
@@ -885,7 +896,7 @@ func (s *Store) ListCronJobs() ([]CronJob, error) {
 	for rows.Next() {
 		var j CronJob
 		var enabled int
-		if err := rows.Scan(&j.ID, &j.Name, &j.Schedule, &j.ServerName, &j.Action, &j.Params, &j.ACLRule, &enabled, &j.LastRun, &j.NextRun); err != nil {
+		if err := rows.Scan(&j.ID, &j.Name, &j.Schedule, &j.ServerName, &j.Action, &j.Params, &j.ACLRule, &enabled, &j.LastRun, &j.NextRun, &j.LastResult, &j.LastOutput); err != nil {
 			return nil, err
 		}
 		j.Enabled = enabled == 1
@@ -895,7 +906,7 @@ func (s *Store) ListCronJobs() ([]CronJob, error) {
 }
 
 func (s *Store) ListEnabledCronJobs() ([]CronJob, error) {
-	rows, err := s.DB.Query("SELECT id, name, schedule, server_name, action, params, acl_rule, enabled, last_run, next_run FROM cron_jobs WHERE enabled = 1 ORDER BY id")
+	rows, err := s.DB.Query("SELECT id, name, schedule, server_name, action, params, acl_rule, enabled, last_run, next_run, last_result, last_output FROM cron_jobs WHERE enabled = 1 ORDER BY id")
 	if err != nil {
 		return nil, err
 	}
@@ -904,19 +915,21 @@ func (s *Store) ListEnabledCronJobs() ([]CronJob, error) {
 	var jobs []CronJob
 	for rows.Next() {
 		var j CronJob
-		if err := rows.Scan(&j.ID, &j.Name, &j.Schedule, &j.ServerName, &j.Action, &j.Params, &j.ACLRule, &j.Enabled, &j.LastRun, &j.NextRun); err != nil {
+		var enabled int
+		if err := rows.Scan(&j.ID, &j.Name, &j.Schedule, &j.ServerName, &j.Action, &j.Params, &j.ACLRule, &enabled, &j.LastRun, &j.NextRun, &j.LastResult, &j.LastOutput); err != nil {
 			return nil, err
 		}
+		j.Enabled = enabled == 1
 		jobs = append(jobs, j)
 	}
 	return jobs, nil
 }
 
 func (s *Store) GetCronJob(id int) (*CronJob, error) {
-	row := s.DB.QueryRow("SELECT id, name, schedule, server_name, action, params, acl_rule, enabled, last_run, next_run FROM cron_jobs WHERE id = ?", id)
+	row := s.DB.QueryRow("SELECT id, name, schedule, server_name, action, params, acl_rule, enabled, last_run, next_run, last_result, last_output FROM cron_jobs WHERE id = ?", id)
 	var j CronJob
 	var enabled int
-	err := row.Scan(&j.ID, &j.Name, &j.Schedule, &j.ServerName, &j.Action, &j.Params, &j.ACLRule, &enabled, &j.LastRun, &j.NextRun)
+	err := row.Scan(&j.ID, &j.Name, &j.Schedule, &j.ServerName, &j.Action, &j.Params, &j.ACLRule, &enabled, &j.LastRun, &j.NextRun, &j.LastResult, &j.LastOutput)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
@@ -966,6 +979,43 @@ func (s *Store) DeleteCronJob(id int) error {
 func (s *Store) UpdateCronJobTimestamps(id int, lastRun, nextRun string) error {
 	_, err := s.DB.Exec("UPDATE cron_jobs SET last_run = ?, next_run = ? WHERE id = ?", lastRun, nextRun, id)
 	return err
+}
+
+func (s *Store) UpdateCronJobResult(id int, lastResult, lastOutput string) error {
+	_, err := s.DB.Exec("UPDATE cron_jobs SET last_result = ?, last_output = ? WHERE id = ?", lastResult, lastOutput, id)
+	return err
+}
+
+func (s *Store) CreateCronJobLog(log *CronJobLog) error {
+	result, err := s.DB.Exec("INSERT INTO cron_job_logs (cron_job_id, timestamp, result, output, duration_ms) VALUES (?, ?, ?, ?, ?)",
+		log.CronJobID, log.Timestamp, log.Result, log.Output, log.DurationMs)
+	if err != nil {
+		return err
+	}
+	id, _ := result.LastInsertId()
+	log.ID = int(id)
+	return nil
+}
+
+func (s *Store) ListCronJobLogs(cronJobID, limit int) ([]CronJobLog, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	rows, err := s.DB.Query("SELECT id, cron_job_id, timestamp, result, output, duration_ms FROM cron_job_logs WHERE cron_job_id = ? ORDER BY id DESC LIMIT ?", cronJobID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var logs []CronJobLog
+	for rows.Next() {
+		var l CronJobLog
+		if err := rows.Scan(&l.ID, &l.CronJobID, &l.Timestamp, &l.Result, &l.Output, &l.DurationMs); err != nil {
+			return nil, err
+		}
+		logs = append(logs, l)
+	}
+	return logs, nil
 }
 
 type AuditLogEntry struct {
