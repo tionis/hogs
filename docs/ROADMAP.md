@@ -128,19 +128,19 @@ All action paths (user-triggered, cron-triggered, API-triggered) go through the 
 
 ### Priority 1: Critical Gaps (panel feels incomplete without these)
 
-#### 1.1 Agent Admin UI ✅ (API layer)
+#### 1.1 Agent Admin UI ✅
 - GET /api/agents — list all agents with online/offline connectivity status from Hub
 - GET /api/agents/{id} — agent details with real-time connectivity status
 - POST /api/agents — create agent (auto-generates `hogs_`-prefixed token, returned once in response)
 - PUT /api/agents/{id} — update agent name, node assignment, capabilities
 - POST /api/agents/{id}/regenerate-token — token rotation, new token returned once
 - POST /api/agents/delete — delete agent
-- **Still needed**: Admin HTML page at `/admin/agents`
+- `/admin/agents` HTML page with agent list, create form, edit dialog, token regeneration, one-click install command display
 
-#### 1.3 Audit Log Viewer ✅ (API layer)
+#### 1.3 Audit Log Viewer ✅
 - GET /api/audit — returns `{entries, limit, offset}` with pagination support
 - GET /api/audit/export?format=json|csv — export full audit log as downloadable JSON or CSV
-- **Still needed**: Admin HTML page at `/admin/audit` with filtering UI
+- `/admin/audit` HTML page with auto-populating table, pagination, result badges, and CSV/JSON export
 
 #### 1.4 Constraint Tester ✅ (API layer)
 - POST /api/constraints/test — evaluate expression with server/user/time environment
