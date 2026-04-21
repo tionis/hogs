@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
@@ -116,6 +117,21 @@ func main() {
 	if serviceName == "" && serverName != "" {
 		serviceName = serverName
 	}
+
+	healthAddr := envOr("HOGS_AGENT_HEALTH_ADDR", "")
+	go func() {
+		if healthAddr == "" {
+			return
+		}
+		http.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]string{"status": "healthy"})
+		})
+		log.Printf("Agent health endpoint listening on %s", healthAddr)
+		if err := http.ListenAndServe(healthAddr, nil); err != nil {
+			log.Printf("Health endpoint error: %v", err)
+		}
+	}()
 
 	interrupt := make(chan os.Signal, 1)
 	signal.Notify(interrupt, os.Interrupt)
