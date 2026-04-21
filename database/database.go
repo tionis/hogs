@@ -1222,6 +1222,98 @@ func HashAPIKey(key string) string {
 	return hex.EncodeToString(h[:])
 }
 
+type ServerTemplate struct {
+	ID              int             `json:"id"`
+	Name            string          `json:"name"`
+	GameType        string          `json:"gameType"`
+	DefaultSettings json.RawMessage `json:"defaultSettings"`
+	DefaultCommands json.RawMessage `json:"defaultCommands"`
+	DefaultACL      string          `json:"defaultAcl"`
+	DefaultTags     json.RawMessage `json:"defaultTags"`
+	Description     string          `json:"description"`
+}
+
+func (s *Store) ListServerTemplates() ([]ServerTemplate, error) {
+	rows, err := s.DB.Query("SELECT id, name, game_type, default_settings, default_commands, default_acl, default_tags, description FROM server_templates ORDER BY id")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var templates []ServerTemplate
+	for rows.Next() {
+		var t ServerTemplate
+		var settings, commands, tags []byte
+		if err := rows.Scan(&t.ID, &t.Name, &t.GameType, &settings, &commands, &t.DefaultACL, &tags, &t.Description); err != nil {
+			return nil, err
+		}
+		t.DefaultSettings = json.RawMessage(settings)
+		t.DefaultCommands = json.RawMessage(commands)
+		t.DefaultTags = json.RawMessage(tags)
+		templates = append(templates, t)
+	}
+	return templates, nil
+}
+
+func (s *Store) GetServerTemplate(id int) (*ServerTemplate, error) {
+	row := s.DB.QueryRow("SELECT id, name, game_type, default_settings, default_commands, default_acl, default_tags, description FROM server_templates WHERE id = ?", id)
+	var t ServerTemplate
+	var settings, commands, tags []byte
+	err := row.Scan(&t.ID, &t.Name, &t.GameType, &settings, &commands, &t.DefaultACL, &tags, &t.Description)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	t.DefaultSettings = json.RawMessage(settings)
+	t.DefaultCommands = json.RawMessage(commands)
+	t.DefaultTags = json.RawMessage(tags)
+	return &t, nil
+}
+
+func (s *Store) GetServerTemplateByName(name string) (*ServerTemplate, error) {
+	row := s.DB.QueryRow("SELECT id, name, game_type, default_settings, default_commands, default_acl, default_tags, description FROM server_templates WHERE name = ?", name)
+	var t ServerTemplate
+	var settings, commands, tags []byte
+	err := row.Scan(&t.ID, &t.Name, &t.GameType, &settings, &commands, &t.DefaultACL, &t.DefaultTags, &t.Description)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	t.DefaultSettings = json.RawMessage(settings)
+	t.DefaultCommands = json.RawMessage(commands)
+	t.DefaultTags = json.RawMessage(tags)
+	return &t, nil
+}
+
+func (s *Store) CreateServerTemplate(t *ServerTemplate) error {
+	if t.DefaultSettings == nil {
+		t.DefaultSettings = json.RawMessage("{}")
+	}
+	if t.DefaultCommands == nil {
+		t.DefaultCommands = json.RawMessage("[]")
+	}
+	if t.DefaultTags == nil {
+		t.DefaultTags = json.RawMessage("[]")
+	}
+	result, err := s.DB.Exec("INSERT INTO server_templates (name, game_type, default_settings, default_commands, default_acl, default_tags, description) VALUES (?, ?, ?, ?, ?, ?, ?)",
+		t.Name, t.GameType, string(t.DefaultSettings), string(t.DefaultCommands), t.DefaultACL, string(t.DefaultTags), t.Description)
+	if err != nil {
+		return err
+	}
+	id, _ := result.LastInsertId()
+	t.ID = int(id)
+	return nil
+}
+
+func (s *Store) DeleteServerTemplate(id int) error {
+	_, err := s.DB.Exec("DELETE FROM server_templates WHERE id = ?", id)
+	return err
+}
+
 func (bg *Background) URL() string {
 	if bg.ContentHash != "" {
 		return "/backgrounds/" + bg.ContentHash + "/" + bg.Filename

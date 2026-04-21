@@ -89,6 +89,7 @@ func main() {
 	automationHandler := api.NewAutomationHandler(store, cfg, eng)
 	dashboardHandler := api.NewDashboardHandler(store, cfg, eng, agentHub)
 	apiKeyHandler := api.NewAPIKeyHandler(store)
+	templateHandler := api.NewTemplateHandler(store)
 
 	var scimHandler *scim.Handler
 	if cfg.SCIMEnabled && cfg.SCIMBearerToken != "" {
@@ -216,6 +217,10 @@ func main() {
 		router.Handle("/api/api-keys", authenticator.RequireRole("admin")(http.HandlerFunc(apiKeyHandler.ListAPIKeys))).Methods("GET")
 		router.Handle("/api/api-keys", authenticator.RequireRole("admin")(http.HandlerFunc(apiKeyHandler.CreateAPIKey))).Methods("POST")
 		router.Handle("/api/api-keys/delete", authenticator.RequireRole("admin")(http.HandlerFunc(apiKeyHandler.DeleteAPIKey))).Methods("POST")
+
+		router.Handle("/api/templates", authenticator.RequireRole("admin")(http.HandlerFunc(templateHandler.ListTemplates))).Methods("GET")
+		router.Handle("/api/templates/create", authenticator.RequireRole("admin")(http.HandlerFunc(templateHandler.CreateTemplate))).Methods("POST")
+		router.Handle("/api/templates/delete", authenticator.RequireRole("admin")(http.HandlerFunc(templateHandler.DeleteTemplate))).Methods("POST")
 	}
 	router.HandleFunc("/help", webHandler.Help).Methods("GET")
 	router.HandleFunc("/help/api.md", webHandler.HelpMarkdown).Methods("GET")
