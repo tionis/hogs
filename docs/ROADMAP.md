@@ -230,12 +230,13 @@ All action paths (user-triggered, cron-triggered, API-triggered) go through the 
   - Quick action buttons (start all, stop all on node)
   - Resource usage summary if agents report metrics
 
-#### 2.5 Server Resource Metrics
-- Agent reports CPU, RAM, disk usage in `status` messages
-- New `server_metrics` table: server_id, timestamp, cpu_percent, memory_used, memory_total, disk_used, disk_total, players, max_players
-- Time-series aggregation (keep hourly/daily summaries, raw data for 7 days)
-- Simple charts on server detail page (CPU/RAM over last 24h)
-- Configurable retention period
+#### 2.5 Server Resource Metrics ✅
+- Agent status reports now store metrics in `server_metrics` table (migration 000021)
+- New `ServerMetric` model with `CreateServerMetric`, `GetLatestServerMetric`, `ListServerMetric`, `CleanupServerMetrics`
+- New API endpoint: `GET /api/servers/{serverName}/metrics?limit=N` returns recent metrics
+- Agent `status` messages also update `agents.online` status
+- Configurable retention via `HOGS_METRICS_RETENTION_DAYS` (default 7)
+- Periodic cleanup goroutine runs hourly (also handles audit log cleanup)
 
 #### 2.6 Mass Operations
 - Select multiple servers on admin page → bulk start/stop/restart
@@ -328,10 +329,11 @@ All action paths (user-triggered, cron-triggered, API-triggered) go through the 
 - Encrypt restic passwords at rest using a server-side encryption key (HOGS_ENCRYPTION_KEY env var)
 - Add TLS option to hogs-agent (`HOGS_AGENT_TLS=true`, `HOGS_AGENT_TLS_CERT`, `HOGS_AGENT_TLS_KEY`)
 
-#### 3.10 Health Check Endpoints
-- Agent liveness probe: periodic heartbeat to HOGS `/agent/ws` with `type: ping`
-- HOGS `/healthz` endpoint should also report: DB reachable, agent connection count, cron scheduler status
-- Agent binary: built-in HTTP health endpoint (`/healthz`) for systemd watchdog integration
+#### 3.10 Health Check Endpoints ✅
+- HOGS `/healthz` endpoint now reports database connectivity with structured JSON response
+- Agent binary has built-in HTTP health endpoint (`/healthz`) for systemd watchdog integration
+- Controlled by `HOGS_AGENT_HEALTH_ADDR` env var (default: disabled, set e.g. `:8081` to enable)
+- Agent status reports (already implemented: 30s heartbeat with online/players/max_players/version)
 
 #### 3.11 Test Coverage ✅ (partial)
 - **Unit tests for `engine/` package**: ACL evaluation, constraint evaluation, param validation, template rendering, helper functions (HasTag, CountRunning, FilterByTag, ParseWeekday), source detection in audit log, expression testing
