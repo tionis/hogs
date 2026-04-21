@@ -48,6 +48,9 @@ func TestGameDataPathEnvTakesPrecedence(t *testing.T) {
 }
 
 func TestOIDCGroupConfigDefaults(t *testing.T) {
+	os.Unsetenv("OIDC_ADMIN_GROUP")
+	os.Unsetenv("OIDC_USER_GROUP")
+	os.Unsetenv("OIDC_GROUPS_CLAIM")
 	cfg := LoadConfig()
 	if cfg.OIDCAdminGroup != "admins" {
 		t.Errorf("OIDCAdminGroup = %q, want %q", cfg.OIDCAdminGroup, "admins")
@@ -81,6 +84,9 @@ func TestOIDCGroupConfigFromEnv(t *testing.T) {
 }
 
 func TestPterodactylConfigDefaults(t *testing.T) {
+	os.Unsetenv("PTERODACTYL_URL")
+	os.Unsetenv("PTERODACTYL_APP_KEY")
+	os.Unsetenv("PTERODACTYL_CLIENT_KEY")
 	cfg := LoadConfig()
 	if cfg.PterodactylURL != "" {
 		t.Errorf("PterodactylURL = %q, want empty default", cfg.PterodactylURL)

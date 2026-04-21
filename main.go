@@ -50,6 +50,17 @@ func main() {
 		log.Println("OIDC authentication initialized.")
 	}
 
+	if authenticator != nil {
+		go func() {
+			authenticator.CleanupSessions()
+			ticker := time.NewTicker(15 * time.Minute)
+			defer ticker.Stop()
+			for range ticker.C {
+				authenticator.CleanupSessions()
+			}
+		}()
+	}
+
 	serverHandler := api.NewServerHandler(store, cfg, cache, authenticator)
 	webHandler := web.NewWebHandler(store, cfg, authenticator, eng)
 	pteroHandler := api.NewPterodactylHandler(store, cfg, eng)
