@@ -180,18 +180,18 @@ All action paths (user-triggered, cron-triggered, API-triggered) go through the 
 - Game-specific whitelist commands (minecraft `whitelist add`, etc.) must work identically regardless of backend
 - Add `whitelist` capability to agent handshake and command dispatch
 
-#### 1.9 Request-Response Agent Protocol
+#### 1.9 Request-Response Agent Protocol ✅
 - Currently agent operations are fire-and-forget: `SendAction`/`SendCommand` push messages but callers only get "sent" back
-- Implement request-response correlation: each request gets a unique ID, agent includes it in the response
-- HOGS server tracks pending requests with `context.Context` timeouts (default 30s)
-- Handler methods (`ServerAction`, `SendCommand`, `WhitelistSet`) block until response or timeout
-- This makes error handling and user feedback actually work
+- **Implemented**: Request ID correlation in `Envelope` struct, pending-request map with `context.Context` timeouts (default 30s)
+- Hub methods (`SendAction`, `SendCommand`, file ops, backup ops) now block until agent responds or timeout
+- `AgentBackend.Start/Stop/Restart/SendCommand` return actual errors from agent responses
+- `hogs-agent` echoes `requestId` back in all result messages for correlation
+- `AgentService` and `AgentHandler` updated to use new blocking signatures
 
-#### 1.10 Session Cleanup Goroutine
+#### 1.10 Session Cleanup Goroutine ✅
 - `CleanupSessions()` exists on `Authenticator` but is never called from `main.go`
-- Add periodic goroutine (every 15 minutes) that calls `auth.CleanupSessions()`
-- Also clean up on server startup
-- Prevents expired sessions from accumulating in the `sessions` table
+- **Implemented**: Periodic goroutine (every 15 minutes) in `main.go` that calls `auth.CleanupSessions()`
+- Also cleans up on server startup immediately
 
 #### 1.11 Agent Reconnection State Recovery
 - When HOGS restarts, the in-memory `Hub.Conns` map is lost
@@ -329,13 +329,13 @@ All action paths (user-triggered, cron-triggered, API-triggered) go through the 
 - HOGS `/healthz` endpoint should also report: DB reachable, agent connection count, cron scheduler status
 - Agent binary: built-in HTTP health endpoint (`/healthz`) for systemd watchdog integration
 
-#### 3.11 Test Coverage
-- Unit tests for `engine/` package: ACL evaluation, constraint evaluation, param validation, template rendering
-- Unit tests for `cron/` package: job loading, scheduling, execution
-- Unit tests for `agent/` package: message serialization, hub routing, request-response correlation
-- Unit tests for `scim/` package: user/group CRUD, role resolution, session invalidation
-- Integration tests for `backend/` package: PterodactylBackend and AgentBackend interface compliance
-- Integration test harness for SCIM endpoints
+#### 3.11 Test Coverage ✅ (partial)
+- **Unit tests for `engine/` package**: ACL evaluation, constraint evaluation, param validation, template rendering, helper functions (HasTag, CountRunning, FilterByTag, ParseWeekday), source detection in audit log, expression testing
+- **Unit tests for `cron/` package**: scheduler creation, job loading, AddJob/UpdateJob/RemoveJob, enable/disable, Start/Stop
+- **Unit tests for `agent/` package**: Hub creation, connection lookup, request ID allocation, pending request correlation, context cancellation, Envelope serialization, result type detection, ResolveBackend (no-link, Pterodactyl, agent), AgentService offline errors, ServeWS auth validation, AgentBackend.Name/Status
+- **Bug fix**: `database/` agent scan methods (`GetAgent`, `GetAgentByToken`, `GetAgentByNodeName`, `ListAgents`) now correctly handle `json.RawMessage` column by scanning into `[]byte` first
+- **Bug fix**: `config/` test defaults now properly unset env vars to avoid environment bleed
+- Still needed: Integration tests for `backend/` package, SCIM endpoint integration tests
 
 ---
 
