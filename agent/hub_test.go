@@ -77,7 +77,7 @@ func TestHubAllocRequestID(t *testing.T) {
 func TestHubRegisterAndResolvePending(t *testing.T) {
 	hub, _ := testHub(t)
 	reqID := hub.allocRequestID()
-	pr := hub.registerPending(reqID)
+	pr := hub.registerPending(reqID, 1)
 
 	result := &GenericResultData{Success: true, Data: "test"}
 
@@ -231,6 +231,21 @@ func TestAgentServiceSendCommandNoBackend(t *testing.T) {
 	err := service.SendCommand("nonexistent", "test")
 	if err == nil {
 		t.Error("expected error for nonexistent server")
+	}
+}
+
+func TestRemoveConnFailsPendingRequests(t *testing.T) {
+	hub, _ := testHub(t)
+	reqID := hub.allocRequestID()
+	_ = hub.registerPending(reqID, 42)
+
+	hub.RemoveConn(42)
+
+	hub.pendingMu.Lock()
+	_, exists := hub.pending[reqID]
+	hub.pendingMu.Unlock()
+	if exists {
+		t.Error("expected pending request to be removed after RemoveConn")
 	}
 }
 

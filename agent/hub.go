@@ -105,7 +105,8 @@ type GenericResultData struct {
 }
 
 type pendingRequest struct {
-	ch chan *GenericResultData
+	ch      chan *GenericResultData
+	agentID int
 }
 
 type Hub struct {
@@ -148,8 +149,8 @@ func (h *Hub) allocRequestID() string {
 	return strconv.FormatUint(h.nextReqID, 10)
 }
 
-func (h *Hub) registerPending(reqID string) *pendingRequest {
-	pr := &pendingRequest{ch: make(chan *GenericResultData, 1)}
+func (h *Hub) registerPending(reqID string, agentID int) *pendingRequest {
+	pr := &pendingRequest{ch: make(chan *GenericResultData, 1), agentID: agentID}
 	h.pendingMu.Lock()
 	h.pending[reqID] = pr
 	h.pendingMu.Unlock()
@@ -230,6 +231,16 @@ func (h *Hub) RemoveConn(agentID int) {
 		delete(h.Conns, agentID)
 	}
 	h.mu.Unlock()
+
+	h.pendingMu.Lock()
+	for reqID, pr := range h.pending {
+		if pr.agentID == agentID {
+			pr.ch <- &GenericResultData{Success: false, Error: "agent disconnected"}
+			delete(h.pending, reqID)
+		}
+	}
+	h.pendingMu.Unlock()
+
 	h.Store.UpdateAgentOnline(agentID, false)
 }
 
@@ -244,7 +255,7 @@ func (h *Hub) sendEnvelopeWithResult(ctx context.Context, agentID int, msgType s
 	env := Envelope{Type: msgType, RequestID: reqID, Data: payload}
 	msg, _ := json.Marshal(env)
 
-	pr := h.registerPending(reqID)
+	pr := h.registerPending(reqID, agentID)
 
 	select {
 	case ac.Send <- msg:

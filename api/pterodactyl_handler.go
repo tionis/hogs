@@ -1,12 +1,16 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/tionis/hogs/agent"
+	"github.com/tionis/hogs/backend"
 	"github.com/tionis/hogs/config"
 	"github.com/tionis/hogs/database"
 	"github.com/tionis/hogs/engine"
@@ -14,13 +18,14 @@ import (
 )
 
 type PterodactylHandler struct {
-	Store  *database.Store
-	Config *config.Config
-	Engine *engine.Engine
+	Store    *database.Store
+	Config   *config.Config
+	Engine   *engine.Engine
+	AgentHub *agent.Hub
 }
 
-func NewPterodactylHandler(store *database.Store, cfg *config.Config, eng *engine.Engine) *PterodactylHandler {
-	return &PterodactylHandler{Store: store, Config: cfg, Engine: eng}
+func NewPterodactylHandler(store *database.Store, cfg *config.Config, eng *engine.Engine, hub *agent.Hub) *PterodactylHandler {
+	return &PterodactylHandler{Store: store, Config: cfg, Engine: eng, AgentHub: hub}
 }
 
 func (h *PterodactylHandler) client() *pterodactyl.Client {
@@ -253,7 +258,7 @@ func (h *PterodactylHandler) ServerAction(w http.ResponseWriter, r *http.Request
 
 	link, err := h.Store.GetPterodactylLink(server.ID)
 	if err != nil || link == nil {
-		http.Error(w, "Server not linked to Pterodactyl", http.StatusNotFound)
+		http.Error(w, "Server not linked to any backend", http.StatusNotFound)
 		return
 	}
 
@@ -271,47 +276,65 @@ func (h *PterodactylHandler) ServerAction(w http.ResponseWriter, r *http.Request
 		}
 	}
 
-	c := h.client()
-	if c == nil {
-		http.Error(w, "Pterodactyl not configured", http.StatusServiceUnavailable)
+	b, err := h.resolveBackend(server, link)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return
 	}
 
-	if c.ClientKey == "" {
-		http.Error(w, "Pterodactyl client key not configured. Set PTERODACTYL_CLIENT_KEY for power actions.", http.StatusServiceUnavailable)
-		return
-	}
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
 
-	if link.PteroIdentifier == "" {
-		identifier, err := h.resolveIdentifier(c, link.PteroServerID)
-		if err != nil {
-			http.Error(w, "Failed to resolve Pterodactyl server identifier: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-		link.PteroIdentifier = identifier
-		h.Store.UpdatePterodactylLink(link)
-	}
-
-	var pteroErr error
 	switch action {
 	case "start":
-		pteroErr = c.StartServer(link.PteroIdentifier)
+		err = b.Start(ctx)
 	case "stop":
-		pteroErr = c.StopServer(link.PteroIdentifier)
+		err = b.Stop(ctx)
 	case "restart":
-		pteroErr = c.RestartServer(link.PteroIdentifier)
+		err = b.Restart(ctx)
 	default:
 		http.Error(w, fmt.Sprintf("Unknown action: %s", action), http.StatusBadRequest)
 		return
 	}
 
-	if pteroErr != nil {
-		http.Error(w, "Pterodactyl action failed: "+pteroErr.Error(), http.StatusInternalServerError)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("%s action failed: %s", b.Name(), err.Error()), http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+func (h *PterodactylHandler) resolveBackend(server *database.Server, link *database.PterodactylLink) (backend.Backend, error) {
+	if link.Node != "" && h.AgentHub != nil {
+		ag, err := h.Store.GetAgentByNodeName(link.Node)
+		if err == nil && ag != nil {
+			return agent.NewAgentBackend(ag.ID, ag.NodeName, h.AgentHub), nil
+		}
+	}
+
+	c := h.client()
+	if c == nil {
+		return nil, fmt.Errorf("no backend available (Pterodactyl not configured, no agent on node %q)", link.Node)
+	}
+
+	if c.ClientKey == "" {
+		return nil, fmt.Errorf("Pterodactyl client key not configured")
+	}
+
+	identifier := link.PteroIdentifier
+	if identifier == "" {
+		id, err := h.resolveIdentifier(c, link.PteroServerID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve Pterodactyl identifier: %w", err)
+		}
+		identifier = id
+		link.PteroIdentifier = identifier
+		h.Store.UpdatePterodactylLink(link)
+	}
+
+	return backend.NewPterodactylBackend(h.Config, link.PteroServerID, identifier), nil
 }
 
 func (h *PterodactylHandler) getUserEnv(r *http.Request) *engine.UserEnv {
@@ -352,7 +375,7 @@ func (h *PterodactylHandler) SendCommand(w http.ResponseWriter, r *http.Request)
 
 	link, err := h.Store.GetPterodactylLink(server.ID)
 	if err != nil || link == nil {
-		http.Error(w, "Server not linked to Pterodactyl", http.StatusNotFound)
+		http.Error(w, "Server not linked to any backend", http.StatusNotFound)
 		return
 	}
 
@@ -371,29 +394,17 @@ func (h *PterodactylHandler) SendCommand(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
-	c := h.client()
-	if c == nil {
-		http.Error(w, "Pterodactyl not configured", http.StatusServiceUnavailable)
+	b, err := h.resolveBackend(server, link)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return
 	}
 
-	if c.ClientKey == "" {
-		http.Error(w, "Pterodactyl client key not configured. Set PTERODACTYL_CLIENT_KEY to send commands.", http.StatusServiceUnavailable)
-		return
-	}
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
 
-	if link.PteroIdentifier == "" {
-		identifier, err := h.resolveIdentifier(c, link.PteroServerID)
-		if err != nil {
-			http.Error(w, "Failed to resolve Pterodactyl server identifier: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-		link.PteroIdentifier = identifier
-		h.Store.UpdatePterodactylLink(link)
-	}
-
-	if err := c.SendCommand(link.PteroIdentifier, command); err != nil {
-		http.Error(w, "Pterodactyl command failed: "+err.Error(), http.StatusInternalServerError)
+	if err := b.SendCommand(ctx, command); err != nil {
+		http.Error(w, fmt.Sprintf("%s command failed: %s", b.Name(), err.Error()), http.StatusInternalServerError)
 		return
 	}
 
@@ -423,7 +434,7 @@ func (h *PterodactylHandler) WhitelistSet(w http.ResponseWriter, r *http.Request
 
 	link, err := h.Store.GetPterodactylLink(server.ID)
 	if err != nil || link == nil {
-		http.Error(w, "Server not linked to Pterodactyl", http.StatusNotFound)
+		http.Error(w, "Server not linked to any backend", http.StatusNotFound)
 		return
 	}
 
@@ -435,25 +446,10 @@ func (h *PterodactylHandler) WhitelistSet(w http.ResponseWriter, r *http.Request
 		}
 	}
 
-	c := h.client()
-	if c == nil {
-		http.Error(w, "Pterodactyl not configured", http.StatusServiceUnavailable)
+	addCmd := whitelistAddCommand(server.GameType, username)
+	if addCmd == "" {
+		http.Error(w, "Whitelist not supported for game type: "+server.GameType, http.StatusBadRequest)
 		return
-	}
-
-	if c.ClientKey == "" {
-		http.Error(w, "Pterodactyl client key not configured. Set PTERODACTYL_CLIENT_KEY to send commands.", http.StatusServiceUnavailable)
-		return
-	}
-
-	if link.PteroIdentifier == "" {
-		identifier, err := h.resolveIdentifier(c, link.PteroServerID)
-		if err != nil {
-			http.Error(w, "Failed to resolve Pterodactyl server identifier: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-		link.PteroIdentifier = identifier
-		h.Store.UpdatePterodactylLink(link)
 	}
 
 	userEmail := r.FormValue("user_email")
@@ -468,18 +464,28 @@ func (h *PterodactylHandler) WhitelistSet(w http.ResponseWriter, r *http.Request
 	if existing != nil && existing.Username != "" {
 		removeCmd := whitelistRemoveCommand(server.GameType, existing.Username)
 		if removeCmd != "" {
-			c.SendCommand(link.PteroIdentifier, removeCmd)
+			b, bErr := h.resolveBackend(server, link)
+			if bErr != nil {
+				http.Error(w, bErr.Error(), http.StatusServiceUnavailable)
+				return
+			}
+			ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+			defer cancel()
+			b.SendCommand(ctx, removeCmd)
 		}
 	}
 
-	addCmd := whitelistAddCommand(server.GameType, username)
-	if addCmd == "" {
-		http.Error(w, "Whitelist not supported for game type: "+server.GameType, http.StatusBadRequest)
+	b, bErr := h.resolveBackend(server, link)
+	if bErr != nil {
+		http.Error(w, bErr.Error(), http.StatusServiceUnavailable)
 		return
 	}
 
-	if err := c.SendCommand(link.PteroIdentifier, addCmd); err != nil {
-		http.Error(w, "Whitelist add failed: "+err.Error(), http.StatusInternalServerError)
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+
+	if err := b.SendCommand(ctx, addCmd); err != nil {
+		http.Error(w, fmt.Sprintf("%s whitelist failed: %s", b.Name(), err.Error()), http.StatusInternalServerError)
 		return
 	}
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/tionis/hogs/backend"
 	"github.com/tionis/hogs/database"
 )
 
@@ -50,7 +51,7 @@ func (a *AgentBackend) SendCommand(ctx context.Context, command string) error {
 	return nil
 }
 
-func (a *AgentBackend) Status(ctx context.Context) (*GenericResultData, error) {
+func (a *AgentBackend) Status(ctx context.Context) (*backend.ServerStatus, error) {
 	return nil, fmt.Errorf("agent status not yet implemented")
 }
 

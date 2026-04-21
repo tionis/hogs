@@ -63,14 +63,6 @@ func main() {
 
 	serverHandler := api.NewServerHandler(store, cfg, cache, authenticator)
 	webHandler := web.NewWebHandler(store, cfg, authenticator, eng)
-	pteroHandler := api.NewPterodactylHandler(store, cfg, eng)
-	automationHandler := api.NewAutomationHandler(store, cfg, eng)
-
-	var scimHandler *scim.Handler
-	if cfg.SCIMEnabled && cfg.SCIMBearerToken != "" {
-		scimHandler = scim.NewHandler(store, cfg, authenticator)
-		log.Println("SCIM 2.0 endpoint enabled at /scim/v2/")
-	}
 
 	var agentHub *agent.Hub
 	var agentHandler *api.AgentHandler
@@ -80,6 +72,15 @@ func main() {
 		agentService = agent.NewAgentService(store, agentHub)
 		agentHandler = api.NewAgentHandler(store, agentService)
 		log.Println("Agent WebSocket endpoint enabled at /agent/ws")
+	}
+
+	pteroHandler := api.NewPterodactylHandler(store, cfg, eng, agentHub)
+	automationHandler := api.NewAutomationHandler(store, cfg, eng)
+
+	var scimHandler *scim.Handler
+	if cfg.SCIMEnabled && cfg.SCIMBearerToken != "" {
+		scimHandler = scim.NewHandler(store, cfg, authenticator)
+		log.Println("SCIM 2.0 endpoint enabled at /scim/v2/")
 	}
 
 	var scheduler *hogscron.Scheduler
