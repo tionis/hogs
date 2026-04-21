@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/database/sqlite3"
@@ -1150,6 +1151,75 @@ func (s *Store) CleanupServerMetrics(retentionDays int) error {
 	}
 	_, err := s.DB.Exec("DELETE FROM server_metrics WHERE timestamp < datetime('now', ?||' days')", fmt.Sprintf("-%d", retentionDays))
 	return err
+}
+
+type APIKey struct {
+	ID        int     `json:"id"`
+	Name      string  `json:"name"`
+	KeyHash   string  `json:"-"`
+	KeyPrefix string  `json:"keyPrefix"`
+	Role      string  `json:"role"`
+	CreatedAt string  `json:"createdAt"`
+	LastUsed  *string `json:"lastUsed"`
+	ExpiresAt *string `json:"expiresAt"`
+}
+
+func (s *Store) CreateAPIKey(key *APIKey) error {
+	result, err := s.DB.Exec("INSERT INTO api_keys (name, key_hash, key_prefix, role, created_at, last_used, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+		key.Name, key.KeyHash, key.KeyPrefix, key.Role, key.CreatedAt, key.LastUsed, key.ExpiresAt)
+	if err != nil {
+		return err
+	}
+	id, _ := result.LastInsertId()
+	key.ID = int(id)
+	return nil
+}
+
+func (s *Store) GetAPIKeyByHash(keyHash string) (*APIKey, error) {
+	row := s.DB.QueryRow("SELECT id, name, key_hash, key_prefix, role, created_at, last_used, expires_at FROM api_keys WHERE key_hash = ?", keyHash)
+	var k APIKey
+	err := row.Scan(&k.ID, &k.Name, &k.KeyHash, &k.KeyPrefix, &k.Role, &k.CreatedAt, &k.LastUsed, &k.ExpiresAt)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &k, nil
+}
+
+func (s *Store) ListAPIKeys() ([]APIKey, error) {
+	rows, err := s.DB.Query("SELECT id, name, key_hash, key_prefix, role, created_at, last_used, expires_at FROM api_keys ORDER BY id")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var keys []APIKey
+	for rows.Next() {
+		var k APIKey
+		if err := rows.Scan(&k.ID, &k.Name, &k.KeyHash, &k.KeyPrefix, &k.Role, &k.CreatedAt, &k.LastUsed, &k.ExpiresAt); err != nil {
+			return nil, err
+		}
+		keys = append(keys, k)
+	}
+	return keys, nil
+}
+
+func (s *Store) DeleteAPIKey(id int) error {
+	_, err := s.DB.Exec("DELETE FROM api_keys WHERE id = ?", id)
+	return err
+}
+
+func (s *Store) UpdateAPIKeyLastUsed(id int) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	_, err := s.DB.Exec("UPDATE api_keys SET last_used = ? WHERE id = ?", now, id)
+	return err
+}
+
+func HashAPIKey(key string) string {
+	h := sha256.Sum256([]byte(key))
+	return hex.EncodeToString(h[:])
 }
 
 func (bg *Background) URL() string {

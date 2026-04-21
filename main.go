@@ -88,6 +88,7 @@ func main() {
 	pteroHandler := api.NewPterodactylHandler(store, cfg, eng, agentHub)
 	automationHandler := api.NewAutomationHandler(store, cfg, eng)
 	dashboardHandler := api.NewDashboardHandler(store, cfg, eng, agentHub)
+	apiKeyHandler := api.NewAPIKeyHandler(store)
 
 	var scimHandler *scim.Handler
 	if cfg.SCIMEnabled && cfg.SCIMBearerToken != "" {
@@ -122,6 +123,7 @@ func main() {
 	csrfSecret := cfg.SessionSecret
 	csrfExemptPrefixes := []string{"/agent/ws", "/scim/v2", "/auth/callback", "/auth/backchannel-logout", "/api/"}
 	csrfRouter := auth.CSRFMiddleware(csrfSecret, csrfExemptPrefixes, router)
+	apiKeyRouter := auth.APIKeyMiddleware(store, csrfRouter)
 
 	router.HandleFunc("/", webHandler.Home).Methods("GET")
 
@@ -210,6 +212,10 @@ func main() {
 
 		router.Handle("/api/dashboard", authenticator.RequireRole("admin")(http.HandlerFunc(dashboardHandler.Overview))).Methods("GET")
 		router.Handle("/api/dashboard/agents", authenticator.RequireRole("admin")(http.HandlerFunc(dashboardHandler.AgentList))).Methods("GET")
+
+		router.Handle("/api/api-keys", authenticator.RequireRole("admin")(http.HandlerFunc(apiKeyHandler.ListAPIKeys))).Methods("GET")
+		router.Handle("/api/api-keys", authenticator.RequireRole("admin")(http.HandlerFunc(apiKeyHandler.CreateAPIKey))).Methods("POST")
+		router.Handle("/api/api-keys/delete", authenticator.RequireRole("admin")(http.HandlerFunc(apiKeyHandler.DeleteAPIKey))).Methods("POST")
 	}
 	router.HandleFunc("/help", webHandler.Help).Methods("GET")
 	router.HandleFunc("/help/api.md", webHandler.HelpMarkdown).Methods("GET")
@@ -269,7 +275,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:    ":" + cfg.Port,
-		Handler: csrfRouter,
+		Handler: apiKeyRouter,
 	}
 
 	go func() {
