@@ -8,248 +8,91 @@ tags:
 # HOGS Roadmap
 
 > [!info] Current State
-> HOGS is a Go web application that serves as a landing page for game servers. It features OIDC auth with role-based access control (admin/user from OIDC groups), Pterodactyl integration for server actions, theme-aware backgrounds with immutable caching, multi-game status queries (Minecraft, Satisfactory, Factorio, Valheim), and an admin UI.
+> HOGS is a Go web application that serves as a landing page and management panel for game servers. It features OIDC auth with role-based access control, Pterodactyl integration for server actions, an automation engine (expression-based ACLs, resource constraints, cron scheduling), SCIM 2.0 for user provisioning from Authentik, a WebSocket-based agent system for managing servers without Pterodactyl, and an admin UI.
 
-## Phase 1: More Game Types
+## Design Philosophy: Manage, Don't Provision
 
-**Effort**: Low per game (1-2 hours each)
+HOGS is **not** a server provisioning platform like Pterodactyl. Server administrators deploy game servers themselves (via Ansible, manual setup, or other tooling) alongside the `hogs-agent`. HOGS then provides management: start/stop/restart, console access, file management, backups, constraints, and scheduling. This means:
 
-The `GameQuerier` interface and `CONTRIBUTING.md` make adding games straightforward. New games need: a querier implementation, a registry entry, CSS badge, SVG icon, admin/background dropdown options, and optionally a status poller case.
+- No quadlet/container generation UI — admins deploy quadlets via their own tooling
+- No port allocation — ports are configured in the quadlet, not managed by HOGS
+- No game installer scripts — the server binary must already be in place
+- Console history comes from `journalctl` (systemd logs), not a custom ring buffer
+- Safe server deletion means unlinking from HOGS (stop managing), not wiping data directories
 
-### Planned Games
+---
 
-| Game | Protocol | Notes |
-|------|----------|-------|
-| Valheim | Steam A2S query (UDP) | Most requested. Standard query protocol. |
-| Ark: Survival Ascended | Steam A2S | Same approach, different default port. |
-| Palworld | Steam A2S or community REST API | |
-| Counter-Strike 2 | A2S + RCON | Similar pattern to Minecraft. |
+## Completed Phases
 
-### Refactoring
+### Phase 1: Game Types ✅
 
-With 6+ game types, the codebase needs cleanup:
+The `GameQuerier` interface and `CONTRIBUTING.md` make adding games straightforward. Implemented: Minecraft, Satisfactory, Factorio, Valheim.
 
-- **Querier registry**: ✅ Done — `map[string]GameQuerier` registry with `RegisterQuerier()` and `RegisteredGameTypes()`.
-- **Template game data**: Move game metadata (icon, badge color, status text template) into a central map or struct so templates and status poller JS don't need per-game switch/cases.
+**Refactoring done**: Querier registry (`map[string]GameQuerier` with `RegisterQuerier()` and `RegisteredGameTypes()`).
 
-## Phase 2: Role-Based Access Control
+### Phase 2: Role-Based Access Control ✅
 
-**Prerequisite for Phase 3.**
+- User table + OIDC groups mapping (migration 000010)
+- `RequireRole(roles ...string)` middleware
+- Role-based UI: Admin link, server actions, admin panel all gated by role
+- **My Servers** page for users
 
-Currently any authenticated user is treated as admin. This phase adds proper roles.
+### Phase 3: Pterodactyl Integration ✅
 
-### 2a: User Table and OIDC Groups
+- `pterodactyl/` client package (Application API + Client API)
+- `pterodactyl_servers` and `pterodactyl_commands` DB tables (migration 000011)
+- Admin UI: link/unlink, allowed actions, command management
+- User-facing: server power actions, command sending, whitelisting
+- Pterodactyl identifier resolution (migration 000014)
 
-#### Config
+### Phase 4: Automation System ✅
 
-```
-OIDC_ADMIN_GROUP=admins      # group claim value that grants admin role
-OIDC_USER_GROUP=users        # group claim value that grants user role (optional)
-OIDC_GROUPS_CLAIM=groups     # claim path in ID token to extract groups from
-```
+Design reference: see `docs/DESIGN_AUTOMATION.md` for the full data model, architecture, and implementation details.
 
-#### DB Migration 000010
+**What was implemented:**
 
-```sql
-CREATE TABLE users (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    email       TEXT NOT NULL UNIQUE,
-    role        TEXT NOT NULL DEFAULT 'user',   -- 'admin' or 'user'
-    first_seen  DATETIME DEFAULT CURRENT_TIMESTAMP,
-    last_login  DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-```
+- **Expression engine** (`engine/`): ACL evaluation with legacy `allowed_actions` fallback, constraint evaluation (deny/queue/stop_oldest strategies), parameterized command schemas with typed validation, template rendering, audit logging
+- **Cron scheduler** (`cron/`): wraps `robfig/cron/v3`, jobs flow through engine pipeline as system user
+- **SCIM 2.0** (`scim/`): User and Group CRUD, PATCH, filtering, schema discovery, bearer token auth. Group membership changes trigger role recalculation and session invalidation.
+- **DB-backed sessions** (`auth/`): Sessions stored in SQLite, not cookies. Enables OIDC back-channel logout from Authentik.
+- **Admin UI**: Command schemas, constraints, cron jobs, server tags, ACL rules, help page
 
-#### Auth Changes
+**Migrations**: 000016 (automation), 000017 (sessions), 000018 (SCIM)
 
-- `auth/auth.go`: Extract groups from OIDC ID token claims using the configurable `OIDC_GROUPS_CLAIM`.
-- On callback: auto-provision user in `users` table if first login, map OIDC group to role.
-- Store `role` in session alongside `email`.
-- Add `GetUserRole(r) string` method to `Authenticator`.
-- Add `RequireRole(roles ...string)` middleware that checks session role.
-- Admins can still override roles in the DB (IdP groups are only applied at first login).
+### Phase 5: Agent System ✅
 
-#### Impact on Existing Code
+- **ServerBackend interface** (`backend/`): `PterodactylBackend` and `AgentBackend` implementations
+- **WebSocket hub** (`agent/`): per-token auth, registration, heartbeat, console streaming, command/action dispatch
+- **hogs-agent binary** (`cmd/hogs-agent/`): connects outbound to HOGS, systemd/podman quadlet process management (start/stop/restart via systemctl, commands via podman exec), file operations (list/read/write/delete/mkdir with base64 over WS), restic backup integration (create/restore/list snapshots)
+- **Agent service** (`agent/`): AgentService with file and backup dispatch methods
+- **Admin API**: agent CRUD, file management, backup endpoints
 
-- All current `authenticator.Middleware(...)` calls (admin routes) should switch to `authenticator.RequireRole("admin")`.
-- New `RequireRole("admin", "user")` middleware for user-accessible routes.
-- Public routes remain unchanged.
+**Migration**: 000019 (agents table)
 
-### 2b: Role-Based UI
+---
 
-#### Templates
+## Architecture
 
-- Navbar: "Admin" link only visible to admins (✅ implemented).
-- Server detail: conditionally show Pterodactyl action buttons based on `allowed_actions` (✅ implemented).
-- Admin panel: visible only to admin role (✅ implemented).
+### Action Pipeline
 
-#### New Pages
-
-- **My Servers** (`/servers`): filtered list of servers the user has actions on. (Not yet implemented.)
-
-## Phase 3: Pterodactyl Integration
-
-**Design decisions (confirmed)**:
-
-- **Mapping**: Separate `pterodactyl_servers` table linking HOGS server IDs to Pterodactyl server UUIDs.
-- **API scope**: Application API only (admin-level token). HOGS manages everything centrally.
-- **User actions**: Configurable per-server via `allowed_actions` and `pterodactyl_commands` tables.
-- **Panel scope**: Single panel (one URL + key in config).
-
-### Config
+All action paths (user-triggered, cron-triggered, API-triggered) go through the same pipeline:
 
 ```
-PTERODACTYL_URL=https://panel.example.com
-PTERODACTYL_APP_KEY=xxxx
+┌──────────────┐     ┌──────────────┐     ┌──────────────┐
+│  User Request│     │  Cron Trigger│     │  API Request │
+└──────┬───────┘     └──────┬───────┘     └──────┬───────┘
+       │                    │                    │
+       ▼                    ▼                    ▼
+┌──────────────────────────────────────────────────────┐
+│                   Action Pipeline                     │
+│                                                       │
+│  1. Resolve Command  ──►  Validate Params             │
+│  2. Evaluate ACL     ──►  (deny? → 403)              │
+│  3. Evaluate Constraints ──► (block? → strategy)      │
+│  4. Execute Action   ──►  Backend (Pterodactyl/Agent)  │
+│  5. Audit Log                                         │
+└──────────────────────────────────────────────────────┘
 ```
-
-### DB Migration 000011
-
-```sql
-CREATE TABLE pterodactyl_servers (
-    id                INTEGER PRIMARY KEY AUTOINCREMENT,
-    server_id         INTEGER NOT NULL,              -- FK to servers table
-    ptero_server_id   TEXT NOT NULL,                  -- Pterodactyl server UUID
-    allowed_actions   TEXT NOT NULL DEFAULT '[]',    -- JSON array
-    UNIQUE(server_id),
-    FOREIGN KEY(server_id) REFERENCES servers(id) ON DELETE CASCADE
-);
-
-CREATE TABLE pterodactyl_commands (
-    id                INTEGER PRIMARY KEY AUTOINCREMENT,
-    server_id         INTEGER NOT NULL,              -- FK to servers table
-    command           TEXT NOT NULL,                  -- e.g. "seed", "time set"
-    display_name      TEXT NOT NULL,                  -- e.g. "Random Seed", "Set Time"
-    FOREIGN KEY(server_id) REFERENCES servers(id) ON DELETE CASCADE
-);
-```
-
-`allowed_actions` is a JSON array. Possible values:
-
-| Value | Meaning |
-|-------|---------|
-| `"whitelist"` | User can add/remove players from the whitelist |
-| `"start"` | User can start the server |
-| `"stop"` | User can stop the server |
-| `"restart"` | User can restart the server |
-| `"command:<name>"` | User can run a specific approved command |
-
-### New Package: `pterodactyl/`
-
-```
-pterodactyl/
-  client.go     -- HTTP client, Application API auth, request helpers
-  servers.go    -- ListServers, GetServer, StartServer, StopServer, RestartServer, SendCommand
-```
-
-All requests use the Application API (`/api/application/servers/...`) with the admin token.
-
-### API Endpoints
-
-**Admin-only** (configure Pterodactyl linkage):
-
-| Route | Method | Purpose |
-|-------|--------|---------|
-| `/admin/pterodactyl/link` | POST | Link a server to a Pterodactyl server UUID |
-| `/admin/pterodactyl/unlink` | POST | Remove Pterodactyl linkage |
-| `/admin/pterodactyl/commands/add` | POST | Add an approved command for a linked server |
-| `/admin/pterodactyl/commands/delete` | POST | Remove an approved command |
-
-**User-accessible** (role-checked, per-server permission-checked):
-
-| Route | Method | Purpose |
-|-------|--------|---------|
-| `/servers/{serverName}/action` | POST | Start/stop/restart server (action in form data) |
-| `/servers/{serverName}/command` | POST | Send an approved command |
-
-### UI Changes
-
-#### Server Detail Page
-
-New "Server Actions" card for authenticated users (visible when Pterodactyl is configured and the server is linked):
-
-- Power buttons (Start / Stop / Restart) — shown if corresponding action is in `allowed_actions` (✅ implemented)
-- Command buttons — one button per entry in `pterodactyl_commands`, shown if `"command:<name>"` is in `allowed_actions` (✅ implemented)
-- Whitelist panel — shown if `"whitelist"` is in `allowed_actions` (not yet implemented)
-
-#### Admin Panel
-
-New Pterodactyl section per server (only visible if `PTERODACTYL_URL` is configured) (✅ implemented):
-
-- Link/unlink a Pterodactyl server UUID
-- Edit `allowed_actions` as a JSON array
-- Add/remove approved commands with display names
-
-### Whitelisting Approach
-
-For Minecraft servers, whitelisting uses the existing `MinecraftQuerier` RCON connection or Pterodactyl command sending (`whitelist add <player>`). For other games, Pterodactyl commands are used (e.g. Valheim has no native whitelist API, but has mods that respond to slash commands).
-
-The `pterodactyl/whitelist.go` module will be game-aware:
-
-- Minecraft: Send `whitelist add/remove <player>` via Pterodactyl command or RCON
-- Other games: Send game-specific whitelist commands via Pterodactyl command API
-
-## Phase 4: Future Integrations
-
-Ideas for later phases, prioritized by likely demand.
-
-### Discord Webhooks
-
-**Effort**: Low
-
-- Config: `DISCORD_WEBHOOK_URL` per server (stored in `metadata`)
-- Events: server start/stop, player join/leave (if Pterodactyl WebSocket is available)
-- Implementation: simple ` POST to webhook URL with JSON payload
-
-### Player History Charts
-
-**Effort**: Medium
-
-- New `player_history` table: `id, server_id, players_online, timestamp`
-- Periodic sampling (every 60s) during status cache refresh
-- Chart.js graph on server detail page (last 24h, 7d)
-- Could use the existing status cache update cycle as the sampling trigger
-
-### Server Metrics (CPU/RAM)
-
-**Effort**: Medium
-
-- Pterodactyl Application API provides resource usage via `/api/application/servers/{id}/resources`
-- Could poll on the same cache cycle as game queries
-- Display as live graphs or simple indicators on server detail page
-- May require WebSocket for truly live updates (Phase 5 territory)
-
-### Auto-Mod Updates
-
-**Effort**: Medium
-
-- Watch mod URLs (`mod_url` field) for new versions
-- Notify admins via UI badge or Discord webhook
-- Could auto-update with admin approval
-
-### Multi-Panel Support
-
-**Effort**: Low
-
-- If needed later, move `PTERODACTYL_URL` and `PTERODACTYL_APP_KEY` from global config to per-server `metadata` fields
-- Each server links to its own panel
-- Requires minor changes to `pterodactyl/` client to accept config per-request
-
-## Implementation Order
-
-Suggested sequence based on dependencies and impact:
-
-```
-1. Phase 2a — users table + OIDC groups + role middleware        ✅ DONE
-2. Phase 1  — Valheim querier + registry refactor                ✅ DONE
-3. Phase 2b — role-based UI (hide/show elements by role)         ✅ DONE
-4. Phase 3a — pterodactyl/ client + DB tables                    ✅ DONE
-5. Phase 3a — Pterodactyl admin UI (link, actions, commands)    ✅ DONE
-6. Phase 3b — user-facing server actions (power, whitelist, commands) ✅ DONE
-7. Phase 4  — pick based on demand (Discord webhooks likely first)
-```
-
-## Architecture Notes
 
 ### Current Stack
 
@@ -260,22 +103,244 @@ Suggested sequence based on dependencies and impact:
 | Database | SQLite + golang-migrate |
 | Templates | Go html/template (embedded in binary) |
 | Frontend | Bootstrap 5, vanilla JS |
-| Auth | OIDC via gorilla/sessions |
+| Auth | OIDC via gorilla/sessions (DB-backed) |
+| Agent | WebSocket (gorilla/websocket) |
 | Container | Podman/Docker via Containerfile |
 
-### Key File Locations
+### Key Packages
 
-| Path | Purpose |
-|------|---------|
-| `main.go` | Entry point, route wiring, graceful shutdown |
-| `database/database.go` | Server CRUD, Background CRUD, Settings, Users, Pterodactyl CRUD |
-| `database/migrations/` | SQL migrations |
+| Package | Purpose |
+|---------|---------|
+| `engine/` | Expression engine: ACL, constraints, param validation, audit |
+| `cron/` | Cron scheduler wrapping robfig/cron/v3 |
+| `agent/` | WebSocket hub, connection management, agent service |
+| `backend/` | ServerBackend interface, PterodactylBackend, AgentBackend |
+| `scim/` | SCIM 2.0 user/group provisioning endpoints |
+| `pterodactyl/` | Pterodactyl Application/Client API client |
+| `auth/` | OIDC auth, DB sessions, back-channel logout |
+| `database/` | All DB models, CRUD, migrations |
 | `query/` | GameQuerier interface + implementations |
-| `pterodactyl/` | Pterodactyl Application API client |
-| `auth/auth.go` | OIDC auth, sessions, role middleware |
-| `api/server_handler.go` | Server status, mods, background API handlers |
-| `api/pterodactyl_handler.go` | Pterodactyl link/unlink, actions, commands handlers |
-| `web/handler.go` | All page handlers, Pterodactyl data passing |
-| `web/funcmap.go` | Shared template functions (json, firstLine, nl2br, title, gameIcon, dict, inList) |
-| `web/templates/` | HTML templates |
-| `config/config.go` | Env var loading |
+| `config/` | Environment variable loading |
+
+---
+
+## Roadmap: Remaining Improvements
+
+### Priority 1: Critical Gaps (panel feels incomplete without these)
+
+#### 1.1 Agent Admin UI
+- Admin page at `/admin/agents` to list, create, delete agents
+- Auto-generate agent tokens on creation
+- Show online/offline status and last-seen timestamp
+- One-click "copy install command" that outputs the `hogs-agent` systemd unit + env vars
+- Edit agent name, node assignment, capabilities
+
+#### 1.2 Agent File Manager UI
+- Browse remote filesystem via agent WebSocket (directory listing, file read/write/delete)
+- Upload files from browser (base64 over WS → agent writes to disk)
+- Download files from agent (agent reads → base64 over WS → browser)
+- Create/delete directories
+- Show at `/admin/files/{serverName}` for agent-managed servers (reuse existing file manager pattern)
+
+#### 1.3 Audit Log Viewer
+- Admin page at `/admin/audit` showing recent entries with filtering (by user, server, action, result)
+- Pagination (limit/offset already in API)
+- Show all columns: timestamp, user, server, action, params, result, reason, source
+- CSV/JSON export button
+
+#### 1.4 Constraint Tester UI
+- Add interactive expression tester to `/admin/constraints` page
+- Pre-fill environment with server list and time context
+- Show result (true/false) and any evaluation errors
+- Live syntax highlighting/validation
+
+#### 1.5 Console Streaming via journald
+- WebSocket proxy from browser → HOGS server → agent for live console I/O
+- Agent tails the container's systemd journal (`journalctl -u <unit> -f`) and streams lines as `console` messages
+- HOGS buffers recent lines per-server (last 500 lines) for replay on connect
+- For Pterodactyl-managed servers, proxy the existing Pterodactyl websocket console
+- Show console on server detail page with input field for commands
+- Console input is sent as `command` messages routed to `podman exec`
+
+#### 1.6 Agent-Aware Server Edit Page
+- Server edit page detects whether server is Pterodactyl-managed or agent-managed (via `node` field)
+- For agent-managed servers: show agent connectivity status, file manager link, backup controls, console link, no Pterodactyl link form
+- For Pterodactyl-managed servers: show existing Pterodactyl link form as-is
+- Add node selector dropdown (populated from registered agents) on server edit page
+
+#### 1.7 Backend Routing for Actions/Commands
+- PterodactylHandler currently hardcodes Pterodactyl API calls — refactor to use ServerBackend interface
+- When a server has `node` matching an agent, route start/stop/restart/whitelist through AgentBackend
+- When `node` is empty or matches no agent, fall through to PterodactylBackend (existing behavior)
+- Make `node` field editable in server edit page UI (dropdown of registered agent nodes)
+
+#### 1.8 Agent Whitelist Support
+- Whitelist (add/remove player) currently only works via Pterodactyl `SendCommand`
+- For agent-managed servers: send whitelist command through agent's command channel
+- Game-specific whitelist commands (minecraft `whitelist add`, etc.) must work identically regardless of backend
+- Add `whitelist` capability to agent handshake and command dispatch
+
+#### 1.9 Request-Response Agent Protocol
+- Currently agent operations are fire-and-forget: `SendAction`/`SendCommand` push messages but callers only get "sent" back
+- Implement request-response correlation: each request gets a unique ID, agent includes it in the response
+- HOGS server tracks pending requests with `context.Context` timeouts (default 30s)
+- Handler methods (`ServerAction`, `SendCommand`, `WhitelistSet`) block until response or timeout
+- This makes error handling and user feedback actually work
+
+#### 1.10 Session Cleanup Goroutine
+- `CleanupSessions()` exists on `Authenticator` but is never called from `main.go`
+- Add periodic goroutine (every 15 minutes) that calls `auth.CleanupSessions()`
+- Also clean up on server startup
+- Prevents expired sessions from accumulating in the `sessions` table
+
+#### 1.11 Agent Reconnection State Recovery
+- When HOGS restarts, the in-memory `Hub.Conns` map is lost
+- Agents that reconnect after HOGS restart re-register via the `register` message
+- Ensure all pending operations gracefully fail when agent disconnects and retry on reconnect
+- Track pending requests in DB (`agent_pending_ops` table) so they survive HOGS restarts
+
+### Priority 2: Important Gaps (needed for production use)
+
+#### 2.1 Backup Management UI
+- Admin page at `/admin/backups` showing all backup policies per server
+- Create/schedule backup policies (restic repo, paths, tags, cron schedule)
+- One-click backup/restore buttons per server
+- Backup history with snapshot ID, size, date
+- Restic repo initialization from UI (`restic init`)
+
+#### 2.2 Cron Job History
+- Add `last_result` and `last_output` columns to `cron_jobs` table
+- Show success/failure status in cron manager page
+- Store last N results in a new `cron_job_logs` table for audit trail
+- Show recent execution log inline on cron job row
+
+#### 2.3 Notification/Alerting System
+- New `notifications` table: id, type, destination, enabled
+- Support channels: email (SMTP), webhook (Discord/Slack/custom), in-app
+- Trigger events: server down/up, agent disconnect, backup failure, constraint violation, cron failure
+- Configurable per-server and per-user notification preferences
+- Notification queue with retry logic
+
+#### 2.4 Dashboard Overview
+- New `/admin/dashboard` or enhance existing `/admin` with:
+  - Total servers, online/offline counts
+  - Agent connectivity overview (connected/disconnected per node)
+  - Recent events (last 10 audit log entries)
+  - Quick action buttons (start all, stop all on node)
+  - Resource usage summary if agents report metrics
+
+#### 2.5 Server Resource Metrics
+- Agent reports CPU, RAM, disk usage in `status` messages
+- New `server_metrics` table: server_id, timestamp, cpu_percent, memory_used, memory_total, disk_used, disk_total, players, max_players
+- Time-series aggregation (keep hourly/daily summaries, raw data for 7 days)
+- Simple charts on server detail page (CPU/RAM over last 24h)
+- Configurable retention period
+
+#### 2.6 Mass Operations
+- Select multiple servers on admin page → bulk start/stop/restart
+- Bulk tag assignment
+- Bulk ACL rule application
+- Checkbox UI on server list with action bar
+
+#### 2.7 User-Facing Server Controls
+- `/my-servers` page shows servers where user has ACL-granted access
+- Action buttons (start/stop/restart) that pass through engine.Evaluate()
+- Command execution UI for parameterized commands (rendered from command schemas)
+- Whitelist button (for games that support it)
+
+#### 2.8 Rate Limiting
+- Rate limit login attempts (5/minute per IP)
+- Rate limit SCIM endpoints (100/minute per token)
+- Rate limit agent WebSocket messages (per-connection throttle)
+- Rate limit public API endpoints (60/minute per IP)
+- Configurable via environment variables or admin settings
+
+#### 2.9 CSRF Protection
+- Add CSRF tokens to all state-changing POST forms
+- Use gorilla/csrf or equivalent middleware
+- Exempt API endpoints that use bearer auth (SCIM, agent WS)
+- Exempt webhook endpoints
+
+### Priority 3: Nice-to-Have (polish items)
+
+#### 3.1 API Key Authentication
+- New `api_keys` table: id, name, key_hash, role, created_at, last_used, expires_at
+- API key auth middleware (alternative to OIDC session)
+- Key generation with `hogs_` prefix
+- Admin page at `/admin/api-keys` to manage keys
+- Key permissions tied to role (admin/user) or scoped per-server
+- Used for: cron scripts, CI/CD, external integrations
+
+#### 3.2 Agent Provisioning Flow
+- One-click "Add Agent" button generates token + shows install command:
+  ```bash
+  hogs-agent add-node --url https://hogs.example.com --token <generated>
+  ```
+- Auto-generates systemd unit file for the agent
+- Downloadable agent binary page (or link to releases)
+- Agent health dashboard with heartbeat latency
+
+#### 3.3 Restic Repo Init from UI
+- Button in backup section to initialize a new restic repo
+- Pre-fill common repo types: local path, SFTP, S3, B2
+- Test connection button (runs `restic check`)
+- Store encrypted repo credentials in DB (or reference env vars)
+
+#### 3.4 Pterodactyl Migration Path
+- Document step-by-step migration guide: Pterodactyl → HOGS agent
+- Ansible playbook examples for deploying hogs-agent alongside game server containers
+- Quadlet template examples per game type (Minecraft, Valheim, etc.)
+- Import tool: read Pterodactyl allocation/server data → create HOGS servers + agents
+- Once all servers are agent-managed, Pterodactyl dependency can be fully removed
+- PterodactylBackend becomes optional; `PterodactylURL` can be empty
+
+#### 3.5 Server Templates
+- New `server_templates` table: id, name, game_type, default_settings, default_commands, default_acl, default_tags
+- Pre-defined templates: "Vanilla Minecraft", "Modded Minecraft", "Valheim", "Satisfactory", "Factorio"
+- Template selection on server creation page
+- Auto-populate metadata, commands, tags from template
+
+#### 3.6 Webhook Outgoing
+- New `webhooks` table: id, url, secret, events[], enabled
+- Post event payloads to external URLs on: server start/stop, constraint violation, cron result, backup completion
+- Retry logic with exponential backoff
+- HMAC signature for verification
+- Admin UI at `/admin/webhooks`
+
+#### 3.7 Dark/Light Theme Consistency
+- Audit all admin pages for hardcoded colors
+- Use CSS variables consistently
+- Ensure agent/backup/cron pages match the dark/light theme system
+
+#### 3.8 Localization/i18n
+- Extract all UI strings into locale files (JSON per language)
+- Support `Accept-Language` header + user preference
+- Default to English, community-contributed translations
+- Start with: English, German
+
+#### 3.9 Secret Management Hardening
+- Hash agent tokens in DB (bcrypt or SHA-256 with salt), compare against hash on connect
+- Add SCIM/agent token rotation endpoint or admin UI
+- Encrypt restic passwords at rest using a server-side encryption key (HOGS_ENCRYPTION_KEY env var)
+- Add TLS option to hogs-agent (`HOGS_AGENT_TLS=true`, `HOGS_AGENT_TLS_CERT`, `HOGS_AGENT_TLS_KEY`)
+
+#### 3.10 Health Check Endpoints
+- Agent liveness probe: periodic heartbeat to HOGS `/agent/ws` with `type: ping`
+- HOGS `/healthz` endpoint should also report: DB reachable, agent connection count, cron scheduler status
+- Agent binary: built-in HTTP health endpoint (`/healthz`) for systemd watchdog integration
+
+#### 3.11 Test Coverage
+- Unit tests for `engine/` package: ACL evaluation, constraint evaluation, param validation, template rendering
+- Unit tests for `cron/` package: job loading, scheduling, execution
+- Unit tests for `agent/` package: message serialization, hub routing, request-response correlation
+- Unit tests for `scim/` package: user/group CRUD, role resolution, session invalidation
+- Integration tests for `backend/` package: PterodactylBackend and AgentBackend interface compliance
+- Integration test harness for SCIM endpoints
+
+---
+
+## Reference: Design Documents
+
+For detailed architecture, data models, expression language reference, and implementation specifics, see:
+
+- **`docs/DESIGN_AUTOMATION.md`** — Automation system design (expression engine, constraints, ACLs, cron, data model, migrations, API reference, security considerations). This document should be considered a historical design reference; the implementation is complete and the canonical roadmap is this file.
