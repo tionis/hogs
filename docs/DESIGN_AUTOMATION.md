@@ -603,6 +603,37 @@ Below is the prioritized roadmap of features needed to make HOGS a fully-feature
 - For Pterodactyl-managed servers: show existing Pterodactyl link form as-is
 - Add node selector dropdown (populated from active agents) on server edit page
 
+#### 1.7 Backend Routing for Actions/Commands
+- PterodactylHandler currently hardcodes Pterodactyl API calls — refactor to use ServerBackend interface
+- When a server has `node` matching an agent, route start/stop/restart/whitelist through AgentBackend
+- When `node` is empty or matches no agent, fall through to PterodactylBackend (existing behavior)
+- Make `node` field editable in server edit page UI (dropdown of registered agent nodes)
+
+#### 1.8 Agent Whitelist Support
+- Whitelist (add/remove player) currently only works via Pterodactyl `SendCommand`
+- For agent-managed servers: send whitelist command through agent's command channel
+- Game-specific whitelist commands (minecraft `whitelist add`, etc.) must work identically regardless of backend
+- Add `whitelist` capability to agent handshake and command dispatch
+
+#### 1.9 Request-Response Agent Protocol
+- Currently agent operations are fire-and-forget: `SendAction`/`SendCommand` push messages but callers only get "sent" back
+- Implement request-response correlation: each request gets a unique ID, agent includes it in the response
+- HOGS server tracks pending requests with `context.Context` timeouts (default 30s)
+- Handler methods (`ServerAction`, `SendCommand`, `WhitelistSet`) block until response or timeout
+- This makes error handling and user feedback actually work
+
+#### 1.10 Session Cleanup Goroutine
+- `CleanupSessions()` exists on `Authenticator` but is never called from `main.go`
+- Add periodic goroutine (every 15 minutes) that calls `auth.CleanupSessions()`
+- Also clean up on server startup
+- Prevents expired sessions from accumulating in the `sessions` table
+
+#### 1.11 Agent Reconnection State Recovery
+- When HOGS restarts, the in-memory `Hub.Conns` map is lost
+- Agents that reconnect after HOGS restart re-register via the `register` message
+- Ensure all pending operations gracefully fail when agent disconnects and retry on reconnect
+- Track pending requests in DB (`agent_pending_ops` table) so they survive HOGS restarts
+
 ### Priority 2: Important Gaps (needed for production use)
 
 #### 2.1 Backup Management UI
@@ -652,6 +683,19 @@ Below is the prioritized roadmap of features needed to make HOGS a fully-feature
 - Command execution UI for parameterized commands (rendered from command schemas)
 - Whitelist button (for games that support it)
 
+#### 2.8 Rate Limiting
+- Rate limit login attempts (5/minute per IP)
+- Rate limit SCIM endpoints (100/minute per token)
+- Rate limit agent WebSocket messages (per-connection throttle)
+- Rate limit public API endpoints (60/minute per IP)
+- Configurable via environment variables or admin settings
+
+#### 2.9 CSRF Protection
+- Add CSRF tokens to all state-changing POST forms
+- Use gorilla/csrf or equivalent middleware
+- Exempt API endpoints that use bearer auth (SCIM, agent WS)
+- Exempt webhook endpoints
+
 ### Priority 3: Nice-to-Have (polish items)
 
 #### 3.1 API Key Authentication
@@ -700,3 +744,22 @@ Below is the prioritized roadmap of features needed to make HOGS a fully-feature
 - Support `Accept-Language` header + user preference
 - Default to English, community-contributed translations
 - Start with: English, German
+
+#### 3.8 Secret Management Hardening
+- Hash agent tokens in DB (bcrypt or SHA-256 with salt), compare against hash on connect
+- Add SCIM/agent token rotation endpoint or admin UI
+- Encrypt restic passwords at rest using a server-side encryption key (HOGS_ENCRYPTION_KEY env var)
+- Add TLS option to hogs-agent (`HOGS_AGENT_TLS=true`, `HOGS_AGENT_TLS_CERT`, `HOGS_AGENT_TLS_KEY`)
+
+#### 3.9 Health Check Endpoints
+- Agent liveness probe: periodic heartbeat to HOGS `/agent/ws` with `type: ping`
+- HOGS `/healthz` endpoint should also report: DB reachable, agent connection count, cron scheduler status
+- Agent binary: built-in HTTP health endpoint (`/healthz`) for systemd watchdog integration
+
+#### 3.10 Test Coverage
+- Unit tests for `engine/` package: ACL evaluation, constraint evaluation, param validation, template rendering
+- Unit tests for `cron/` package: job loading, scheduling, execution
+- Unit tests for `agent/` package: message serialization, hub routing, request-response correlation
+- Unit tests for `scim/` package: user/group CRUD, role resolution, session invalidation
+- Integration tests for `backend/` package: PterodactylBackend and AgentBackend interface compliance
+- Integration test harness for SCIM endpoints
