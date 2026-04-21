@@ -556,3 +556,147 @@ DROP TABLE pterodactyl_servers_old;
 - **Condition-based cron**: Cron jobs with `expr` conditions that must also pass before execution
 - **Webhook notifications**: Post-action webhooks for Discord/Slack on constraint violations or cron results
 - **Metrics**: Prometheus-style metrics for command execution, constraint evaluations, cron runs
+
+---
+
+## Roadmap: Remaining Improvements
+
+Below is the prioritized roadmap of features needed to make HOGS a fully-featured game server management panel.
+
+### Priority 1: Critical Gaps (panel feels incomplete without these)
+
+#### 1.1 Agent Admin UI
+- Admin page at `/admin/agents` to list, create, delete agents
+- Auto-generate agent tokens on creation
+- Show online/offline status and last-seen timestamp
+- One-click "copy install command" that outputs the `hogs-agent` systemd unit + env vars
+- Edit agent name, node assignment, capabilities
+
+#### 1.2 Agent File Manager UI
+- Browse remote filesystem via agent WebSocket (directory listing, file read/write/delete)
+- Upload files from browser (base64 over WS → agent writes to disk)
+- Download files from agent (agent reads → base64 over WS → browser)
+- Create/delete directories
+- Show at `/admin/files/{serverName}` for agent-managed servers (reuse existing file manager pattern)
+
+#### 1.3 Audit Log Viewer
+- Admin page at `/admin/audit` showing recent entries with filtering (by user, server, action, result)
+- Pagination (limit/offset already in API)
+- Show all columns: timestamp, user, server, action, params, result, reason, source
+- CSV/JSON export button
+
+#### 1.4 Constraint Tester UI
+- Add interactive expression tester to `/admin/constraints` page
+- Pre-fill environment with server list and time context
+- Show result (true/false) and any evaluation errors
+- Live syntax highlighting/validation
+
+#### 1.5 Console Streaming
+- WebSocket proxy from browser → HOGS server → agent for live console I/O
+- Agent streams `console` messages → HOGS buffers per-server → browser subscribes via `/api/servers/{name}/console`
+- For Pterodactyl-managed servers, proxy the existing websocket console
+- Show console on server detail page with input field for commands
+
+#### 1.6 Agent-Aware Server Edit Page
+- Server edit page detects whether server is Pterodactyl-managed or agent-managed (via `node` field)
+- For agent-managed servers: show agent connectivity status, file manager link, backup controls, no Pterodactyl link form
+- For Pterodactyl-managed servers: show existing Pterodactyl link form as-is
+- Add node selector dropdown (populated from active agents) on server edit page
+
+### Priority 2: Important Gaps (needed for production use)
+
+#### 2.1 Backup Management UI
+- Admin page at `/admin/backups` showing all backup policies per server
+- Create/schedule backup policies (restic repo, paths, tags, cron schedule)
+- One-click backup/restore buttons per server
+- Backup history with snapshot ID, size, date
+- Restic repo initialization from UI (`restic init`)
+
+#### 2.2 Cron Job History
+- Add `last_result` and `last_output` columns to `cron_jobs` table
+- Show success/failure status in cron manager page
+- Store last N results in a new `cron_job_logs` table for audit trail
+- Show recent execution log inline on cron job row
+
+#### 2.3 Notification/Alerting System
+- New `notifications` table: id, type, destination, enabled
+- Support channels: email (SMTP), webhook (Discord/Slack/custom), in-app
+- Trigger events: server down/up, agent disconnect, backup failure, constraint violation, cron failure
+- Configurable per-server and per-user notification preferences
+- Notification queue with retry logic
+
+#### 2.4 Dashboard Overview
+- New `/admin/dashboard` or enhance existing `/admin` with:
+  - Total servers, online/offline counts
+  - Agent connectivity overview (connected/disconnected per node)
+  - Recent events (last 10 audit log entries)
+  - Quick action buttons (start all, stop all on node)
+  - Resource usage summary if agents report metrics
+
+#### 2.5 Server Resource Metrics
+- Agent reports CPU, RAM, disk usage in `status` messages
+- New `server_metrics` table: server_id, timestamp, cpu_percent, memory_used, memory_total, disk_used, disk_total, players, max_players
+- Time-series aggregation (keep hourly/daily summaries, raw data for 7 days)
+- Simple charts on server detail page (CPU/RAM over last 24h)
+- Configurable retention period
+
+#### 2.6 Mass Operations
+- Select multiple servers on admin page → bulk start/stop/restart
+- Bulk tag assignment
+- Bulk ACL rule application
+- Checkbox UI on server list with action bar
+
+#### 2.7 User-Facing Server Controls
+- `/my-servers` page shows servers where user has ACL-granted access
+- Action buttons (start/stop/restart) that pass through engine.Evaluate()
+- Command execution UI for parameterized commands (rendered from command schemas)
+- Whitelist button (for games that support it)
+
+### Priority 3: Nice-to-Have (polish items)
+
+#### 3.1 API Key Authentication
+- New `api_keys` table: id, name, key_hash, role, created_at, last_used, expires_at
+- API key auth middleware (alternative to OIDC session)
+- Key generation with `hogs_` prefix
+- Admin page at `/admin/api-keys` to manage keys
+- Key permissions tied to role (admin/user) or scoped per-server
+- Used for: cron scripts, CI/CD, external integrations
+
+#### 3.2 Agent Provisioning Flow
+- One-click "Add Agent" button generates token + shows install script:
+  ```bash
+  hogs-agent add-node --url https://hogs.example.com --token <generated>
+  ```
+- Auto-generates systemd unit file for the agent
+- Downloadable agent binary page (or link to releases)
+- Agent health dashboard with heartbeat latency
+
+#### 3.3 Restic Repo Init from UI
+- Button in backup section to initialize a new restic repo
+- Pre-fill common repo types: local path, SFTP, S3, B2
+- Test connection button (runs `restic check`)
+- Store encrypted repo credentials in DB (or reference env vars)
+
+#### 3.4 Server Templates
+- New `server_templates` table: id, name, game_type, default_settings, default_commands, default_acl, default_tags
+- Pre-defined templates: "Vanilla Minecraft", "Modded Minecraft", "Valheim", "Satisfactory", "Factorio"
+- Template selection on server creation page
+- Auto-populate metadata, commands, tags from template
+
+#### 3.5 Webhook Outgoing
+- New `webhooks` table: id, url, secret, events[], enabled
+- Post event payloads to external URLs on: server start/stop, constraint violation, cron result, backup completion
+- Retry logic with exponential backoff
+- HMAC signature for verification
+- Admin UI at `/admin/webhooks`
+
+#### 3.6 Dark/Light Theme Consistency
+- Audit all admin pages for hardcoded colors
+- Use CSS variables consistently
+- Ensure agent/backup/cron pages match the dark/light theme system
+
+#### 3.7 Localization/i18n
+- Extract all UI strings into locale files (JSON per language)
+- Support `Accept-Language` header + user preference
+- Default to English, community-contributed translations
+- Start with: English, German
