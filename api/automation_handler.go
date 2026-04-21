@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -420,7 +421,43 @@ func (h *AutomationHandler) GetAuditLog(w http.ResponseWriter, r *http.Request) 
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(entries)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"entries": entries,
+		"limit":   limit,
+		"offset":  offset,
+	})
+}
+
+func (h *AutomationHandler) ExportAuditLog(w http.ResponseWriter, r *http.Request) {
+	format := r.URL.Query().Get("format")
+	if format == "" {
+		format = "json"
+	}
+
+	entries, err := h.Store.ListAuditLog(10000, 0)
+	if err != nil {
+		http.Error(w, "Failed to fetch audit log", http.StatusInternalServerError)
+		return
+	}
+	if entries == nil {
+		entries = []database.AuditLogEntry{}
+	}
+
+	switch format {
+	case "csv":
+		w.Header().Set("Content-Type", "text/csv")
+		w.Header().Set("Content-Disposition", "attachment; filename=audit_log.csv")
+		w.Write([]byte("timestamp,user_email,server_name,action,params,result,reason,source\n"))
+		for _, e := range entries {
+			w.Write([]byte(fmt.Sprintf("%s,%s,%s,%s,%s,%s,%s,%s\n",
+				e.Timestamp, e.UserEmail, e.ServerName, e.Action,
+				string(e.Params), e.Result, e.Reason, e.Source)))
+		}
+	default:
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Content-Disposition", "attachment; filename=audit_log.json")
+		json.NewEncoder(w).Encode(entries)
+	}
 }
 
 func (h *AutomationHandler) TestConstraint(w http.ResponseWriter, r *http.Request) {

@@ -82,7 +82,7 @@ func main() {
 	if cfg.AgentEnabled {
 		agentHub = agent.NewHub(store, cfg)
 		agentService = agent.NewAgentService(store, agentHub)
-		agentHandler = api.NewAgentHandler(store, agentService)
+		agentHandler = api.NewAgentHandler(store, agentService, agentHub)
 		log.Println("Agent WebSocket endpoint enabled at /agent/ws")
 	}
 
@@ -212,6 +212,7 @@ func main() {
 		router.Handle("/admin/acl/{serverId}", authenticator.RequireRole("admin")(http.HandlerFunc(automationHandler.UpdateACLRule))).Methods("POST")
 
 		router.Handle("/api/audit", authenticator.RequireRole("admin")(http.HandlerFunc(automationHandler.GetAuditLog))).Methods("GET")
+		router.Handle("/api/audit/export", authenticator.RequireRole("admin")(http.HandlerFunc(automationHandler.ExportAuditLog))).Methods("GET")
 		router.Handle("/api/constraints/test", authenticator.RequireRole("admin")(http.HandlerFunc(automationHandler.TestConstraint))).Methods("POST")
 
 		router.Handle("/api/dashboard", authenticator.RequireRole("admin")(http.HandlerFunc(dashboardHandler.Overview))).Methods("GET")
@@ -240,6 +241,9 @@ func main() {
 	if agentHandler != nil && authenticator != nil {
 		router.Handle("/api/agents", authenticator.RequireRole("admin")(http.HandlerFunc(agentHandler.ListAgents))).Methods("GET")
 		router.Handle("/api/agents", authenticator.RequireRole("admin")(http.HandlerFunc(agentHandler.CreateAgent))).Methods("POST")
+		router.Handle("/api/agents/{id}", authenticator.RequireRole("admin")(http.HandlerFunc(agentHandler.GetAgent))).Methods("GET")
+		router.Handle("/api/agents/{id}", authenticator.RequireRole("admin")(http.HandlerFunc(agentHandler.UpdateAgent))).Methods("PUT")
+		router.Handle("/api/agents/{id}/regenerate-token", authenticator.RequireRole("admin")(http.HandlerFunc(agentHandler.RegenerateToken))).Methods("POST")
 		router.Handle("/api/agents/delete", authenticator.RequireRole("admin")(http.HandlerFunc(agentHandler.DeleteAgent))).Methods("POST")
 
 		router.Handle("/api/agents/{serverName}/files", authenticator.RequireRole("admin")(http.HandlerFunc(agentHandler.AgentFileList))).Methods("GET")

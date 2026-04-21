@@ -15,10 +15,11 @@ import (
 type AgentHandler struct {
 	Store   *database.Store
 	Service *agent.AgentService
+	Hub     *agent.Hub
 }
 
-func NewAgentHandler(store *database.Store, service *agent.AgentService) *AgentHandler {
-	return &AgentHandler{Store: store, Service: service}
+func NewAgentHandler(store *database.Store, service *agent.AgentService, hub *agent.Hub) *AgentHandler {
+	return &AgentHandler{Store: store, Service: service, Hub: hub}
 }
 
 func (h *AgentHandler) ListAgents(w http.ResponseWriter, r *http.Request) {
@@ -30,8 +31,59 @@ func (h *AgentHandler) ListAgents(w http.ResponseWriter, r *http.Request) {
 	if agents == nil {
 		agents = []database.Agent{}
 	}
+
+	type agentWithStatus struct {
+		database.Agent
+		Connected bool `json:"connected"`
+	}
+
+	var result []agentWithStatus
+	for _, a := range agents {
+		connected := false
+		if h.Hub != nil {
+			connected = h.Hub.GetConn(a.ID) != nil
+		}
+		result = append(result, agentWithStatus{Agent: a, Connected: connected})
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(agents)
+	json.NewEncoder(w).Encode(result)
+}
+
+func (h *AgentHandler) GetAgent(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(mux.Vars(r)["id"])
+	if err != nil {
+		http.Error(w, "Invalid agent ID", http.StatusBadRequest)
+		return
+	}
+
+	a, err := h.Store.GetAgent(id)
+	if err != nil {
+		http.Error(w, "Failed to get agent", http.StatusInternalServerError)
+		return
+	}
+	if a == nil {
+		http.Error(w, "Agent not found", http.StatusNotFound)
+		return
+	}
+
+	connected := false
+	if h.Hub != nil {
+		connected = h.Hub.GetConn(a.ID) != nil
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"id":           a.ID,
+		"name":         a.Name,
+		"keyPrefix":    a.TokenPrefix,
+		"nodeName":     a.NodeName,
+		"capabilities": a.Capabilities,
+		"createdAt":    a.CreatedAt,
+		"lastSeen":     a.LastSeen,
+		"online":       a.Online,
+		"connected":    connected,
+	})
 }
 
 func (h *AgentHandler) CreateAgent(w http.ResponseWriter, r *http.Request) {
@@ -48,7 +100,7 @@ func (h *AgentHandler) CreateAgent(w http.ResponseWriter, r *http.Request) {
 
 	token := r.FormValue("token")
 	if token == "" {
-		token = generateToken()
+		token = generateAgentToken()
 	}
 
 	nodeName := r.FormValue("node_name")
@@ -68,7 +120,97 @@ func (h *AgentHandler) CreateAgent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(a)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"id":        a.ID,
+		"name":      a.Name,
+		"token":     a.Token,
+		"keyPrefix": a.TokenPrefix,
+		"nodeName":  a.NodeName,
+	})
+}
+
+func (h *AgentHandler) UpdateAgent(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(mux.Vars(r)["id"])
+	if err != nil {
+		http.Error(w, "Invalid agent ID", http.StatusBadRequest)
+		return
+	}
+
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Invalid form data", http.StatusBadRequest)
+		return
+	}
+
+	a, err := h.Store.GetAgent(id)
+	if err != nil {
+		http.Error(w, "Failed to get agent", http.StatusInternalServerError)
+		return
+	}
+	if a == nil {
+		http.Error(w, "Agent not found", http.StatusNotFound)
+		return
+	}
+
+	if name := r.FormValue("name"); name != "" {
+		a.Name = name
+	}
+	if nodeName := r.FormValue("node_name"); nodeName != "" {
+		a.NodeName = nodeName
+	}
+	if caps := r.FormValue("capabilities"); caps != "" {
+		a.Capabilities = json.RawMessage(caps)
+	}
+
+	if err := h.Store.UpdateAgent(a); err != nil {
+		http.Error(w, "Failed to update agent: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"id":        a.ID,
+		"name":      a.Name,
+		"nodeName":  a.NodeName,
+		"keyPrefix": a.TokenPrefix,
+	})
+}
+
+func (h *AgentHandler) RegenerateToken(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(mux.Vars(r)["id"])
+	if err != nil {
+		http.Error(w, "Invalid agent ID", http.StatusBadRequest)
+		return
+	}
+
+	a, err := h.Store.GetAgent(id)
+	if err != nil {
+		http.Error(w, "Failed to get agent", http.StatusInternalServerError)
+		return
+	}
+	if a == nil {
+		http.Error(w, "Agent not found", http.StatusNotFound)
+		return
+	}
+
+	newToken := generateAgentToken()
+	a.Token = newToken
+	a.TokenHash = database.HashAPIKey(newToken)
+	a.TokenPrefix = newToken[:8]
+
+	_, err = h.Store.DB.Exec("UPDATE agents SET token = ?, token_hash = ?, token_prefix = ? WHERE id = ?",
+		a.Token, a.TokenHash, a.TokenPrefix, a.ID)
+	if err != nil {
+		http.Error(w, "Failed to regenerate token", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"id":        a.ID,
+		"name":      a.Name,
+		"token":     newToken,
+		"keyPrefix": a.TokenPrefix,
+	})
 }
 
 func (h *AgentHandler) DeleteAgent(w http.ResponseWriter, r *http.Request) {
@@ -275,8 +417,8 @@ func (h *AgentHandler) AgentBackupList(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(result)
 }
 
-func generateToken() string {
+func generateAgentToken() string {
 	b := make([]byte, 32)
 	rand.Read(b)
-	return hex.EncodeToString(b)
+	return "hogs_" + hex.EncodeToString(b)
 }

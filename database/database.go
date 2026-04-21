@@ -1772,6 +1772,15 @@ func (s *Store) UpdateAgentCapabilities(id int, capabilities json.RawMessage) er
 	return err
 }
 
+func (s *Store) UpdateAgent(a *Agent) error {
+	if a.Capabilities == nil {
+		a.Capabilities = json.RawMessage("[]")
+	}
+	_, err := s.DB.Exec("UPDATE agents SET name = ?, node_name = ?, capabilities = ? WHERE id = ?",
+		a.Name, a.NodeName, string(a.Capabilities), a.ID)
+	return err
+}
+
 func (s *Store) DeleteAgent(id int) error {
 	_, err := s.DB.Exec("DELETE FROM agents WHERE id = ?", id)
 	return err

@@ -118,12 +118,14 @@ func (h *PterodactylHandler) LinkServer(w http.ResponseWriter, r *http.Request) 
 	if allowedActions == "" {
 		allowedActions = "[]"
 	}
+	node := r.FormValue("node")
 
 	link := &database.PterodactylLink{
 		ServerID:        serverID,
 		PteroServerID:   pteroServerID,
 		PteroIdentifier: pteroIdentifier,
 		AllowedActions:  allowedActions,
+		Node:            node,
 	}
 
 	existing, err := h.Store.GetPterodactylLink(serverID)
