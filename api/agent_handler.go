@@ -99,14 +99,14 @@ func (h *AgentHandler) AgentFileList(w http.ResponseWriter, r *http.Request) {
 		path = "."
 	}
 
-	ok, msg := h.Service.FileList(serverName, path)
-	if !ok {
-		http.Error(w, msg, http.StatusServiceUnavailable)
+	result, err := h.Service.FileList(serverName, path)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "request_sent", "message": msg})
+	json.NewEncoder(w).Encode(result)
 }
 
 func (h *AgentHandler) AgentFileRead(w http.ResponseWriter, r *http.Request) {
@@ -117,14 +117,14 @@ func (h *AgentHandler) AgentFileRead(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ok, msg := h.Service.FileRead(serverName, path)
-	if !ok {
-		http.Error(w, msg, http.StatusServiceUnavailable)
+	result, err := h.Service.FileRead(serverName, path)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "request_sent", "message": msg})
+	json.NewEncoder(w).Encode(result)
 }
 
 func (h *AgentHandler) AgentFileWrite(w http.ResponseWriter, r *http.Request) {
@@ -144,14 +144,14 @@ func (h *AgentHandler) AgentFileWrite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ok, msg := h.Service.FileWrite(serverName, req.Path, req.ContentB64)
-	if !ok {
-		http.Error(w, msg, http.StatusServiceUnavailable)
+	result, err := h.Service.FileWrite(serverName, req.Path, req.ContentB64)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "request_sent", "message": msg})
+	json.NewEncoder(w).Encode(result)
 }
 
 func (h *AgentHandler) AgentFileDelete(w http.ResponseWriter, r *http.Request) {
@@ -162,14 +162,14 @@ func (h *AgentHandler) AgentFileDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ok, msg := h.Service.FileDelete(serverName, path)
-	if !ok {
-		http.Error(w, msg, http.StatusServiceUnavailable)
+	result, err := h.Service.FileDelete(serverName, path)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "request_sent", "message": msg})
+	json.NewEncoder(w).Encode(result)
 }
 
 func (h *AgentHandler) AgentMkdir(w http.ResponseWriter, r *http.Request) {
@@ -180,14 +180,14 @@ func (h *AgentHandler) AgentMkdir(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ok, msg := h.Service.Mkdir(serverName, path)
-	if !ok {
-		http.Error(w, msg, http.StatusServiceUnavailable)
+	result, err := h.Service.Mkdir(serverName, path)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "request_sent", "message": msg})
+	json.NewEncoder(w).Encode(result)
 }
 
 func (h *AgentHandler) AgentBackupCreate(w http.ResponseWriter, r *http.Request) {
@@ -209,14 +209,14 @@ func (h *AgentHandler) AgentBackupCreate(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	ok, msg := h.Service.BackupCreate(serverName, req.Repo, req.Password, req.Paths, req.Tags)
-	if !ok {
-		http.Error(w, msg, http.StatusServiceUnavailable)
+	result, err := h.Service.BackupCreate(serverName, req.Repo, req.Password, req.Paths, req.Tags)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "request_sent", "message": msg})
+	json.NewEncoder(w).Encode(result)
 }
 
 func (h *AgentHandler) AgentBackupRestore(w http.ResponseWriter, r *http.Request) {
@@ -238,14 +238,14 @@ func (h *AgentHandler) AgentBackupRestore(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	ok, msg := h.Service.BackupRestore(serverName, req.Repo, req.Password, req.Snapshot, req.Target)
-	if !ok {
-		http.Error(w, msg, http.StatusServiceUnavailable)
+	result, err := h.Service.BackupRestore(serverName, req.Repo, req.Password, req.Snapshot, req.Target)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "request_sent", "message": msg})
+	json.NewEncoder(w).Encode(result)
 }
 
 func (h *AgentHandler) AgentBackupList(w http.ResponseWriter, r *http.Request) {
@@ -265,14 +265,14 @@ func (h *AgentHandler) AgentBackupList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ok, msg := h.Service.BackupList(serverName, req.Repo, req.Password)
-	if !ok {
-		http.Error(w, msg, http.StatusServiceUnavailable)
+	result, err := h.Service.BackupList(serverName, req.Repo, req.Password)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "request_sent", "message": msg})
+	json.NewEncoder(w).Encode(result)
 }
 
 func generateToken() string {

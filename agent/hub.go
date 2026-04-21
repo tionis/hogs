@@ -1,9 +1,12 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -13,8 +16,9 @@ import (
 )
 
 type Envelope struct {
-	Type string          `json:"type"`
-	Data json.RawMessage `json:"data"`
+	Type      string          `json:"type"`
+	RequestID string          `json:"requestId,omitempty"`
+	Data      json.RawMessage `json:"data"`
 }
 
 type RegisterData struct {
@@ -100,12 +104,20 @@ type GenericResultData struct {
 	Error   string      `json:"error,omitempty"`
 }
 
+type pendingRequest struct {
+	ch chan *GenericResultData
+}
+
 type Hub struct {
 	Store    *database.Store
 	Config   *config.Config
 	Conns    map[int]*AgentConn
 	mu       sync.RWMutex
 	upgrader websocket.Upgrader
+
+	pending   map[string]*pendingRequest
+	pendingMu sync.Mutex
+	nextReqID uint64
 }
 
 type AgentConn struct {
@@ -119,12 +131,40 @@ type AgentConn struct {
 
 func NewHub(store *database.Store, cfg *config.Config) *Hub {
 	return &Hub{
-		Store:  store,
-		Config: cfg,
-		Conns:  make(map[int]*AgentConn),
+		Store:   store,
+		Config:  cfg,
+		Conns:   make(map[int]*AgentConn),
+		pending: make(map[string]*pendingRequest),
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool { return true },
 		},
+	}
+}
+
+func (h *Hub) allocRequestID() string {
+	h.pendingMu.Lock()
+	defer h.pendingMu.Unlock()
+	h.nextReqID++
+	return strconv.FormatUint(h.nextReqID, 10)
+}
+
+func (h *Hub) registerPending(reqID string) *pendingRequest {
+	pr := &pendingRequest{ch: make(chan *GenericResultData, 1)}
+	h.pendingMu.Lock()
+	h.pending[reqID] = pr
+	h.pendingMu.Unlock()
+	return pr
+}
+
+func (h *Hub) resolvePending(reqID string, result *GenericResultData) {
+	h.pendingMu.Lock()
+	pr, ok := h.pending[reqID]
+	if ok {
+		delete(h.pending, reqID)
+	}
+	h.pendingMu.Unlock()
+	if ok {
+		pr.ch <- result
 	}
 }
 
@@ -193,162 +233,98 @@ func (h *Hub) RemoveConn(agentID int) {
 	h.Store.UpdateAgentOnline(agentID, false)
 }
 
-func (h *Hub) SendCommand(agentID int, command string) (bool, string) {
+func (h *Hub) sendEnvelopeWithResult(ctx context.Context, agentID int, msgType string, data interface{}) (*GenericResultData, error) {
 	ac := h.GetConn(agentID)
 	if ac == nil {
-		return false, "agent offline"
+		return nil, fmt.Errorf("agent offline")
 	}
 
-	data, _ := json.Marshal(CommandRequestData{Command: command})
-	env := Envelope{Type: "command", Data: data}
+	reqID := h.allocRequestID()
+	payload, _ := json.Marshal(data)
+	env := Envelope{Type: msgType, RequestID: reqID, Data: payload}
 	msg, _ := json.Marshal(env)
 
+	pr := h.registerPending(reqID)
+
 	select {
 	case ac.Send <- msg:
 	default:
-		return false, "agent send buffer full"
+		h.pendingMu.Lock()
+		delete(h.pending, reqID)
+		h.pendingMu.Unlock()
+		return nil, fmt.Errorf("agent send buffer full")
 	}
 
-	return true, "command sent"
+	select {
+	case result := <-pr.ch:
+		if !result.Success {
+			return result, fmt.Errorf("%s", result.Error)
+		}
+		return result, nil
+	case <-ctx.Done():
+		h.pendingMu.Lock()
+		delete(h.pending, reqID)
+		h.pendingMu.Unlock()
+		return nil, ctx.Err()
+	}
 }
 
-func (h *Hub) SendAction(agentID int, action string) (bool, string) {
-	ac := h.GetConn(agentID)
-	if ac == nil {
-		return false, "agent offline"
-	}
-
-	data, _ := json.Marshal(ActionRequestData{Action: action})
-	env := Envelope{Type: "action", Data: data}
-	msg, _ := json.Marshal(env)
-
-	select {
-	case ac.Send <- msg:
-	default:
-		return false, "agent send buffer full"
-	}
-
-	return true, "action sent"
+func (h *Hub) SendCommand(ctx context.Context, agentID int, command string) (*GenericResultData, error) {
+	return h.sendEnvelopeWithResult(ctx, agentID, "command", CommandRequestData{Command: command})
 }
 
-func (h *Hub) SendFileList(agentID int, path string) (bool, string) {
-	ac := h.GetConn(agentID)
-	if ac == nil {
-		return false, "agent offline"
-	}
-	data, _ := json.Marshal(FileListRequestData{Path: path})
-	msg, _ := json.Marshal(Envelope{Type: "file_list", Data: data})
-	select {
-	case ac.Send <- msg:
-	default:
-		return false, "agent send buffer full"
-	}
-	return true, "file list request sent"
+func (h *Hub) SendAction(ctx context.Context, agentID int, action string) (*GenericResultData, error) {
+	return h.sendEnvelopeWithResult(ctx, agentID, "action", ActionRequestData{Action: action})
 }
 
-func (h *Hub) SendFileRead(agentID int, path string) (bool, string) {
-	ac := h.GetConn(agentID)
-	if ac == nil {
-		return false, "agent offline"
-	}
-	data, _ := json.Marshal(FileReadRequestData{Path: path})
-	msg, _ := json.Marshal(Envelope{Type: "file_read", Data: data})
-	select {
-	case ac.Send <- msg:
-	default:
-		return false, "agent send buffer full"
-	}
-	return true, "file read request sent"
+func (h *Hub) SendFileList(ctx context.Context, agentID int, path string) (*GenericResultData, error) {
+	return h.sendEnvelopeWithResult(ctx, agentID, "file_list", FileListRequestData{Path: path})
 }
 
-func (h *Hub) SendFileWrite(agentID int, path, content string) (bool, string) {
-	ac := h.GetConn(agentID)
-	if ac == nil {
-		return false, "agent offline"
-	}
-	data, _ := json.Marshal(FileWriteRequestData{Path: path, Content: content})
-	msg, _ := json.Marshal(Envelope{Type: "file_write", Data: data})
-	select {
-	case ac.Send <- msg:
-	default:
-		return false, "agent send buffer full"
-	}
-	return true, "file write request sent"
+func (h *Hub) SendFileRead(ctx context.Context, agentID int, path string) (*GenericResultData, error) {
+	return h.sendEnvelopeWithResult(ctx, agentID, "file_read", FileReadRequestData{Path: path})
 }
 
-func (h *Hub) SendFileDelete(agentID int, path string) (bool, string) {
-	ac := h.GetConn(agentID)
-	if ac == nil {
-		return false, "agent offline"
-	}
-	data, _ := json.Marshal(FileDeleteRequestData{Path: path})
-	msg, _ := json.Marshal(Envelope{Type: "file_delete", Data: data})
-	select {
-	case ac.Send <- msg:
-	default:
-		return false, "agent send buffer full"
-	}
-	return true, "file delete request sent"
+func (h *Hub) SendFileWrite(ctx context.Context, agentID int, path, content string) (*GenericResultData, error) {
+	return h.sendEnvelopeWithResult(ctx, agentID, "file_write", FileWriteRequestData{Path: path, Content: content})
 }
 
-func (h *Hub) SendMkdir(agentID int, path string) (bool, string) {
-	ac := h.GetConn(agentID)
-	if ac == nil {
-		return false, "agent offline"
-	}
-	data, _ := json.Marshal(MkdirRequestData{Path: path})
-	msg, _ := json.Marshal(Envelope{Type: "mkdir", Data: data})
-	select {
-	case ac.Send <- msg:
-	default:
-		return false, "agent send buffer full"
-	}
-	return true, "mkdir request sent"
+func (h *Hub) SendFileDelete(ctx context.Context, agentID int, path string) (*GenericResultData, error) {
+	return h.sendEnvelopeWithResult(ctx, agentID, "file_delete", FileDeleteRequestData{Path: path})
 }
 
-func (h *Hub) SendBackupCreate(agentID int, repo, password string, paths, tags []string) (bool, string) {
-	ac := h.GetConn(agentID)
-	if ac == nil {
-		return false, "agent offline"
-	}
-	data, _ := json.Marshal(BackupCreateRequestData{Repo: repo, Password: password, Paths: paths, Tags: tags})
-	msg, _ := json.Marshal(Envelope{Type: "backup_create", Data: data})
-	select {
-	case ac.Send <- msg:
-	default:
-		return false, "agent send buffer full"
-	}
-	return true, "backup create request sent"
+func (h *Hub) SendMkdir(ctx context.Context, agentID int, path string) (*GenericResultData, error) {
+	return h.sendEnvelopeWithResult(ctx, agentID, "mkdir", MkdirRequestData{Path: path})
 }
 
-func (h *Hub) SendBackupRestore(agentID int, repo, password, snapshot, target string) (bool, string) {
-	ac := h.GetConn(agentID)
-	if ac == nil {
-		return false, "agent offline"
-	}
-	data, _ := json.Marshal(BackupRestoreRequestData{Repo: repo, Password: password, Snapshot: snapshot, Target: target})
-	msg, _ := json.Marshal(Envelope{Type: "backup_restore", Data: data})
-	select {
-	case ac.Send <- msg:
-	default:
-		return false, "agent send buffer full"
-	}
-	return true, "backup restore request sent"
+func (h *Hub) SendBackupCreate(ctx context.Context, agentID int, repo, password string, paths, tags []string) (*GenericResultData, error) {
+	return h.sendEnvelopeWithResult(ctx, agentID, "backup_create", BackupCreateRequestData{Repo: repo, Password: password, Paths: paths, Tags: tags})
 }
 
-func (h *Hub) SendBackupList(agentID int, repo, password string) (bool, string) {
-	ac := h.GetConn(agentID)
-	if ac == nil {
-		return false, "agent offline"
-	}
-	data, _ := json.Marshal(BackupListRequestData{Repo: repo, Password: password})
-	msg, _ := json.Marshal(Envelope{Type: "backup_list", Data: data})
-	select {
-	case ac.Send <- msg:
-	default:
-		return false, "agent send buffer full"
-	}
-	return true, "backup list request sent"
+func (h *Hub) SendBackupRestore(ctx context.Context, agentID int, repo, password, snapshot, target string) (*GenericResultData, error) {
+	return h.sendEnvelopeWithResult(ctx, agentID, "backup_restore", BackupRestoreRequestData{Repo: repo, Password: password, Snapshot: snapshot, Target: target})
+}
+
+func (h *Hub) SendBackupList(ctx context.Context, agentID int, repo, password string) (*GenericResultData, error) {
+	return h.sendEnvelopeWithResult(ctx, agentID, "backup_list", BackupListRequestData{Repo: repo, Password: password})
+}
+
+var resultTypes = map[string]string{
+	"action_result":         "action_result",
+	"command_result":        "command_result",
+	"file_list_result":      "file_list_result",
+	"file_read_result":      "file_read_result",
+	"file_write_result":     "file_write_result",
+	"file_delete_result":    "file_delete_result",
+	"mkdir_result":          "mkdir_result",
+	"backup_create_result":  "backup_create_result",
+	"backup_restore_result": "backup_restore_result",
+	"backup_list_result":    "backup_list_result",
+}
+
+func isResultType(t string) bool {
+	_, ok := resultTypes[t]
+	return ok
 }
 
 func (ac *AgentConn) readPump() {
@@ -376,6 +352,15 @@ func (ac *AgentConn) readPump() {
 		var env Envelope
 		if err := json.Unmarshal(message, &env); err != nil {
 			log.Printf("Agent %d invalid message: %v", ac.AgentID, err)
+			continue
+		}
+
+		if env.RequestID != "" && isResultType(env.Type) {
+			var result GenericResultData
+			if err := json.Unmarshal(env.Data, &result); err != nil {
+				result = GenericResultData{Success: false, Error: err.Error()}
+			}
+			ac.Hub.resolvePending(env.RequestID, &result)
 			continue
 		}
 

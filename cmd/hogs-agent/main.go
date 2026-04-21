@@ -20,8 +20,9 @@ import (
 )
 
 type Envelope struct {
-	Type string          `json:"type"`
-	Data json.RawMessage `json:"data"`
+	Type      string          `json:"type"`
+	RequestID string          `json:"requestId,omitempty"`
+	Data      json.RawMessage `json:"data"`
 }
 
 type RegisterData struct {
@@ -223,14 +224,14 @@ func handleMessage(message []byte, c *websocket.Conn) {
 		json.Unmarshal(env.Data, &data)
 		log.Printf("Received action: %s", data.Action)
 		result := executeAction(data.Action)
-		sendResult(c, "action_result", result)
+		sendResult(c, "action_result", env.RequestID, result)
 
 	case "command":
 		var data CommandRequestData
 		json.Unmarshal(env.Data, &data)
 		log.Printf("Received command: %s", data.Command)
 		output, err := executeCommand(data.Command)
-		sendResult(c, "command_result", map[string]interface{}{
+		sendResult(c, "command_result", env.RequestID, map[string]interface{}{
 			"success": err == nil,
 			"output":  output,
 			"error":   errStr(err),
@@ -240,57 +241,57 @@ func handleMessage(message []byte, c *websocket.Conn) {
 		var data FileListRequestData
 		json.Unmarshal(env.Data, &data)
 		result := filelist(data.Path)
-		sendResult(c, "file_list_result", result)
+		sendResult(c, "file_list_result", env.RequestID, result)
 
 	case "file_read":
 		var data FileReadRequestData
 		json.Unmarshal(env.Data, &data)
 		result := fileRead(data.Path)
-		sendResult(c, "file_read_result", result)
+		sendResult(c, "file_read_result", env.RequestID, result)
 
 	case "file_write":
 		var data FileWriteRequestData
 		json.Unmarshal(env.Data, &data)
 		result := fileWrite(data.Path, data.Content)
-		sendResult(c, "file_write_result", result)
+		sendResult(c, "file_write_result", env.RequestID, result)
 
 	case "file_delete":
 		var data FileDeleteRequestData
 		json.Unmarshal(env.Data, &data)
 		result := fileDelete(data.Path)
-		sendResult(c, "file_delete_result", result)
+		sendResult(c, "file_delete_result", env.RequestID, result)
 
 	case "mkdir":
 		var data MkdirRequestData
 		json.Unmarshal(env.Data, &data)
 		result := mkdir(data.Path)
-		sendResult(c, "mkdir_result", result)
+		sendResult(c, "mkdir_result", env.RequestID, result)
 
 	case "backup_create":
 		var data BackupRequestData
 		json.Unmarshal(env.Data, &data)
 		result := backupCreate(data.Repo, data.Password, data.Paths, data.Tags)
-		sendResult(c, "backup_create_result", result)
+		sendResult(c, "backup_create_result", env.RequestID, result)
 
 	case "backup_restore":
 		var data BackupRestoreRequestData
 		json.Unmarshal(env.Data, &data)
 		result := backupRestore(data.Repo, data.Password, data.Snapshot, data.Target)
-		sendResult(c, "backup_restore_result", result)
+		sendResult(c, "backup_restore_result", env.RequestID, result)
 
 	case "backup_list":
 		var data BackupListRequestData
 		json.Unmarshal(env.Data, &data)
 		result := backupList(data.Repo, data.Password)
-		sendResult(c, "backup_list_result", result)
+		sendResult(c, "backup_list_result", env.RequestID, result)
 
 	default:
 		log.Printf("Unknown message type: %s", env.Type)
 	}
 }
 
-func sendResult(c *websocket.Conn, resultType string, data interface{}) {
-	resp := Envelope{Type: resultType, Data: mustMarshal(data)}
+func sendResult(c *websocket.Conn, resultType string, requestID string, data interface{}) {
+	resp := Envelope{Type: resultType, RequestID: requestID, Data: mustMarshal(data)}
 	c.WriteJSON(resp)
 }
 

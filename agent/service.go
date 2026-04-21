@@ -8,13 +8,6 @@ import (
 	"github.com/tionis/hogs/database"
 )
 
-type BackendServerStatus struct {
-	Online     bool
-	Players    int
-	MaxPlayers int
-	Version    string
-}
-
 type AgentBackend struct {
 	AgentID  int
 	NodeName string
@@ -26,38 +19,38 @@ func NewAgentBackend(agentID int, nodeName string, hub *Hub) *AgentBackend {
 }
 
 func (a *AgentBackend) Start(ctx context.Context) error {
-	ok, msg := a.Hub.SendAction(a.AgentID, "start")
-	if !ok {
-		return fmt.Errorf("failed to send start: %s", msg)
+	_, err := a.Hub.SendAction(ctx, a.AgentID, "start")
+	if err != nil {
+		return fmt.Errorf("failed to send start: %w", err)
 	}
 	return nil
 }
 
 func (a *AgentBackend) Stop(ctx context.Context) error {
-	ok, msg := a.Hub.SendAction(a.AgentID, "stop")
-	if !ok {
-		return fmt.Errorf("failed to send stop: %s", msg)
+	_, err := a.Hub.SendAction(ctx, a.AgentID, "stop")
+	if err != nil {
+		return fmt.Errorf("failed to send stop: %w", err)
 	}
 	return nil
 }
 
 func (a *AgentBackend) Restart(ctx context.Context) error {
-	ok, msg := a.Hub.SendAction(a.AgentID, "restart")
-	if !ok {
-		return fmt.Errorf("failed to send restart: %s", msg)
+	_, err := a.Hub.SendAction(ctx, a.AgentID, "restart")
+	if err != nil {
+		return fmt.Errorf("failed to send restart: %w", err)
 	}
 	return nil
 }
 
 func (a *AgentBackend) SendCommand(ctx context.Context, command string) error {
-	ok, msg := a.Hub.SendCommand(a.AgentID, command)
-	if !ok {
-		return fmt.Errorf("failed to send command: %s", msg)
+	_, err := a.Hub.SendCommand(ctx, a.AgentID, command)
+	if err != nil {
+		return fmt.Errorf("failed to send command: %w", err)
 	}
 	return nil
 }
 
-func (a *AgentBackend) Status(ctx context.Context) (*BackendServerStatus, error) {
+func (a *AgentBackend) Status(ctx context.Context) (*GenericResultData, error) {
 	return nil, fmt.Errorf("agent status not yet implemented")
 }
 
@@ -134,66 +127,82 @@ func (s *AgentService) SendCommand(serverName, command string) error {
 	return fmt.Errorf("no agent backend available for server %s", serverName)
 }
 
-func (s *AgentService) FileList(serverName, path string) (bool, string) {
+func (s *AgentService) FileList(serverName, path string) (*GenericResultData, error) {
 	_, agentID := ResolveBackend(serverName, s.Store, s.Hub)
 	if agentID <= 0 {
-		return false, "no agent backend"
+		return nil, fmt.Errorf("no agent backend")
 	}
-	return s.Hub.SendFileList(agentID, path)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return s.Hub.SendFileList(ctx, agentID, path)
 }
 
-func (s *AgentService) FileRead(serverName, path string) (bool, string) {
+func (s *AgentService) FileRead(serverName, path string) (*GenericResultData, error) {
 	_, agentID := ResolveBackend(serverName, s.Store, s.Hub)
 	if agentID <= 0 {
-		return false, "no agent backend"
+		return nil, fmt.Errorf("no agent backend")
 	}
-	return s.Hub.SendFileRead(agentID, path)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return s.Hub.SendFileRead(ctx, agentID, path)
 }
 
-func (s *AgentService) FileWrite(serverName, path, content string) (bool, string) {
+func (s *AgentService) FileWrite(serverName, path, content string) (*GenericResultData, error) {
 	_, agentID := ResolveBackend(serverName, s.Store, s.Hub)
 	if agentID <= 0 {
-		return false, "no agent backend"
+		return nil, fmt.Errorf("no agent backend")
 	}
-	return s.Hub.SendFileWrite(agentID, path, content)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return s.Hub.SendFileWrite(ctx, agentID, path, content)
 }
 
-func (s *AgentService) FileDelete(serverName, path string) (bool, string) {
+func (s *AgentService) FileDelete(serverName, path string) (*GenericResultData, error) {
 	_, agentID := ResolveBackend(serverName, s.Store, s.Hub)
 	if agentID <= 0 {
-		return false, "no agent backend"
+		return nil, fmt.Errorf("no agent backend")
 	}
-	return s.Hub.SendFileDelete(agentID, path)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return s.Hub.SendFileDelete(ctx, agentID, path)
 }
 
-func (s *AgentService) Mkdir(serverName, path string) (bool, string) {
+func (s *AgentService) Mkdir(serverName, path string) (*GenericResultData, error) {
 	_, agentID := ResolveBackend(serverName, s.Store, s.Hub)
 	if agentID <= 0 {
-		return false, "no agent backend"
+		return nil, fmt.Errorf("no agent backend")
 	}
-	return s.Hub.SendMkdir(agentID, path)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return s.Hub.SendMkdir(ctx, agentID, path)
 }
 
-func (s *AgentService) BackupCreate(serverName, repo, password string, paths, tags []string) (bool, string) {
+func (s *AgentService) BackupCreate(serverName, repo, password string, paths, tags []string) (*GenericResultData, error) {
 	_, agentID := ResolveBackend(serverName, s.Store, s.Hub)
 	if agentID <= 0 {
-		return false, "no agent backend"
+		return nil, fmt.Errorf("no agent backend")
 	}
-	return s.Hub.SendBackupCreate(agentID, repo, password, paths, tags)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	return s.Hub.SendBackupCreate(ctx, agentID, repo, password, paths, tags)
 }
 
-func (s *AgentService) BackupRestore(serverName, repo, password, snapshot, target string) (bool, string) {
+func (s *AgentService) BackupRestore(serverName, repo, password, snapshot, target string) (*GenericResultData, error) {
 	_, agentID := ResolveBackend(serverName, s.Store, s.Hub)
 	if agentID <= 0 {
-		return false, "no agent backend"
+		return nil, fmt.Errorf("no agent backend")
 	}
-	return s.Hub.SendBackupRestore(agentID, repo, password, snapshot, target)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	return s.Hub.SendBackupRestore(ctx, agentID, repo, password, snapshot, target)
 }
 
-func (s *AgentService) BackupList(serverName, repo, password string) (bool, string) {
+func (s *AgentService) BackupList(serverName, repo, password string) (*GenericResultData, error) {
 	_, agentID := ResolveBackend(serverName, s.Store, s.Hub)
 	if agentID <= 0 {
-		return false, "no agent backend"
+		return nil, fmt.Errorf("no agent backend")
 	}
-	return s.Hub.SendBackupList(agentID, repo, password)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return s.Hub.SendBackupList(ctx, agentID, repo, password)
 }
