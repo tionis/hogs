@@ -563,6 +563,16 @@ DROP TABLE pterodactyl_servers_old;
 
 Below is the prioritized roadmap of features needed to make HOGS a fully-featured game server management panel.
 
+### Design Philosophy: Manage, Don't Provision
+
+HOGS is **not** a server provisioning platform like Pterodactyl. Server administrators deploy game servers themselves (via Ansible, manual setup, or other tooling) alongside the `hogs-agent`. HOGS then provides management: start/stop/restart, console access, file management, backups, constraints, and scheduling. This means:
+
+- No quadlet/container generation UI — admins deploy quadlets via their own tooling
+- No port allocation — ports are configured in the quadlet, not managed by HOGS
+- No game installer scripts — the server binary must already be in place
+- Console history comes from `journalctl` (systemd logs), not a custom ring buffer
+- Safe server deletion means unlinking from HOGS (stop managing), not wiping data directories
+
 ### Priority 1: Critical Gaps (panel feels incomplete without these)
 
 #### 1.1 Agent Admin UI
@@ -591,17 +601,19 @@ Below is the prioritized roadmap of features needed to make HOGS a fully-feature
 - Show result (true/false) and any evaluation errors
 - Live syntax highlighting/validation
 
-#### 1.5 Console Streaming
+#### 1.5 Console Streaming via journald
 - WebSocket proxy from browser → HOGS server → agent for live console I/O
-- Agent streams `console` messages → HOGS buffers per-server → browser subscribes via `/api/servers/{name}/console`
-- For Pterodactyl-managed servers, proxy the existing websocket console
+- Agent tails the container's systemd journal (`journalctl -u <unit> -f`) and streams lines as `console` messages
+- HOGS buffers recent lines per-server (last 500 lines) for replay on connect
+- For Pterodactyl-managed servers, proxy the existing Pterodactyl websocket console
 - Show console on server detail page with input field for commands
+- Console input is sent as `command` messages routed to `podman exec`
 
 #### 1.6 Agent-Aware Server Edit Page
 - Server edit page detects whether server is Pterodactyl-managed or agent-managed (via `node` field)
-- For agent-managed servers: show agent connectivity status, file manager link, backup controls, no Pterodactyl link form
+- For agent-managed servers: show agent connectivity status, file manager link, backup controls, console link, no Pterodactyl link form
 - For Pterodactyl-managed servers: show existing Pterodactyl link form as-is
-- Add node selector dropdown (populated from active agents) on server edit page
+- Add node selector dropdown (populated from registered agents) on server edit page
 
 #### 1.7 Backend Routing for Actions/Commands
 - PterodactylHandler currently hardcodes Pterodactyl API calls — refactor to use ServerBackend interface
@@ -707,7 +719,7 @@ Below is the prioritized roadmap of features needed to make HOGS a fully-feature
 - Used for: cron scripts, CI/CD, external integrations
 
 #### 3.2 Agent Provisioning Flow
-- One-click "Add Agent" button generates token + shows install script:
+- One-click "Add Agent" button generates token + shows install command:
   ```bash
   hogs-agent add-node --url https://hogs.example.com --token <generated>
   ```
@@ -721,7 +733,15 @@ Below is the prioritized roadmap of features needed to make HOGS a fully-feature
 - Test connection button (runs `restic check`)
 - Store encrypted repo credentials in DB (or reference env vars)
 
-#### 3.4 Server Templates
+#### 3.4 Pterodactyl Migration Path
+- Document step-by-step migration guide: Pterodactyl → HOGS agent
+- Ansible playbook examples for deploying hogs-agent alongside game server containers
+- Quadlet template examples per game type (Minecraft, Valheim, etc.)
+- Import tool: read Pterodactyl allocation/server data → create HOGS servers + agents
+- Once all servers are agent-managed, Pterodactyl dependency can be fully removed
+- PterodactylBackend becomes optional; `PterodactylURL` can be empty
+
+#### 3.5 Server Templates
 - New `server_templates` table: id, name, game_type, default_settings, default_commands, default_acl, default_tags
 - Pre-defined templates: "Vanilla Minecraft", "Modded Minecraft", "Valheim", "Satisfactory", "Factorio"
 - Template selection on server creation page
