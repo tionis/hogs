@@ -61,6 +61,17 @@ func main() {
 		}()
 	}
 
+	go func() {
+		store.CleanupAuditLog(cfg.AuditLogRetentionDays)
+		store.CleanupServerMetrics(cfg.MetricsRetentionDays)
+		ticker := time.NewTicker(1 * time.Hour)
+		defer ticker.Stop()
+		for range ticker.C {
+			store.CleanupAuditLog(cfg.AuditLogRetentionDays)
+			store.CleanupServerMetrics(cfg.MetricsRetentionDays)
+		}
+	}()
+
 	serverHandler := api.NewServerHandler(store, cfg, cache, authenticator)
 	webHandler := web.NewWebHandler(store, cfg, authenticator, eng)
 
@@ -133,6 +144,7 @@ func main() {
 	router.HandleFunc("/api/backgrounds", serverHandler.GetBackground).Methods("GET")
 	router.HandleFunc("/backgrounds/{contentHash}/{filename}", serverHandler.ServeBackgroundFile).Methods("GET")
 	router.HandleFunc("/healthz", serverHandler.Healthz).Methods("GET")
+	router.HandleFunc("/api/servers/{serverName}/metrics", serverHandler.GetServerMetrics).Methods("GET")
 
 	if authenticator != nil {
 		router.Handle("/servers/{serverName}/action", authenticator.RequireRole("admin", "user")(http.HandlerFunc(pteroHandler.ServerAction))).Methods("POST")

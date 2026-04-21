@@ -1073,6 +1073,85 @@ func (s *Store) CleanupAuditLog(retentionDays int) error {
 	return err
 }
 
+type ServerMetric struct {
+	ID          int     `json:"id"`
+	ServerName  string  `json:"serverName"`
+	AgentID     int     `json:"agentId"`
+	Timestamp   string  `json:"timestamp"`
+	Online      bool    `json:"online"`
+	Players     int     `json:"players"`
+	MaxPlayers  int     `json:"maxPlayers"`
+	Version     string  `json:"version"`
+	CPUPercent  float64 `json:"cpuPercent"`
+	MemoryUsed  int64   `json:"memoryUsed"`
+	MemoryTotal int64   `json:"memoryTotal"`
+	DiskUsed    int64   `json:"diskUsed"`
+	DiskTotal   int64   `json:"diskTotal"`
+}
+
+func (s *Store) CreateServerMetric(m *ServerMetric) error {
+	online := 0
+	if m.Online {
+		online = 1
+	}
+	result, err := s.DB.Exec(
+		"INSERT INTO server_metrics (server_name, agent_id, timestamp, online, players, max_players, version, cpu_percent, memory_used, memory_total, disk_used, disk_total) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		m.ServerName, m.AgentID, m.Timestamp, online, m.Players, m.MaxPlayers, m.Version, m.CPUPercent, m.MemoryUsed, m.MemoryTotal, m.DiskUsed, m.DiskTotal,
+	)
+	if err != nil {
+		return err
+	}
+	id, _ := result.LastInsertId()
+	m.ID = int(id)
+	return nil
+}
+
+func (s *Store) GetLatestServerMetric(serverName string) (*ServerMetric, error) {
+	row := s.DB.QueryRow("SELECT id, server_name, agent_id, timestamp, online, players, max_players, version, cpu_percent, memory_used, memory_total, disk_used, disk_total FROM server_metrics WHERE server_name = ? ORDER BY timestamp DESC LIMIT 1", serverName)
+	var m ServerMetric
+	var online int
+	err := row.Scan(&m.ID, &m.ServerName, &m.AgentID, &m.Timestamp, &online, &m.Players, &m.MaxPlayers, &m.Version, &m.CPUPercent, &m.MemoryUsed, &m.MemoryTotal, &m.DiskUsed, &m.DiskTotal)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	m.Online = online == 1
+	return &m, nil
+}
+
+func (s *Store) ListServerMetrics(serverName string, limit int) ([]ServerMetric, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	rows, err := s.DB.Query("SELECT id, server_name, agent_id, timestamp, online, players, max_players, version, cpu_percent, memory_used, memory_total, disk_used, disk_total FROM server_metrics WHERE server_name = ? ORDER BY timestamp DESC LIMIT ?", serverName, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var metrics []ServerMetric
+	for rows.Next() {
+		var m ServerMetric
+		var online int
+		if err := rows.Scan(&m.ID, &m.ServerName, &m.AgentID, &m.Timestamp, &online, &m.Players, &m.MaxPlayers, &m.Version, &m.CPUPercent, &m.MemoryUsed, &m.MemoryTotal, &m.DiskUsed, &m.DiskTotal); err != nil {
+			return nil, err
+		}
+		m.Online = online == 1
+		metrics = append(metrics, m)
+	}
+	return metrics, nil
+}
+
+func (s *Store) CleanupServerMetrics(retentionDays int) error {
+	if retentionDays <= 0 {
+		return nil
+	}
+	_, err := s.DB.Exec("DELETE FROM server_metrics WHERE timestamp < datetime('now', ?||' days')", fmt.Sprintf("-%d", retentionDays))
+	return err
+}
+
 func (bg *Background) URL() string {
 	if bg.ContentHash != "" {
 		return "/backgrounds/" + bg.ContentHash + "/" + bg.Filename

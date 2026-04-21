@@ -46,6 +46,9 @@ type Config struct {
 	// Agent Configuration
 	AgentEnabled      bool
 	AgentHeartbeatSec int
+
+	// Metrics Configuration
+	MetricsRetentionDays int
 }
 
 // LoadConfig reads configuration from environment variables or sets defaults.
@@ -90,6 +93,8 @@ func LoadConfig() *Config {
 
 		AgentEnabled:      getEnv("HOGS_AGENT_ENABLED", "true") == "true",
 		AgentHeartbeatSec: mustAtoi(getEnv("HOGS_AGENT_HEARTBEAT_SEC", "30")),
+
+		MetricsRetentionDays: mustAtoi(getEnv("HOGS_METRICS_RETENTION_DAYS", "7")),
 	}
 }
 

@@ -168,11 +168,45 @@ func (h *ServerHandler) Healthz(w http.ResponseWriter, r *http.Request) {
 	if err := h.Store.DB.Ping(); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusServiceUnavailable)
-		json.NewEncoder(w).Encode(map[string]string{"status": "unhealthy", "error": err.Error()})
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"status": "unhealthy",
+			"checks": map[string]string{
+				"database": err.Error(),
+			},
+		})
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "healthy"})
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status": "healthy",
+		"checks": map[string]string{
+			"database": "ok",
+		},
+	})
+}
+
+func (h *ServerHandler) GetServerMetrics(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	serverName := vars["serverName"]
+
+	limitStr := r.URL.Query().Get("limit")
+	limit := 100
+	if limitStr != "" {
+		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
+			limit = l
+		}
+	}
+
+	metrics, err := h.Store.ListServerMetrics(serverName, limit)
+	if err != nil {
+		http.Error(w, "Failed to get metrics", http.StatusInternalServerError)
+		return
+	}
+	if metrics == nil {
+		metrics = []database.ServerMetric{}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(metrics)
 }
 
 // MapProxy handles requests to proxy map instances (BlueMap for Minecraft, etc).

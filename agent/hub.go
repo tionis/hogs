@@ -394,6 +394,21 @@ func (ac *AgentConn) readPump() {
 				continue
 			}
 			log.Printf("Agent %d status: online=%v players=%d/%d", ac.AgentID, status.Online, status.Players, status.MaxPlayers)
+			ac.Hub.Store.UpdateAgentOnline(ac.AgentID, status.Online)
+			if ac.NodeName != "" {
+				metric := &database.ServerMetric{
+					ServerName: ac.NodeName,
+					AgentID:    ac.AgentID,
+					Timestamp:  time.Now().UTC().Format(time.RFC3339),
+					Online:     status.Online,
+					Players:    status.Players,
+					MaxPlayers: status.MaxPlayers,
+					Version:    status.Version,
+				}
+				if err := ac.Hub.Store.CreateServerMetric(metric); err != nil {
+					log.Printf("Warning: failed to store metric for agent %d: %v", ac.AgentID, err)
+				}
+			}
 
 		case "action_result":
 			var result ActionResultData
