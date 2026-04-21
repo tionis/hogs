@@ -191,7 +191,17 @@ func TestResolveBackendAgent(t *testing.T) {
 	hub, store := testHub(t)
 
 	agent := &database.Agent{Name: "test-agent", Token: "test-token", NodeName: "node1", Capabilities: json.RawMessage(`["start","stop"]`)}
-	store.CreateAgent(agent)
+	if err := store.CreateAgent(agent); err != nil {
+		t.Fatalf("CreateAgent error: %v", err)
+	}
+
+	found, err := store.GetAgentByNodeName("node1")
+	if err != nil {
+		t.Fatalf("GetAgentByNodeName error: %v", err)
+	}
+	if found == nil {
+		t.Fatal("GetAgentByNodeName returned nil - agent not found")
+	}
 
 	srv := &database.Server{Name: "atest", Address: "a:25565", GameType: "minecraft", State: "online"}
 	store.CreateServer(srv)

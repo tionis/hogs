@@ -1508,7 +1508,9 @@ func (s *Store) GetSCIMGroupsForUser(userID int) ([]SCIMGroup, error) {
 type Agent struct {
 	ID           int             `json:"id"`
 	Name         string          `json:"name"`
-	Token        string          `json:"token"`
+	Token        string          `json:"token,omitempty"`
+	TokenHash    string          `json:"-"`
+	TokenPrefix  string          `json:"keyPrefix"`
 	NodeName     string          `json:"nodeName"`
 	Capabilities json.RawMessage `json:"capabilities"`
 	CreatedAt    string          `json:"createdAt"`
@@ -1520,8 +1522,12 @@ func (s *Store) CreateAgent(a *Agent) error {
 	if a.Capabilities == nil {
 		a.Capabilities = json.RawMessage("[]")
 	}
-	result, err := s.DB.Exec("INSERT INTO agents (name, token, node_name, capabilities) VALUES (?, ?, ?, ?)",
-		a.Name, a.Token, a.NodeName, string(a.Capabilities))
+	if a.TokenHash == "" && a.Token != "" {
+		a.TokenHash = HashAPIKey(a.Token)
+		a.TokenPrefix = a.Token[:8]
+	}
+	result, err := s.DB.Exec("INSERT INTO agents (name, token, token_hash, token_prefix, node_name, capabilities) VALUES (?, ?, ?, ?, ?, ?)",
+		a.Name, a.Token, a.TokenHash, a.TokenPrefix, a.NodeName, string(a.Capabilities))
 	if err != nil {
 		return err
 	}
@@ -1531,17 +1537,18 @@ func (s *Store) CreateAgent(a *Agent) error {
 }
 
 func (s *Store) GetAgent(id int) (*Agent, error) {
-	row := s.DB.QueryRow("SELECT id, name, token, node_name, capabilities, created_at, last_seen, online FROM agents WHERE id = ?", id)
+	row := s.DB.QueryRow("SELECT id, name, token_prefix, node_name, capabilities, created_at, last_seen, online FROM agents WHERE id = ?", id)
 	return scanAgent(row)
 }
 
 func (s *Store) GetAgentByToken(token string) (*Agent, error) {
-	row := s.DB.QueryRow("SELECT id, name, token, node_name, capabilities, created_at, last_seen, online FROM agents WHERE token = ?", token)
+	tokenHash := HashAPIKey(token)
+	row := s.DB.QueryRow("SELECT id, name, token_prefix, node_name, capabilities, created_at, last_seen, online FROM agents WHERE token_hash = ?", tokenHash)
 	return scanAgent(row)
 }
 
 func (s *Store) GetAgentByNodeName(nodeName string) (*Agent, error) {
-	row := s.DB.QueryRow("SELECT id, name, token, node_name, capabilities, created_at, last_seen, online FROM agents WHERE node_name = ?", nodeName)
+	row := s.DB.QueryRow("SELECT id, name, token_prefix, node_name, capabilities, created_at, last_seen, online FROM agents WHERE node_name = ?", nodeName)
 	return scanAgent(row)
 }
 
@@ -1549,7 +1556,8 @@ func scanAgent(row *sql.Row) (*Agent, error) {
 	var a Agent
 	var online int
 	var caps []byte
-	err := row.Scan(&a.ID, &a.Name, &a.Token, &a.NodeName, &caps, &a.CreatedAt, &a.LastSeen, &online)
+	var prefix sql.NullString
+	err := row.Scan(&a.ID, &a.Name, &prefix, &a.NodeName, &caps, &a.CreatedAt, &a.LastSeen, &online)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
@@ -1557,12 +1565,13 @@ func scanAgent(row *sql.Row) (*Agent, error) {
 		return nil, err
 	}
 	a.Capabilities = json.RawMessage(caps)
+	a.TokenPrefix = prefix.String
 	a.Online = online == 1
 	return &a, nil
 }
 
 func (s *Store) ListAgents() ([]Agent, error) {
-	rows, err := s.DB.Query("SELECT id, name, token, node_name, capabilities, created_at, last_seen, online FROM agents ORDER BY id")
+	rows, err := s.DB.Query("SELECT id, name, token_prefix, node_name, capabilities, created_at, last_seen, online FROM agents ORDER BY id")
 	if err != nil {
 		return nil, err
 	}
@@ -1573,9 +1582,11 @@ func (s *Store) ListAgents() ([]Agent, error) {
 		var a Agent
 		var online int
 		var caps []byte
-		if err := rows.Scan(&a.ID, &a.Name, &a.Token, &a.NodeName, &caps, &a.CreatedAt, &a.LastSeen, &online); err != nil {
+		var prefix sql.NullString
+		if err := rows.Scan(&a.ID, &a.Name, &prefix, &a.NodeName, &caps, &a.CreatedAt, &a.LastSeen, &online); err != nil {
 			return nil, err
 		}
+		a.TokenPrefix = prefix.String
 		a.Capabilities = json.RawMessage(caps)
 		a.Online = online == 1
 		agents = append(agents, a)
