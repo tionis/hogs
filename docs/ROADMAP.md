@@ -168,17 +168,16 @@ All action paths (user-triggered, cron-triggered, API-triggered) go through the 
 - For Pterodactyl-managed servers: show existing Pterodactyl link form as-is
 - Add node selector dropdown (populated from registered agents) on server edit page
 
-#### 1.7 Backend Routing for Actions/Commands
-- PterodactylHandler currently hardcodes Pterodactyl API calls — refactor to use ServerBackend interface
-- When a server has `node` matching an agent, route start/stop/restart/whitelist through AgentBackend
-- When `node` is empty or matches no agent, fall through to PterodactylBackend (existing behavior)
-- Make `node` field editable in server edit page UI (dropdown of registered agent nodes)
+#### 1.7 Backend Routing for Actions/Commands ✅
+- PterodactylHandler now uses `resolveBackend()` to determine whether a server is agent-managed or Pterodactyl-managed
+- When a server has `node` matching an agent, start/stop/restart/whitelist route through `AgentBackend`
+- When `node` is empty or matches no agent, falls through to `PterodactylBackend` (existing behavior)
+- `PterodactylHandler` takes `AgentHub` parameter; `main.go` wires it up
 
-#### 1.8 Agent Whitelist Support
-- Whitelist (add/remove player) currently only works via Pterodactyl `SendCommand`
-- For agent-managed servers: send whitelist command through agent's command channel
-- Game-specific whitelist commands (minecraft `whitelist add`, etc.) must work identically regardless of backend
-- Add `whitelist` capability to agent handshake and command dispatch
+#### 1.8 Agent Whitelist Support ✅
+- Whitelist (add/remove player) now routes through the correct backend (agent or Pterodactyl)
+- For agent-managed servers: whitelist command sent through agent's command channel
+- Game-specific whitelist commands (minecraft `whitelist add`, etc.) work identically regardless of backend
 
 #### 1.9 Request-Response Agent Protocol ✅
 - Currently agent operations are fire-and-forget: `SendAction`/`SendCommand` push messages but callers only get "sent" back
@@ -193,11 +192,11 @@ All action paths (user-triggered, cron-triggered, API-triggered) go through the 
 - **Implemented**: Periodic goroutine (every 15 minutes) in `main.go` that calls `auth.CleanupSessions()`
 - Also cleans up on server startup immediately
 
-#### 1.11 Agent Reconnection State Recovery
-- When HOGS restarts, the in-memory `Hub.Conns` map is lost
-- Agents that reconnect after HOGS restart re-register via the `register` message
-- Ensure all pending operations gracefully fail when agent disconnects and retry on reconnect
-- Track pending requests in DB (`agent_pending_ops` table) so they survive HOGS restarts
+#### 1.11 Agent Reconnection State Recovery ✅ (partial)
+- When an agent disconnects, `Hub.RemoveConn` now fails all pending requests for that agent immediately
+- Pending request map tracks `agentID` so disconnection can resolve all matching requests
+- Agents that reconnect re-register via the `register` message as before
+- **Still needed**: Track pending operations in DB (`agent_pending_ops` table) so they survive HOGS restarts
 
 ### Priority 2: Important Gaps (needed for production use)
 
