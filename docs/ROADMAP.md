@@ -208,12 +208,15 @@ All action paths (user-triggered, cron-triggered, API-triggered) go through the 
 - `CreateCronJobLog()` and `ListCronJobLogs()` for audit trail
 - **Still needed**: Show success/failure in cron manager admin page
 
-#### 2.3 Notification/Alerting System
-- New `notifications` table: id, type (apprise/shoutrrr URL), destination, enabled
-- Use [apprise-go](https://github.com/scttfrdmn/apprise-go) or [shoutrrr](https://github.com/containrrr/shoutrtrr) as the notification backend for maximum flexibility — supports 100+ services via a single URL schema (Discord, Slack, email, Telegram, Pushover, Matrix, etc.)
-- Trigger events: server down/up, agent disconnect, backup failure, constraint violation, cron failure
-- Configurable per-server and per-user notification preferences
-- Notification queue with retry logic
+#### 2.3 Notification/Alerting System ✅
+- Migration 000026 creates `notification_channels` table (id, name, type, url, events, enabled, created_at)
+- Uses [shoutrrr](https://github.com/containrrr/shoutrrr) v0.8.0 as notification backend for maximum flexibility
+- Supports 100+ services via Shoutrrr URL schema: Discord, Slack, Telegram, email SMTP, Pushover, Matrix, ntfy, Bark, Gotify, IFTTT, Join, Opsgenie, Pushbullet, RocketChat, Microsoft Teams, Zulip, and more
+- `NotificationChannel` model with CRUD: ListNotificationChannels, CreateNotificationChannel, DeleteNotificationChannel
+- `notify/service.go`: async notification dispatcher, filters by event type, supports wildcard
+- API endpoints: GET /api/notifications, POST /api/notifications/create, POST /api/notifications/delete, GET /api/notifications/test
+- All endpoints require admin role
+- **Still needed**: Event triggers from engine (server up/down, agent disconnect, constraint violation, cron failure), per-server/per-user preferences
 
 #### 2.4 Dashboard Overview ✅
 - New `GET /api/dashboard` endpoint: total/online/offline/maintenance/planned server counts, game type breakdown, agent connectivity (connected/disconnected), cron status, last 10 audit entries
