@@ -1,0 +1,102 @@
+{{define "title"}}Audit Log{{end}}
+
+{{define "content"}}
+<nav aria-label="breadcrumb">
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="/admin">Admin</a></li>
+    <li class="breadcrumb-item active" aria-current="page">Audit Log</li>
+  </ol>
+</nav>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h2>Audit Log</h2>
+  <div class="btn-group btn-group-sm">
+    <a href="/api/audit/export?format=json" class="btn btn-outline-secondary">Export JSON</a>
+    <a href="/api/audit/export?format=csv" class="btn btn-outline-secondary">Export CSV</a>
+  </div>
+</div>
+
+<div id="audit-log">
+  <div class="table-responsive">
+    <table class="table table-sm table-striped align-middle">
+      <thead>
+        <tr>
+          <th>Timestamp</th>
+          <th>User</th>
+          <th>Server</th>
+          <th>Action</th>
+          <th>Result</th>
+          <th>Reason</th>
+          <th>Source</th>
+        </tr>
+      </thead>
+      <tbody id="audit-entries">
+        <tr><td colspan="7" class="text-center text-muted">Loading...</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="d-flex justify-content-between align-items-center">
+    <span id="audit-info" class="text-muted small"></span>
+    <div class="btn-group btn-group-sm">
+      <button class="btn btn-outline-secondary" id="btn-prev" onclick="loadLog(offset - limit)">Previous</button>
+      <button class="btn btn-outline-secondary" id="btn-next" onclick="loadLog(offset + limit)">Next</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let offset = 0;
+const limit = 50;
+
+function loadLog(newOffset) {
+  if (newOffset < 0) newOffset = 0;
+  offset = newOffset;
+  fetch('/api/audit?limit=' + limit + '&offset=' + offset)
+    .then(r => r.json())
+    .then(data => {
+      const entries = data.entries || [];
+      const tbody = document.getElementById('audit-entries');
+      tbody.innerHTML = '';
+      if (entries.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">No entries found.</td></tr>';
+      } else {
+        entries.forEach(e => {
+          const row = document.createElement('tr');
+          row.innerHTML =
+            '<td class="small">' + escHtml(e.timestamp) + '</td>' +
+            '<td>' + escHtml(e.user_email) + '</td>' +
+            '<td>' + escHtml(e.server_name) + '</td>' +
+            '<td><code>' + escHtml(e.action) + '</code></td>' +
+            '<td>' + resultBadge(e.result) + '</td>' +
+            '<td class="small">' + escHtml(e.reason || '') + '</td>' +
+            '<td><span class="badge bg-info">' + escHtml(e.source) + '</span></td>';
+          tbody.appendChild(row);
+        });
+      }
+      document.getElementById('audit-info').textContent =
+        'Showing ' + entries.length + ' entries (offset ' + offset + ')';
+      document.getElementById('btn-prev').disabled = offset === 0;
+      document.getElementById('btn-next').disabled = entries.length < limit;
+    })
+    .catch(err => {
+      console.error('Failed to load audit log:', err);
+    });
+}
+
+function escHtml(s) {
+  const div = document.createElement('div');
+  div.textContent = s;
+  return div.innerHTML;
+}
+
+function resultBadge(r) {
+  if (r === 'allowed') return '<span class="badge bg-success">Allowed</span>';
+  if (r === 'denied') return '<span class="badge bg-danger">Denied</span>';
+  if (r === 'blocked') return '<span class="badge bg-warning">Blocked</span>';
+  if (r === 'queued') return '<span class="badge bg-info">Queued</span>';
+  return '<span class="badge bg-secondary">' + escHtml(r) + '</span>';
+}
+
+loadLog(0);
+</script>
+{{end}}

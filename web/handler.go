@@ -1099,3 +1099,68 @@ func (h *WebHandler) HelpMarkdown(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Server-Hogs-Help-Version", contentHash)
 	w.Write([]byte(md))
 }
+
+func (h *WebHandler) Agents(w http.ResponseWriter, r *http.Request) {
+	agents, err := h.Store.ListAgents()
+	if err != nil {
+		http.Error(w, "Failed to list agents", http.StatusInternalServerError)
+		return
+	}
+	if agents == nil {
+		agents = []database.Agent{}
+	}
+
+	data := struct {
+		Agents         []database.Agent
+		Authenticated  bool
+		UserRole       string
+		SiteName       string
+		BackgroundURLs BackgroundURLs
+	}{
+		Agents:         agents,
+		Authenticated:  true,
+		UserRole:       "admin",
+		SiteName:       h.siteName(),
+		BackgroundURLs: h.pickBackgrounds([]string{"home"}),
+	}
+
+	tmpl, err := template.New("base.html").Funcs(sharedFuncMap()).ParseFS(templateFS, "templates/base.html", "templates/agents.html")
+	if err != nil {
+		http.Error(w, "Template error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, data); err != nil {
+		http.Error(w, "Render error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	buf.WriteTo(w)
+}
+
+func (h *WebHandler) AuditLog(w http.ResponseWriter, r *http.Request) {
+	data := struct {
+		Authenticated  bool
+		UserRole       string
+		SiteName       string
+		BackgroundURLs BackgroundURLs
+	}{
+		Authenticated:  true,
+		UserRole:       "admin",
+		SiteName:       h.siteName(),
+		BackgroundURLs: h.pickBackgrounds([]string{"home"}),
+	}
+
+	tmpl, err := template.New("base.html").Funcs(sharedFuncMap()).ParseFS(templateFS, "templates/base.html", "templates/audit.html")
+	if err != nil {
+		http.Error(w, "Template error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, data); err != nil {
+		http.Error(w, "Render error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	buf.WriteTo(w)
+}

@@ -1,0 +1,149 @@
+{{define "title"}}Agents{{end}}
+
+{{define "content"}}
+<nav aria-label="breadcrumb">
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="/admin">Admin</a></li>
+    <li class="breadcrumb-item active" aria-current="page">Agents</li>
+  </ol>
+</nav>
+
+<h2>Agents</h2>
+
+<div id="agents-list">
+{{if .Agents}}
+<div class="table-responsive">
+  <table class="table table-sm align-middle">
+    <thead><tr><th>ID</th><th>Name</th><th>Node</th><th>Status</th><th>Last Seen</th><th>Key Prefix</th><th>Actions</th></tr></thead>
+    <tbody>
+      {{range .Agents}}
+      <tr>
+        <td>{{.ID}}</td>
+        <td><strong>{{.Name}}</strong></td>
+        <td><code>{{.NodeName}}</code></td>
+        <td>
+          {{if .Online}}{{if .Connected}}<span class="badge bg-success">Connected</span>{{else}}<span class="badge bg-warning">Online</span>{{end}}{{else}}<span class="badge bg-secondary">Offline</span>{{end}}
+        </td>
+        <td class="text-muted small">{{if .LastSeen}}{{.LastSeen}}{{else}}never{{end}}</td>
+        <td><code>{{.KeyPrefix}}</code></td>
+        <td>
+          <button class="btn btn-sm btn-outline-primary" onclick="editAgent({{.ID}}, '{{.Name}}', '{{.NodeName}}')">Edit</button>
+          <button class="btn btn-sm btn-outline-warning" onclick="regenerateToken({{.ID}})">Regenerate Token</button>
+          <form action="/api/agents/delete" method="POST" class="d-inline" onsubmit="return confirm('Delete this agent? This cannot be undone.');">
+            <input type="hidden" name="id" value="{{.ID}}">
+            <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
+          </form>
+        </td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+</div>
+{{else}}
+<p class="text-muted">No agents registered.</p>
+{{end}}
+</div>
+
+<div class="card mt-4">
+  <div class="card-header">Register New Agent</div>
+  <div class="card-body">
+    <form id="create-agent-form">
+      <div class="row">
+        <div class="col-md-4 mb-3">
+          <label class="form-label">Name</label>
+          <input type="text" class="form-control form-control-sm" id="agent-name" placeholder="mc-server-01" required>
+        </div>
+        <div class="col-md-4 mb-3">
+          <label class="form-label">Node Name</label>
+          <input type="text" class="form-control form-control-sm" id="agent-node" placeholder="mc-server-01">
+          <div class="form-text">Defaults to name if empty</div>
+        </div>
+        <div class="col-md-4 mb-3">
+          <label class="form-label">Token (optional)</label>
+          <input type="text" class="form-control form-control-sm" id="agent-token" placeholder="Auto-generated if empty">
+        </div>
+      </div>
+      <button type="submit" class="btn btn-primary btn-sm">Create Agent</button>
+    </form>
+    <div id="create-result" class="mt-3" style="display:none;">
+      <div class="alert alert-success">
+        <strong>Agent created!</strong> Save this token — it will not be shown again.
+        <div class="mt-2">
+          <code id="new-token" class="user-select-all"></code>
+          <button class="btn btn-sm btn-outline-secondary ms-2" onclick="copyToken()">Copy</button>
+        </div>
+        <div class="mt-2 text-muted small">
+          Install command:<br>
+          <code id="install-cmd" class="user-select-all"></code>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function copyToken() {
+  navigator.clipboard.writeText(document.getElementById('new-token').textContent);
+}
+
+document.getElementById('create-agent-form').addEventListener('submit', async function(e) {
+  e.preventDefault();
+  const name = document.getElementById('agent-name').value;
+  const node = document.getElementById('agent-node').value;
+  const token = document.getElementById('agent-token').value;
+
+  const body = new URLSearchParams();
+  body.append('name', name);
+  body.append('node_name', node);
+  if (token) body.append('token', token);
+
+  try {
+    const resp = await fetch('/api/agents', {method: 'POST', body: body});
+    if (!resp.ok) {
+      alert('Failed to create agent: ' + resp.statusText);
+      return;
+    }
+    const data = await resp.json();
+    document.getElementById('new-token').textContent = data.token;
+    const serverUrl = window.location.origin + '/agent/ws';
+    document.getElementById('install-cmd').textContent =
+      'HOGS_SERVER_URL=' + serverUrl + ' HOGS_AGENT_TOKEN=' + data.token + ' HOGS_AGENT_NODE=' + data.nodeName + ' ./hogs-agent';
+    document.getElementById('create-result').style.display = 'block';
+    this.reset();
+    setTimeout(() => location.reload(), 3000);
+  } catch (err) {
+    alert('Error: ' + err.message);
+  }
+});
+
+async function regenerateToken(id) {
+  if (!confirm('Regenerate token for this agent? The old token will stop working immediately.')) return;
+  try {
+    const resp = await fetch('/api/agents/' + id + '/regenerate-token', {method: 'POST'});
+    if (!resp.ok) {
+      alert('Failed to regenerate token: ' + resp.statusText);
+      return;
+    }
+    const data = await resp.json();
+    prompt('New token (save this — it will not be shown again):', data.token);
+  } catch (err) {
+    alert('Error: ' + err.message);
+  }
+}
+
+function editAgent(id, name, nodeName) {
+  const newName = prompt('Agent name:', name);
+  if (!newName) return;
+  const newNode = prompt('Node name:', nodeName);
+  if (newNode === null) return;
+
+  const body = new URLSearchParams();
+  body.append('name', newName);
+  body.append('node_name', newNode);
+
+  fetch('/api/agents/' + id, {method: 'PUT', body: body})
+    .then(r => { if (r.ok) location.reload(); else alert('Failed to update agent'); })
+    .catch(err => alert('Error: ' + err.message));
+}
+</script>
+{{end}}
