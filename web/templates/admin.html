@@ -18,10 +18,22 @@
   </div>
 </div>
 
+<!-- Mass Operations Bar -->
+<div id="mass-ops-bar" class="card mb-3" style="display:none;">
+  <div class="card-body d-flex align-items-center gap-3 py-2">
+    <span class="text-muted small"><span id="selected-count">0</span> selected</span>
+    <button class="btn btn-sm btn-outline-success" onclick="bulkAction('start')">Start</button>
+    <button class="btn btn-sm btn-outline-danger" onclick="bulkAction('stop')">Stop</button>
+    <button class="btn btn-sm btn-outline-warning" onclick="bulkAction('restart')">Restart</button>
+    <button class="btn btn-sm btn-outline-secondary ms-auto" onclick="clearSelection()">Clear</button>
+  </div>
+</div>
+
 <div class="table-responsive">
   <table class="table table-striped table-sm align-middle">
     <thead>
       <tr>
+        <th scope="col"><input type="checkbox" class="form-check-input" id="select-all" onclick="toggleSelectAll()"></th>
         <th scope="col">#</th>
         <th scope="col">Name</th>
         <th scope="col">Address</th>
@@ -33,6 +45,7 @@
     <tbody>
       {{range .Servers}}
       <tr>
+        <td><input type="checkbox" class="form-check-input server-checkbox" data-name="{{.Name}}" onclick="updateMassOps()"></td>
         <td>{{.ID}}</td>
         <td>{{.Name}}</td>
         <td>{{.Address}}</td>
@@ -157,5 +170,50 @@
   }
 
   toggleGameFields('add');
+
+  function toggleSelectAll() {
+    const checked = document.getElementById('select-all').checked;
+    document.querySelectorAll('.server-checkbox').forEach(cb => cb.checked = checked);
+    updateMassOps();
+  }
+
+  function updateMassOps() {
+    const checked = document.querySelectorAll('.server-checkbox:checked');
+    const bar = document.getElementById('mass-ops-bar');
+    document.getElementById('selected-count').textContent = checked.length;
+    bar.style.display = checked.length > 0 ? 'block' : 'none';
+  }
+
+  function clearSelection() {
+    document.querySelectorAll('.server-checkbox').forEach(cb => cb.checked = false);
+    document.getElementById('select-all').checked = false;
+    updateMassOps();
+  }
+
+  async function bulkAction(action) {
+    const checked = document.querySelectorAll('.server-checkbox:checked');
+    if (checked.length === 0) return;
+    const names = Array.from(checked).map(cb => cb.dataset.name);
+    const results = [];
+    for (const name of names) {
+      try {
+        const resp = await fetch('/servers/' + encodeURIComponent(name) + '/action', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': getCsrfToken()},
+          body: 'action=' + encodeURIComponent(action)
+        });
+        results.push({name, ok: resp.ok, status: resp.statusText});
+      } catch (err) {
+        results.push({name, ok: false, status: err.message});
+      }
+    }
+    const okCount = results.filter(r => r.ok).length;
+    alert('Bulk ' + action + ': ' + okCount + '/' + results.length + ' succeeded.');
+  }
+
+  function getCsrfToken() {
+    const match = document.cookie.match(/hogs-csrf=([^;]+)/);
+    return match ? decodeURIComponent(match[1]) : '';
+  }
 </script>
 {{end}}

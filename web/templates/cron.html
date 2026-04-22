@@ -13,7 +13,7 @@
 {{if .CronJobs}}
 <div class="table-responsive">
   <table class="table table-sm">
-    <thead><tr><th>Name</th><th>Schedule</th><th>Server</th><th>Action</th><th>Enabled</th><th>Last Run</th><th></th></tr></thead>
+    <thead><tr><th>Name</th><th>Schedule</th><th>Server</th><th>Action</th><th>Enabled</th><th>Last Run</th><th>Last Result</th><th></th></tr></thead>
     <tbody>
       {{range .CronJobs}}
       <tr>
@@ -24,12 +24,31 @@
         <td>{{if .Enabled}}<span class="badge bg-success">Yes</span>{{else}}<span class="badge bg-secondary">No</span>{{end}}</td>
         <td class="text-muted">{{if .LastRun}}{{.LastRun}}{{else}}never{{end}}</td>
         <td>
+          {{if .LastResult}}
+            {{if eq .LastResult "success"}}<span class="badge bg-success">Success</span>
+            {{else if eq .LastResult "denied"}}<span class="badge bg-danger">Denied</span>
+            {{else if eq .LastResult "queued"}}<span class="badge bg-warning">Queued</span>
+            {{else if eq .LastResult "error"}}<span class="badge bg-danger">Error</span>
+            {{else}}<span class="badge bg-secondary">{{.LastResult}}</span>{{end}}
+            {{if .LastOutput}}<button class="btn btn-link btn-sm p-0 ms-1" onclick="toggleOutput({{.ID}})">output</button>{{end}}
+          {{else}}
+            <span class="text-muted">-</span>
+          {{end}}
+        </td>
+        <td>
           <form action="/admin/cron/delete" method="POST" class="d-inline" onsubmit="return confirm('Delete this cron job?');">
             <input type="hidden" name="id" value="{{.ID}}">
             <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
           </form>
         </td>
       </tr>
+      {{if .LastOutput}}
+      <tr id="output-row-{{.ID}}" style="display:none;">
+        <td colspan="8">
+          <pre class="small mb-0" style="background:var(--bg-input);padding:0.5rem;border-radius:4px;max-height:200px;overflow:auto;"><code>{{.LastOutput}}</code></pre>
+        </td>
+      </tr>
+      {{end}}
       {{end}}
     </tbody>
   </table>
@@ -37,6 +56,15 @@
 {{else}}
 <p class="text-muted">No cron jobs defined.</p>
 {{end}}
+
+<script>
+function toggleOutput(id) {
+  const row = document.getElementById('output-row-' + id);
+  if (row) {
+    row.style.display = row.style.display === 'none' ? 'table-row' : 'none';
+  }
+}
+</script>
 
 <div class="card mt-4">
   <div class="card-header">Add Cron Job</div>

@@ -18,20 +18,134 @@
         </h5>
         <div class="server-status-poller small mb-2" data-server="{{.Server.Name}}" data-game-type="{{.Server.GameType}}" data-state="{{.Server.State}}">Checking...</div>
         {{if .PteroLink}}
+        <div class="d-flex flex-wrap gap-1 mb-2">
+          {{if inList "start" .AllowedActions}}<button class="btn btn-sm btn-outline-success" onclick="serverAction('{{.Server.Name}}', 'start', this)">Start</button>{{end}}
+          {{if inList "stop" .AllowedActions}}<button class="btn btn-sm btn-outline-danger" onclick="serverAction('{{.Server.Name}}', 'stop', this)">Stop</button>{{end}}
+          {{if inList "restart" .AllowedActions}}<button class="btn btn-sm btn-outline-warning" onclick="serverAction('{{.Server.Name}}', 'restart', this)">Restart</button>{{end}}
+          {{if inList "whitelist" .AllowedActions}}<button class="btn btn-sm btn-outline-info" onclick="showWhitelist('{{.Server.Name}}')">Whitelist</button>{{end}}
+        </div>
         <div class="d-flex flex-wrap gap-1">
-          {{if inList "start" .AllowedActions}}<span class="badge bg-success">Start</span>{{end}}
-          {{if inList "stop" .AllowedActions}}<span class="badge bg-danger">Stop</span>{{end}}
-          {{if inList "restart" .AllowedActions}}<span class="badge bg-warning text-dark">Restart</span>{{end}}
-          {{if inList "whitelist" .AllowedActions}}<span class="badge bg-info text-dark">Whitelist</span>{{end}}
-          {{range .PteroCommands}}{{if inList (printf "command:%s" .Command) $.AllowedActions}}<span class="badge bg-secondary">{{.DisplayName}}</span>{{end}}{{end}}
+          {{range .PteroCommands}}{{if inList (printf "command:%s" .Command) $.AllowedActions}}<button class="btn btn-sm btn-outline-secondary" onclick="sendCommand('{{$.Server.Name}}', '{{.Command}}', this)">{{.DisplayName}}</button>{{end}}{{end}}
         </div>
         {{end}}
       </div>
+      <div class="card-footer" id="feedback-{{.Server.Name}}" style="display:none;"></div>
     </div>
   </div>
   {{end}}
 </div>
+
+<!-- Whitelist Modal -->
+<div class="modal fade" id="whitelistModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Whitelist Player</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="whitelist-server">
+        <div class="mb-3">
+          <label class="form-label">Username</label>
+          <input type="text" class="form-control form-control-sm" id="whitelist-username" placeholder="Notch">
+        </div>
+        <div class="d-flex gap-2">
+          <button type="button" class="btn btn-sm btn-success" onclick="whitelistAction('add')">Add</button>
+          <button type="button" class="btn btn-sm btn-danger" onclick="whitelistAction('remove')">Remove</button>
+        </div>
+        <div id="whitelist-feedback" class="mt-2"></div>
+      </div>
+    </div>
+  </div>
+</div>
 {{else}}
 <div class="alert alert-info">No servers with actions available. Contact an admin to get permissions assigned.</div>
 {{end}}
+
+<script>
+async function serverAction(serverName, action, btn) {
+  setButtonLoading(btn, true);
+  try {
+    const resp = await fetch('/servers/' + encodeURIComponent(serverName) + '/action', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': getCsrfToken()},
+      body: 'action=' + encodeURIComponent(action)
+    });
+    showFeedback(serverName, resp.ok ? 'Action "' + action + '" sent successfully.' : 'Failed: ' + resp.statusText, resp.ok);
+  } catch (err) {
+    showFeedback(serverName, 'Error: ' + err.message, false);
+  } finally {
+    setButtonLoading(btn, false);
+  }
+}
+
+async function sendCommand(serverName, command, btn) {
+  setButtonLoading(btn, true);
+  try {
+    const resp = await fetch('/servers/' + encodeURIComponent(serverName) + '/command', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': getCsrfToken()},
+      body: 'command=' + encodeURIComponent(command)
+    });
+    showFeedback(serverName, resp.ok ? 'Command sent successfully.' : 'Failed: ' + resp.statusText, resp.ok);
+  } catch (err) {
+    showFeedback(serverName, 'Error: ' + err.message, false);
+  } finally {
+    setButtonLoading(btn, false);
+  }
+}
+
+function showWhitelist(serverName) {
+  document.getElementById('whitelist-server').value = serverName;
+  document.getElementById('whitelist-username').value = '';
+  document.getElementById('whitelist-feedback').innerHTML = '';
+  const modal = new bootstrap.Modal(document.getElementById('whitelistModal'));
+  modal.show();
+}
+
+async function whitelistAction(op) {
+  const serverName = document.getElementById('whitelist-server').value;
+  const username = document.getElementById('whitelist-username').value;
+  if (!username) {
+    document.getElementById('whitelist-feedback').innerHTML = '<div class="alert alert-warning small py-1">Enter a username.</div>';
+    return;
+  }
+  try {
+    const resp = await fetch('/servers/' + encodeURIComponent(serverName) + '/whitelist', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': getCsrfToken()},
+      body: 'op=' + encodeURIComponent(op) + '&username=' + encodeURIComponent(username)
+    });
+    const text = await resp.text();
+    document.getElementById('whitelist-feedback').innerHTML = '<div class="alert ' + (resp.ok ? 'alert-success' : 'alert-danger') + ' small py-1">' + escapeHtml(text) + '</div>';
+  } catch (err) {
+    document.getElementById('whitelist-feedback').innerHTML = '<div class="alert alert-danger small py-1">' + escapeHtml(err.message) + '</div>';
+  }
+}
+
+function showFeedback(serverName, message, ok) {
+  const el = document.getElementById('feedback-' + serverName);
+  if (!el) return;
+  el.innerHTML = '<div class="alert ' + (ok ? 'alert-success' : 'alert-danger') + ' small py-1 mb-0">' + escapeHtml(message) + '</div>';
+  el.style.display = 'block';
+  setTimeout(() => { el.style.display = 'none'; }, 5000);
+}
+
+function setButtonLoading(btn, loading) {
+  btn.disabled = loading;
+  if (loading) btn.dataset.originalText = btn.textContent;
+  btn.textContent = loading ? '...' : (btn.dataset.originalText || btn.textContent);
+}
+
+function getCsrfToken() {
+  const match = document.cookie.match(/hogs-csrf=([^;]+)/);
+  return match ? decodeURIComponent(match[1]) : '';
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+</script>
 {{end}}

@@ -38,42 +38,156 @@
 <p class="text-muted">No constraints defined.</p>
 {{end}}
 
-<div class="card mt-4">
-  <div class="card-header">Add Constraint</div>
-  <div class="card-body">
-    <form action="/admin/constraints/add" method="POST">
-      <div class="row">
-        <div class="col-md-4 mb-3">
-          <label class="form-label">Name</label>
-          <input type="text" class="form-control form-control-sm" name="name" placeholder="one_game_per_node" required>
+<div class="row">
+  <div class="col-lg-6">
+    <div class="card mt-4">
+      <div class="card-header">Add Constraint</div>
+      <div class="card-body">
+        <form action="/admin/constraints/add" method="POST">
+          <div class="row">
+            <div class="col-md-6 mb-3">
+              <label class="form-label">Name</label>
+              <input type="text" class="form-control form-control-sm" name="name" placeholder="one_game_per_node" required>
+            </div>
+            <div class="col-md-3 mb-3">
+              <label class="form-label">Strategy</label>
+              <select class="form-select form-select-sm" name="strategy">
+                <option value="deny" selected>Deny</option>
+                <option value="queue">Queue</option>
+                <option value="stop_oldest">Stop Oldest</option>
+              </select>
+            </div>
+            <div class="col-md-3 mb-3">
+              <label class="form-label">Priority</label>
+              <input type="number" class="form-control form-control-sm" name="priority" value="0">
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Description</label>
+            <input type="text" class="form-control form-control-sm" name="description" placeholder="Only one game server per node at a time">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Condition (expr)</label>
+            <textarea class="form-control form-control-sm" name="condition" rows="3" placeholder='countRunning(filterByTag(serversOnNode(server.Node), "game")) &lt; 1' required></textarea>
+          </div>
+          <div class="form-check mb-3">
+            <input class="form-check-input" type="checkbox" name="enabled" id="new-constraint-enabled" checked>
+            <label class="form-check-label" for="new-constraint-enabled">Enabled</label>
+          </div>
+          <button type="submit" class="btn btn-primary">Add Constraint</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-6">
+    <div class="card mt-4">
+      <div class="card-header">Constraint Tester</div>
+      <div class="card-body">
+        <div class="mb-3">
+          <label class="form-label">Condition Expression</label>
+          <textarea class="form-control form-control-sm" id="test-condition" rows="3" placeholder='server.GameType == "minecraft" && user.Role == "admin"'></textarea>
         </div>
-        <div class="col-md-4 mb-3">
-          <label class="form-label">Strategy</label>
-          <select class="form-select form-select-sm" name="strategy">
-            <option value="deny" selected>Deny</option>
-            <option value="queue">Queue</option>
-            <option value="stop_oldest">Stop Oldest</option>
-          </select>
+        <div class="row">
+          <div class="col-md-6 mb-3">
+            <label class="form-label">Server Name</label>
+            <input type="text" class="form-control form-control-sm" id="test-server-name" value="TestServer">
+          </div>
+          <div class="col-md-6 mb-3">
+            <label class="form-label">Game Type</label>
+            <select class="form-select form-select-sm" id="test-server-game">
+              <option value="minecraft">Minecraft</option>
+              <option value="satisfactory">Satisfactory</option>
+              <option value="factorio">Factorio</option>
+              <option value="valheim">Valheim</option>
+            </select>
+          </div>
         </div>
-        <div class="col-md-4 mb-3">
-          <label class="form-label">Priority</label>
-          <input type="number" class="form-control form-control-sm" name="priority" value="0">
+        <div class="row">
+          <div class="col-md-6 mb-3">
+            <label class="form-label">Node</label>
+            <input type="text" class="form-control form-control-sm" id="test-server-node" value="node1">
+          </div>
+          <div class="col-md-6 mb-3">
+            <label class="form-label">Tags (comma-separated)</label>
+            <input type="text" class="form-control form-control-sm" id="test-server-tags" value="game,production">
+          </div>
         </div>
+        <div class="row">
+          <div class="col-md-6 mb-3">
+            <label class="form-label">User Email</label>
+            <input type="text" class="form-control form-control-sm" id="test-user-email" value="admin@example.com">
+          </div>
+          <div class="col-md-6 mb-3">
+            <label class="form-label">User Role</label>
+            <select class="form-select form-select-sm" id="test-user-role">
+              <option value="admin">admin</option>
+              <option value="user">user</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-check mb-3">
+          <input class="form-check-input" type="checkbox" id="test-server-running" checked>
+          <label class="form-check-label" for="test-server-running">Server Running</label>
+        </div>
+        <button type="button" class="btn btn-primary" onclick="testConstraint()">Test Expression</button>
+        <div id="test-result" class="mt-3" style="display:none;"></div>
       </div>
-      <div class="mb-3">
-        <label class="form-label">Description</label>
-        <input type="text" class="form-control form-control-sm" name="description" placeholder="Only one game server per node at a time">
-      </div>
-      <div class="mb-3">
-        <label class="form-label">Condition (expr)</label>
-        <textarea class="form-control form-control-sm" name="condition" rows="3" placeholder='countRunning(filterByTag(serversOnNode(server.Node), "game")) &lt; 1' required></textarea>
-      </div>
-      <div class="form-check mb-3">
-        <input class="form-check-input" type="checkbox" name="enabled" id="new-constraint-enabled" checked>
-        <label class="form-check-label" for="new-constraint-enabled">Enabled</label>
-      </div>
-      <button type="submit" class="btn btn-primary">Add Constraint</button>
-    </form>
+    </div>
   </div>
 </div>
+
+<script>
+async function testConstraint() {
+  const condition = document.getElementById('test-condition').value;
+  const resultDiv = document.getElementById('test-result');
+  if (!condition.trim()) {
+    resultDiv.innerHTML = '<div class="alert alert-warning">Enter a condition to test.</div>';
+    resultDiv.style.display = 'block';
+    return;
+  }
+
+  const tags = document.getElementById('test-server-tags').value.split(',').map(t => t.trim()).filter(t => t);
+  const payload = {
+    condition: condition,
+    server: {
+      ID: 1,
+      Name: document.getElementById('test-server-name').value,
+      GameType: document.getElementById('test-server-game').value,
+      Tags: tags,
+      Node: document.getElementById('test-server-node').value,
+      Running: document.getElementById('test-server-running').checked
+    },
+    user: {
+      Email: document.getElementById('test-user-email').value,
+      Role: document.getElementById('test-user-role').value
+    }
+  };
+
+  try {
+    const resp = await fetch('/api/constraints/test', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload)
+    });
+    const data = await resp.json();
+    if (data.error) {
+      resultDiv.innerHTML = '<div class="alert alert-danger"><strong>Error:</strong> ' + escapeHtml(data.error) + '</div>';
+    } else {
+      const badge = data.result ? '<span class="badge bg-success">TRUE</span>' : '<span class="badge bg-danger">FALSE</span>';
+      resultDiv.innerHTML = '<div class="alert alert-info"><strong>Result:</strong> ' + badge + '</div>';
+    }
+    resultDiv.style.display = 'block';
+  } catch (err) {
+    resultDiv.innerHTML = '<div class="alert alert-danger">Request failed: ' + escapeHtml(err.message) + '</div>';
+    resultDiv.style.display = 'block';
+  }
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+</script>
 {{end}}
