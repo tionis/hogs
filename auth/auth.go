@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/tionis/hogs/config"
@@ -348,6 +349,20 @@ func (a *Authenticator) RequireRole(roles ...string) func(http.Handler) http.Han
 	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if strings.HasPrefix(r.URL.Path, "/api/") {
+				key, _ := r.Context().Value(apiKeyContextKey).(*database.APIKey)
+				if key == nil {
+					http.Error(w, "Unauthorized: API Key required", http.StatusUnauthorized)
+					return
+				}
+				if !roleSet[key.Role] {
+					http.Error(w, "Forbidden", http.StatusForbidden)
+					return
+				}
+				next.ServeHTTP(w, r)
+				return
+			}
+
 			dbSession := a.getSession(r)
 			if dbSession == nil {
 				http.Redirect(w, r, "/login", http.StatusFound)

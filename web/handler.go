@@ -202,7 +202,7 @@ func (h *WebHandler) HandleFileUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	targetPath := filepath.Join(targetDir, header.Filename)
+	targetPath := filepath.Join(targetDir, filepath.Base(header.Filename))
 	out, err := os.Create(targetPath)
 	if err != nil {
 		http.Error(w, "Error saving file", http.StatusInternalServerError)

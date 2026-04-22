@@ -42,13 +42,14 @@ func sharedFuncMap() template.FuncMap {
 		"gameDisplayName": func(s string) string {
 			return query.GetGameInfo(s).DisplayName
 		},
-		"gameNounMapJS": func() template.HTML {
+		"gameNounMapJS": func() template.JS {
 			infos := query.AllGameInfo()
-			parts := make([]string, len(infos))
-			for i, info := range infos {
-				parts[i] = fmt.Sprintf("%s:\"%s\"", info.Type, info.PlayerNoun)
+			m := make(map[string]string)
+			for _, info := range infos {
+				m[info.Type] = info.PlayerNoun
 			}
-			return template.HTML("{" + strings.Join(parts, ",") + "}")
+			b, _ := json.Marshal(m)
+			return template.JS(b)
 		},
 		"dict": func(values ...interface{}) (map[string]interface{}, error) {
 			if len(values)%2 != 0 {
