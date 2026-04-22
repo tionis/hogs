@@ -1631,6 +1631,71 @@ func (s *Store) GetSCIMGroupByName(displayName string) (*SCIMGroup, error) {
 	return &g, nil
 }
 
+func (s *Store) SyncUserOIDCGroups(userID int, groupNames []string) error {
+	// Get current group memberships
+	currentGroups, err := s.GetSCIMGroupsForUser(userID)
+	if err != nil {
+		return err
+	}
+
+	// Build a set of desired group names
+	desired := make(map[string]bool)
+	for _, name := range groupNames {
+		desired[name] = true
+	}
+
+	// Remove memberships for groups not in the desired set
+	for _, g := range currentGroups {
+		if !desired[g.DisplayName] {
+			_, err := s.DB.Exec("DELETE FROM scim_group_members WHERE group_id = ? AND user_id = ?", g.ID, userID)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	// Add memberships for desired groups
+	for _, name := range groupNames {
+		group, err := s.GetSCIMGroupByName(name)
+		if err != nil {
+			return err
+		}
+		if group == nil {
+			// Create the group if it doesn't exist
+			group = &SCIMGroup{ExternalID: "", DisplayName: name}
+			if err := s.CreateSCIMGroup(group); err != nil {
+				return err
+			}
+		}
+
+		// Check if membership already exists
+		var exists int
+		err = s.DB.QueryRow("SELECT 1 FROM scim_group_members WHERE group_id = ? AND user_id = ?", group.ID, userID).Scan(&exists)
+		if err == sql.ErrNoRows {
+			if err := s.AddSCIMGroupMember(group.ID, userID); err != nil {
+				return err
+			}
+		} else if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (s *Store) GetSCIMGroupByExternalID(externalID string) (*SCIMGroup, error) {
+	row := s.DB.QueryRow("SELECT id, external_id, display_name, created_at FROM scim_groups WHERE external_id = ?", externalID)
+	var g SCIMGroup
+	err := row.Scan(&g.ID, &g.ExternalID, &g.DisplayName, &g.CreatedAt)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &g, nil
+}
+
 func (s *Store) ListSCIMGroups() ([]SCIMGroup, error) {
 	rows, err := s.DB.Query("SELECT id, external_id, display_name, created_at FROM scim_groups ORDER BY id")
 	if err != nil {

@@ -143,9 +143,11 @@ func (a *Authenticator) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var claims struct {
-		Email  string      `json:"email"`
-		Sub    string      `json:"sub"`
-		Groups interface{} `json:"-"`
+		Email             string      `json:"email"`
+		Sub               string      `json:"sub"`
+		Name              string      `json:"name"`
+		PreferredUsername string      `json:"preferred_username"`
+		Groups            interface{} `json:"-"`
 	}
 	if err := idToken.Claims(&claims); err != nil {
 		http.Error(w, "Authentication failed", http.StatusInternalServerError)
@@ -155,7 +157,12 @@ func (a *Authenticator) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	groups := extractGroups(idToken, a.Cfg.OIDCGroupsClaim)
 	role := a.resolveRole(claims.Email, groups)
 
-	if err := a.provisionUser(claims.Email, role); err != nil {
+	displayName := claims.Name
+	if displayName == "" {
+		displayName = claims.PreferredUsername
+	}
+
+	if err := a.provisionUser(claims.Email, role, claims.Sub, displayName, groups); err != nil {
 		http.Error(w, "Authentication failed", http.StatusInternalServerError)
 		return
 	}
@@ -330,7 +337,7 @@ func (a *Authenticator) resolveRole(email string, groups []string) string {
 	return ""
 }
 
-func (a *Authenticator) provisionUser(email, role string) error {
+func (a *Authenticator) provisionUser(email, role, externalID, displayName string, groups []string) error {
 	if role == "" {
 		role = "user"
 	}
@@ -339,13 +346,26 @@ func (a *Authenticator) provisionUser(email, role string) error {
 		return err
 	}
 	if user == nil {
-		_, err = a.Store.CreateUser(email, role)
-		return err
+		user, err = a.Store.CreateUser(email, role)
+		if err != nil {
+			return err
+		}
 	}
 	if role == "admin" && user.Role != "admin" {
-		return a.Store.UpdateUserRole(user.ID, "admin")
+		if err := a.Store.UpdateUserRole(user.ID, "admin"); err != nil {
+			return err
+		}
 	}
-	return a.Store.TouchUserLastLogin(user.ID)
+	if err := a.Store.TouchUserLastLogin(user.ID); err != nil {
+		return err
+	}
+	if err := a.Store.UpdateUserSCIM(user.ID, externalID, displayName, true); err != nil {
+		return err
+	}
+	if err := a.Store.SyncUserOIDCGroups(user.ID, groups); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (a *Authenticator) Middleware(next http.Handler) http.Handler {
