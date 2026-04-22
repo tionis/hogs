@@ -182,7 +182,16 @@ func main() {
 	router := mux.NewRouter()
 
 	csrfExemptPrefixes := []string{"/agent/ws", "/scim/v2", "/auth/callback", "/auth/backchannel-logout", "/api/"}
-	csrfRouter := auth.CSRFMiddleware(csrfSecret, csrfExemptPrefixes, router)
+	isSecureFunc := func(r *http.Request) bool {
+		if cfg.TLSCert != "" {
+			return true
+		}
+		if cfg.TrustProxyHeaders && r.Header.Get("X-Forwarded-Proto") == "https" {
+			return true
+		}
+		return false
+	}
+	csrfRouter := auth.CSRFMiddleware(csrfSecret, isSecureFunc, csrfExemptPrefixes, router)
 	apiKeyRouter := auth.APIKeyMiddleware(store, csrfRouter)
 
 	router.HandleFunc("/", webHandler.Home).Methods("GET")

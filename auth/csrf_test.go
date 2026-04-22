@@ -32,7 +32,7 @@ func TestCSRFMiddlewareExemptPaths(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	mw := CSRFMiddleware(secret, []string{"/api/", "/agent/"}, handler)
+	mw := CSRFMiddleware(secret, func(r *http.Request) bool { return false }, []string{"/api/", "/agent/"}, handler)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/servers", nil)
 	w := httptest.NewRecorder()
@@ -50,7 +50,7 @@ func TestCSRFMiddlewareGETPasses(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	mw := CSRFMiddleware(secret, nil, handler)
+	mw := CSRFMiddleware(secret, func(r *http.Request) bool { return false }, nil, handler)
 
 	req := httptest.NewRequest(http.MethodGet, "/admin", nil)
 	w := httptest.NewRecorder()
@@ -79,7 +79,7 @@ func TestCSRFMiddlewarePOSTRequiresToken(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	mw := CSRFMiddleware(secret, nil, handler)
+	mw := CSRFMiddleware(secret, func(r *http.Request) bool { return false }, nil, handler)
 
 	req := httptest.NewRequest(http.MethodPost, "/admin/servers/add", nil)
 	w := httptest.NewRecorder()
@@ -98,7 +98,7 @@ func TestCSRFMiddlewarePOSTWithValidToken(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	mw := CSRFMiddleware(secret, nil, handler)
+	mw := CSRFMiddleware(secret, func(r *http.Request) bool { return false }, nil, handler)
 
 	token := generateCSRFToken()
 	signature := signCSRFToken(token, secret)

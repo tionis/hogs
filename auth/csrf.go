@@ -32,7 +32,7 @@ func verifyCSRFToken(token, signature, secret string) bool {
 	return subtle.ConstantTimeCompare([]byte(signature), []byte(expected)) == 1
 }
 
-func CSRFMiddleware(secret string, exemptPrefixes []string, next http.Handler) http.Handler {
+func CSRFMiddleware(secret string, isSecure func(*http.Request) bool, exemptPrefixes []string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		for _, prefix := range exemptPrefixes {
 			if strings.HasPrefix(r.URL.Path, prefix) {
@@ -41,8 +41,9 @@ func CSRFMiddleware(secret string, exemptPrefixes []string, next http.Handler) h
 			}
 		}
 
+		secure := isSecure(r)
 		if r.Method == http.MethodGet || r.Method == http.MethodHead || r.Method == http.MethodOptions {
-			setCSRFCookie(w, secret)
+			setCSRFCookie(w, secret, secure)
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -80,7 +81,7 @@ func CSRFMiddleware(secret string, exemptPrefixes []string, next http.Handler) h
 	})
 }
 
-func setCSRFCookie(w http.ResponseWriter, secret string) {
+func setCSRFCookie(w http.ResponseWriter, secret string, secure bool) {
 	token := generateCSRFToken()
 	signature := signCSRFToken(token, secret)
 	cookie := &http.Cookie{
@@ -89,7 +90,7 @@ func setCSRFCookie(w http.ResponseWriter, secret string) {
 		Path:     "/",
 		HttpOnly: true,
 		SameSite: http.SameSiteStrictMode,
-		Secure:   true,
+		Secure:   secure,
 	}
 	http.SetCookie(w, cookie)
 }

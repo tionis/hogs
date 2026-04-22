@@ -62,6 +62,9 @@ type Config struct {
 	// TLS
 	TLSCert string
 	TLSKey  string
+
+	// Reverse proxy support
+	TrustProxyHeaders bool
 }
 
 // LoadConfig reads configuration from environment variables or sets defaults.
@@ -118,6 +121,8 @@ func LoadConfig() *Config {
 
 		TLSCert: getEnv("TLS_CERT", ""),
 		TLSKey:  getEnv("TLS_KEY", ""),
+
+		TrustProxyHeaders: getEnv("TRUST_PROXY_HEADERS", "") == "true",
 	}
 }
 

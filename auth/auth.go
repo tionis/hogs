@@ -64,7 +64,7 @@ func NewAuthenticator(cfg *config.Config, store *database.Store) (*Authenticator
 		MaxAge:   86400 * 30,
 		HttpOnly: true,
 		SameSite: http.SameSiteStrictMode,
-		Secure:   true,
+		Secure:   cfg.TLSCert != "",
 	}
 
 	return &Authenticator{
@@ -84,6 +84,23 @@ func NewAuthenticator(cfg *config.Config, store *database.Store) (*Authenticator
 	}, nil
 }
 
+func (a *Authenticator) IsSecureRequest(r *http.Request) bool {
+	if a.Cfg.TLSCert != "" {
+		return true
+	}
+	if a.Cfg.TrustProxyHeaders {
+		if r.Header.Get("X-Forwarded-Proto") == "https" {
+			return true
+		}
+	}
+	return false
+}
+
+func (a *Authenticator) saveSession(session *sessions.Session, r *http.Request, w http.ResponseWriter) error {
+	session.Options.Secure = a.IsSecureRequest(r)
+	return session.Save(r, w)
+}
+
 func (a *Authenticator) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	state, err := generateRandomState()
 	if err != nil {
@@ -93,7 +110,7 @@ func (a *Authenticator) HandleLogin(w http.ResponseWriter, r *http.Request) {
 
 	session, _ := a.cookieStore.Get(r, sessionCookieName)
 	session.Values["state"] = state
-	session.Save(r, w)
+	a.saveSession(session, r, w)
 
 	http.Redirect(w, r, a.Config.AuthCodeURL(state), http.StatusFound)
 }
@@ -165,7 +182,7 @@ func (a *Authenticator) HandleCallback(w http.ResponseWriter, r *http.Request) {
 
 	session.Values["session_id"] = sessionID
 	session.Values["state"] = ""
-	session.Save(r, w)
+	a.saveSession(session, r, w)
 
 	http.Redirect(w, r, "/admin", http.StatusFound)
 }
@@ -179,7 +196,7 @@ func (a *Authenticator) HandleLogout(w http.ResponseWriter, r *http.Request) {
 
 	session.Values["session_id"] = ""
 	session.Options.MaxAge = -1
-	session.Save(r, w)
+	a.saveSession(session, r, w)
 	http.Redirect(w, r, "/", http.StatusFound)
 }
 
