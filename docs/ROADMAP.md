@@ -215,7 +215,8 @@ All action paths (user-triggered, cron-triggered, API-triggered) go through the 
 - `notify/service.go`: async notification dispatcher, filters by event type, supports wildcard
 - API endpoints: GET /api/notifications, POST /api/notifications/create, POST /api/notifications/delete, GET /api/notifications/test
 - All endpoints require admin role
-- **Still needed**: Event triggers from engine (server up/down, agent disconnect, constraint violation, cron failure), per-server/per-user preferences
+- Event triggers: server_up, server_down, agent_connect, agent_disconnect, constraint_violation, cron_failure
+- **Still needed**: per-server/per-user preferences
 
 #### 2.4 Dashboard Overview ✅
 - New `GET /api/dashboard` endpoint: total/online/offline/maintenance/planned server counts, game type breakdown, agent connectivity (connected/disconnected), cron status, last 10 audit entries
