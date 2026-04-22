@@ -380,11 +380,22 @@ func (h *WebHandler) ServerDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	isAuthenticated := h.Auth != nil && h.Auth.IsAuthenticated(r)
+	userRole := h.userRole(r)
 
 	// Access control: if offline and not admin, return 404
 	if server.State == "offline" && !isAuthenticated {
 		http.Error(w, "Server not found", http.StatusNotFound)
 		return
+	}
+
+	// Check if agent is configured for this server
+	hasAgent := false
+	link, _ := h.Store.GetPterodactylLink(server.ID)
+	if link != nil && link.Node != "" {
+		agent, _ := h.Store.GetAgentByNodeName(link.Node)
+		if agent != nil {
+			hasAgent = true
+		}
 	}
 
 	data := struct {
@@ -398,10 +409,12 @@ func (h *WebHandler) ServerDetail(w http.ResponseWriter, r *http.Request) {
 		PteroLink       *database.PterodactylLink
 		PteroCommands   []database.PterodactylCommand
 		AllowedActions  []string
+		HasAgent        bool
+		ShowConsole     bool
 	}{
 		Server:          server,
 		Authenticated:   isAuthenticated,
-		UserRole:        h.userRole(r),
+		UserRole:        userRole,
 		UserEmail:       h.Auth.GetUserEmail(r),
 		SiteName:        h.siteName(),
 		BackgroundURLs:  h.pickBackgrounds([]string{server.GameType}),
@@ -409,10 +422,11 @@ func (h *WebHandler) ServerDetail(w http.ResponseWriter, r *http.Request) {
 		PteroLink:       nil,
 		PteroCommands:   nil,
 		AllowedActions:  nil,
+		HasAgent:        hasAgent,
+		ShowConsole:     isAuthenticated && userRole == "admin" && hasAgent,
 	}
 
 	if h.Config.PterodactylURL != "" {
-		link, _ := h.Store.GetPterodactylLink(server.ID)
 		data.PteroLink = link
 		if link != nil {
 			commands, _ := h.Store.ListPterodactylCommands(server.ID)
