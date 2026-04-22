@@ -43,7 +43,19 @@ func CSRFMiddleware(secret string, isSecure func(*http.Request) bool, exemptPref
 
 		secure := isSecure(r)
 		if r.Method == http.MethodGet || r.Method == http.MethodHead || r.Method == http.MethodOptions {
-			setCSRFCookie(w, secret, secure)
+			// Only set a new CSRF cookie if one doesn't exist or is invalid.
+			// Otherwise background GET requests (fetch, polling) would overwrite
+			// the cookie and invalidate tokens already injected into forms.
+			needsCookie := true
+			if cookie, err := r.Cookie(csrfCookieName); err == nil {
+				parts := strings.SplitN(cookie.Value, ".", 2)
+				if len(parts) == 2 && verifyCSRFToken(parts[0], parts[1], secret) {
+					needsCookie = false
+				}
+			}
+			if needsCookie {
+				setCSRFCookie(w, secret, secure)
+			}
 			next.ServeHTTP(w, r)
 			return
 		}
