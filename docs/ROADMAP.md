@@ -185,11 +185,13 @@ All action paths (user-triggered, cron-triggered, API-triggered) go through the 
 - **Implemented**: Periodic goroutine (every 15 minutes) in `main.go` that calls `auth.CleanupSessions()`
 - Also cleans up on server startup immediately
 
-#### 1.11 Agent Reconnection State Recovery ✅ (partial)
+#### 1.11 Agent Reconnection State Recovery ✅
 - When an agent disconnects, `Hub.RemoveConn` now fails all pending requests for that agent immediately
 - Pending request map tracks `agentID` so disconnection can resolve all matching requests
 - Agents that reconnect re-register via the `register` message as before
-- **Still needed**: Track pending operations in DB (`agent_pending_ops` table) so they survive HOGS restarts
+- `agent_pending_ops` table persists pending operations with request_id, agent_id, op_type, payload, expires_at
+- On HOGS startup, unresolved pending ops are loaded and marked failed (channels cannot survive restarts)
+- Periodic cleanup goroutine removes expired resolved ops every 15 minutes
 
 ### Priority 2: Important Gaps (needed for production use)
 
@@ -340,9 +342,10 @@ All action paths (user-triggered, cron-triggered, API-triggered) go through the 
 #### 3.11 Test Coverage ✅ (partial)
 - **Unit tests for `engine/` package**: ACL evaluation, constraint evaluation, param validation, template rendering, helper functions (HasTag, CountRunning, FilterByTag, ParseWeekday), source detection in audit log, expression testing
 - **Unit tests for `cron/` package**: scheduler creation, job loading, AddJob/UpdateJob/RemoveJob, enable/disable, Start/Stop
-- **Unit tests for `agent/` package**: Hub creation, connection lookup, request ID allocation, pending request correlation, context cancellation, Envelope serialization, result type detection, ResolveBackend (no-link, Pterodactyl, agent), AgentService offline errors, ServeWS auth validation, AgentBackend.Name/Status, console buffer/broadcast/limit, client lifecycle, server name lookup
+- **Unit tests for `agent/` package**: Hub creation, connection lookup, request ID allocation, pending request correlation, context cancellation, Envelope serialization, result type detection, ResolveBackend (no-link, Pterodactyl, agent), AgentService offline errors, ServeWS auth validation, AgentBackend.Name/Status, console buffer/broadcast/limit, client lifecycle, server name lookup, pending op DB persistence, recovery logic
 - **Unit tests for `web/` package**: Dashboard, Admin, Home, ServerDetail, ConstraintManager, CronManager rendering; auth integration; 404 behavior for offline servers
 - **Bug fix**: `database/` agent scan methods (`GetAgent`, `GetAgentByToken`, `GetAgentByNodeName`, `ListAgents`) now correctly handle `json.RawMessage` column by scanning into `[]byte` first
+- **Unit tests for `database/` package**: agent_pending_ops CRUD, resolve, cleanup
 - **Bug fix**: `config/` test defaults now properly unset env vars to avoid environment bleed
 - Still needed: Integration tests for `backend/` package, SCIM endpoint integration tests, full end-to-end action pipeline tests, agent backup operation tests
 
