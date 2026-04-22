@@ -92,6 +92,7 @@ user.Role != "admin" && server.GameType != "minecraft"</code></pre>
         <td>{{.Priority}}</td>
         <td>{{if .Enabled}}<span class="badge bg-success">Yes</span>{{else}}<span class="badge bg-secondary">No</span>{{end}}</td>
         <td>
+          <button type="button" class="btn btn-sm btn-outline-primary" onclick="openEditModal({{.ID}}, {{json .Name}}, {{json .Description}}, {{json .Condition}}, {{json .Strategy}}, {{.Priority}}, {{.Enabled}})">Edit</button>
           <form action="/admin/constraints/delete" method="POST" class="d-inline" onsubmit="return confirm('Delete this constraint?');">
             <input type="hidden" name="id" value="{{.ID}}">
             <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
@@ -205,7 +206,70 @@ user.Role != "admin" && server.GameType != "minecraft"</code></pre>
   </div>
 </div>
 
+<!-- Edit Constraint Modal -->
+<div class="modal fade" id="editConstraintModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Edit Constraint</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <form action="/admin/constraints/update" method="POST" id="edit-constraint-form">
+          <input type="hidden" name="id" id="edit-id">
+          <div class="row">
+            <div class="col-md-6 mb-3">
+              <label class="form-label">Name</label>
+              <input type="text" class="form-control form-control-sm" name="name" id="edit-name" required>
+            </div>
+            <div class="col-md-3 mb-3">
+              <label class="form-label">Strategy</label>
+              <select class="form-select form-select-sm" name="strategy" id="edit-strategy">
+                <option value="deny">Deny</option>
+                <option value="queue">Queue</option>
+                <option value="stop_oldest">Stop Oldest</option>
+              </select>
+            </div>
+            <div class="col-md-3 mb-3">
+              <label class="form-label">Priority</label>
+              <input type="number" class="form-control form-control-sm" name="priority" id="edit-priority" value="0">
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Description</label>
+            <input type="text" class="form-control form-control-sm" name="description" id="edit-description">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Condition (expr)</label>
+            <textarea class="form-control form-control-sm" name="condition" id="edit-condition" rows="3" required></textarea>
+          </div>
+          <div class="form-check mb-3">
+            <input class="form-check-input" type="checkbox" name="enabled" id="edit-enabled" checked>
+            <label class="form-check-label" for="edit-enabled">Enabled</label>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-primary" form="edit-constraint-form">Save Changes</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
+function openEditModal(id, name, description, condition, strategy, priority, enabled) {
+  document.getElementById('edit-id').value = id;
+  document.getElementById('edit-name').value = name;
+  document.getElementById('edit-description').value = description;
+  document.getElementById('edit-condition').value = condition;
+  document.getElementById('edit-strategy').value = strategy;
+  document.getElementById('edit-priority').value = priority;
+  document.getElementById('edit-enabled').checked = enabled;
+  const modal = new bootstrap.Modal(document.getElementById('editConstraintModal'));
+  modal.show();
+}
+
 async function testConstraint() {
   const condition = document.getElementById('test-condition').value;
   const resultDiv = document.getElementById('test-result');
