@@ -8,7 +8,75 @@
   </ol>
 </nav>
 
-<h2>Constraints</h2>
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h2 class="mb-0">Constraints</h2>
+  <button class="btn btn-sm btn-outline-info" type="button" data-bs-toggle="collapse" data-bs-target="#constraint-help" aria-expanded="false" aria-controls="constraint-help">
+    Show Help
+  </button>
+</div>
+
+<div class="collapse mb-4" id="constraint-help">
+  <div class="card">
+    <div class="card-header">Expression Language Reference</div>
+    <div class="card-body">
+      <p class="text-muted small">Constraints use the <a href="https://expr-lang.org/" target="_blank">expr</a> expression language. A condition must evaluate to <code>true</code> for the action to be allowed.</p>
+
+      <h6>Variables</h6>
+      <div class="table-responsive">
+        <table class="table table-sm">
+          <thead><tr><th>Variable</th><th>Type</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>server.ID</code></td><td><code>int</code></td><td>Server ID</td></tr>
+            <tr><td><code>server.Name</code></td><td><code>string</code></td><td>Server name</td></tr>
+            <tr><td><code>server.GameType</code></td><td><code>string</code></td><td>Game type (minecraft, satisfactory, ...)</td></tr>
+            <tr><td><code>server.Tags</code></td><td><code>[]string</code></td><td>Server tags</td></tr>
+            <tr><td><code>server.Node</code></td><td><code>string</code></td><td>Agent node name</td></tr>
+            <tr><td><code>server.Running</code></td><td><code>bool</code></td><td>Is the server currently online</td></tr>
+            <tr><td><code>user.Email</code></td><td><code>string</code></td><td>Requesting user's email</td></tr>
+            <tr><td><code>user.Role</code></td><td><code>string</code></td><td>User role (<code>admin</code> or <code>user</code>)</td></tr>
+            <tr><td><code>time.Hour</code></td><td><code>int</code></td><td>Current hour (0-23)</td></tr>
+            <tr><td><code>time.Weekday</code></td><td><code>time.Weekday</code></td><td>Current weekday</td></tr>
+            <tr><td><code>action</code></td><td><code>string</code></td><td>The requested action (start, stop, restart, ...)</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h6>Helper Functions</h6>
+      <div class="table-responsive">
+        <table class="table table-sm">
+          <thead><tr><th>Function</th><th>Signature</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>hasTag</code></td><td><code>(server, string) bool</code></td><td>Check if server has a tag</td></tr>
+            <tr><td><code>serversOnNode</code></td><td><code>(node string) []ServerEnv</code></td><td>Get all servers on a node</td></tr>
+            <tr><td><code>runningOnNode</code></td><td><code>(node string) []ServerEnv</code></td><td>Get running servers on a node</td></tr>
+            <tr><td><code>countRunning</code></td><td><code>([]ServerEnv) int</code></td><td>Count running servers in a list</td></tr>
+            <tr><td><code>filterByTag</code></td><td><code>([]ServerEnv, tag string) []ServerEnv</code></td><td>Filter servers by tag</td></tr>
+            <tr><td><code>weekday</code></td><td><code>(string) time.Weekday</code></td><td>Parse weekday name</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h6>Examples</h6>
+      <pre class="small" style="background:var(--bg-input);padding:0.75rem;border-radius:4px;"><code># Only one game server per node
+hasTag(server, "game") && countRunning(filterByTag(serversOnNode(server.Node), "game")) < 1
+
+# Block actions on maintenance servers
+!hasTag(server, "maintenance")
+
+# Only admins can touch critical servers during business hours
+!(hasTag(server, "critical") && user.Role != "admin" && time.Hour < 17)
+
+# Deny EU servers outside EU hours
+hasTag(server, "eu-west") && (time.Hour < 8 || time.Hour > 22)
+
+# Only allow restarts on weekends
+action == "restart" && (time.Weekday == weekday("Saturday") || time.Weekday == weekday("Sunday"))
+
+# Only allow minecraft servers for regular users
+user.Role != "admin" && server.GameType != "minecraft"</code></pre>
+    </div>
+  </div>
+</div>
 
 {{if .Constraints}}
 <div class="table-responsive">
