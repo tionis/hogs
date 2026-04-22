@@ -273,14 +273,12 @@ All action paths (user-triggered, cron-triggered, API-triggered) go through the 
 - Key expiry support via optional `expires_at` field
 - `GetAPIKeyFromContext()` helper for role-based authorization in handlers
 
-#### 3.2 Agent Provisioning Flow
-- One-click "Add Agent" button generates token + shows install command:
-  ```bash
-  hogs-agent add-node --url https://hogs.example.com --token <generated>
-  ```
-- Auto-generates systemd unit file for the agent
-- Downloadable agent binary page (or link to releases)
-- Agent health dashboard with heartbeat latency
+#### 3.2 Agent Provisioning Flow ✅ (partial)
+- One-click "Add Agent" button generates token + shows install command
+- Auto-generates systemd unit file for the agent with env vars
+- Provisioning reference card with environment variable documentation
+- Quick start commands for binary download and systemd setup
+- **Still needed**: Downloadable agent binary page, agent health dashboard with heartbeat latency
 
 #### 3.3 Restic Repo Init from UI
 - Button in backup section to initialize a new restic repo
