@@ -20,21 +20,19 @@ const (
 // ModItem represents a file or directory in the mod structure.
 type ModItem struct {
 	Name     string      `json:"name"`
-	Path     string      `json:"path"`     // Relative path from the base mod directory
+	Path     string      `json:"path"` // Relative path from the base mod directory
 	Type     ModItemType `json:"type"`
-	Size     int64       `json:"size,omitempty"` // For files
-	URL      string      `json:"url,omitempty"`  // For .url files
+	Size     int64       `json:"size,omitempty"`     // For files
+	URL      string      `json:"url,omitempty"`      // For .url files
 	Markdown string      `json:"markdown,omitempty"` // For .md files content
 	Children []ModItem   `json:"children,omitempty"` // For directories
 }
 
 // ScanModDirectory scans the mod directory for a given server and returns its hierarchical structure.
 func ScanModDirectory(baseDataPath, serverName string) (*ModItem, error) {
-	// Security check: simple allowlist for characters
-	for _, r := range serverName {
-		if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_') {
-			return nil, fmt.Errorf("invalid server name: %s", serverName)
-		}
+	// Security check: prevent path traversal
+	if strings.Contains(serverName, "..") || strings.Contains(serverName, "/") || strings.Contains(serverName, "\\") {
+		return nil, fmt.Errorf("invalid server name: %s", serverName)
 	}
 
 	basePath := filepath.Join(baseDataPath, serverName)
