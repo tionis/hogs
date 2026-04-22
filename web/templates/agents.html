@@ -76,8 +76,50 @@
           Install command:<br>
           <code id="install-cmd" class="user-select-all"></code>
         </div>
+        <div class="mt-3">
+          <button class="btn btn-sm btn-outline-info" onclick="showSystemdUnit()">Show Systemd Unit</button>
+        </div>
       </div>
     </div>
+  </div>
+</div>
+
+<div class="card mt-4" id="systemd-card" style="display:none;">
+  <div class="card-header">Systemd Unit File</div>
+  <div class="card-body">
+    <p class="text-muted small">Save this to <code>/etc/systemd/system/hogs-agent.service</code> and run <code>systemctl daemon-reload && systemctl enable --now hogs-agent</code></p>
+    <pre class="small" style="background:var(--bg-input);padding:0.75rem;border-radius:4px;overflow:auto;"><code id="systemd-unit"></code></pre>
+    <button class="btn btn-sm btn-outline-secondary" onclick="copySystemd()">Copy Unit File</button>
+  </div>
+</div>
+
+<div class="card mt-4">
+  <div class="card-header">Provisioning Reference</div>
+  <div class="card-body">
+    <h6>Environment Variables</h6>
+    <table class="table table-sm">
+      <thead><tr><th>Variable</th><th>Description</th><th>Example</th></tr></thead>
+      <tbody>
+        <tr><td><code>HOGS_SERVER_URL</code></td><td>HOGS WebSocket endpoint URL</td><td><code>wss://hogs.example.com/agent/ws</code></td></tr>
+        <tr><td><code>HOGS_AGENT_TOKEN</code></td><td>Agent authentication token</td><td><code>hogs_xxxxxxxx</code></td></tr>
+        <tr><td><code>HOGS_AGENT_NODE</code></td><td>Node identifier</td><td><code>mc-server-01</code></td></tr>
+        <tr><td><code>HOGS_AGENT_SERVER_NAME</code></td><td>Server name this agent manages</td><td><code>MyMinecraftServer</code></td></tr>
+        <tr><td><code>HOGS_AGENT_SERVICE_NAME</code></td><td>systemd unit name to control</td><td><code>minecraft-server.service</code></td></tr>
+        <tr><td><code>HOGS_AGENT_DATA_DIR</code></td><td>Base directory for file operations</td><td><code>/opt/game-servers</code></td></tr>
+      </tbody>
+    </table>
+    <h6>Quick Start</h6>
+    <pre class="small" style="background:var(--bg-input);padding:0.75rem;border-radius:4px;"><code># 1. Download hogs-agent binary
+wget https://github.com/tionis/hogs/releases/latest/download/hogs-agent -O /usr/local/bin/hogs-agent
+chmod +x /usr/local/bin/hogs-agent
+
+# 2. Create systemd unit (see above)
+# 3. Start the agent
+systemctl enable --now hogs-agent
+
+# 4. Check status
+systemctl status hogs-agent
+journalctl -u hogs-agent -f</code></pre>
   </div>
 </div>
 
@@ -115,6 +157,39 @@ document.getElementById('create-agent-form').addEventListener('submit', async fu
     alert('Error: ' + err.message);
   }
 });
+
+function showSystemdUnit() {
+  const name = document.getElementById('agent-name').value || 'hogs-agent';
+  const node = document.getElementById('agent-node').value || name;
+  const token = document.getElementById('new-token').textContent;
+  const serverUrl = window.location.origin + '/agent/ws';
+
+  const unit = `[Unit]
+Description=HOGS Agent (${name})
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/hogs-agent
+Restart=always
+RestartSec=5
+
+Environment="HOGS_SERVER_URL=${serverUrl}"
+Environment="HOGS_AGENT_TOKEN=${token}"
+Environment="HOGS_AGENT_NODE=${node}"
+Environment="HOGS_AGENT_SERVER_NAME=${name}"
+Environment="HOGS_AGENT_SERVICE_NAME=${name}.service"
+
+[Install]
+WantedBy=multi-user.target`;
+
+  document.getElementById('systemd-unit').textContent = unit;
+  document.getElementById('systemd-card').style.display = 'block';
+}
+
+function copySystemd() {
+  navigator.clipboard.writeText(document.getElementById('systemd-unit').textContent);
+}
 
 async function regenerateToken(id) {
   if (!confirm('Regenerate token for this agent? The old token will stop working immediately.')) return;
