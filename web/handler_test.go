@@ -210,6 +210,25 @@ func TestCronManagerRenders(t *testing.T) {
 	}
 }
 
+func TestBackupsRenders(t *testing.T) {
+	handler, store, auth := testWebHandler(t)
+	store.CreateServer(&database.Server{Name: "BackupSrv", GameType: "minecraft", State: "online"})
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/backups", nil)
+	w := httptest.NewRecorder()
+	cookie := createTestSession(t, store, auth, "admin@test.com", "admin")
+	req.AddCookie(cookie)
+
+	handler.Backups(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if !contains(w.Body.String(), "BackupSrv") {
+		t.Error("expected backups page to contain server name")
+	}
+}
+
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsAt(s, substr))
 }
