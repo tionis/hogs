@@ -90,9 +90,23 @@ func isPrivateURL(rawURL string) bool {
 	if strings.ToLower(host) == "localhost" || host == "127.0.0.1" || host == "::1" {
 		return true
 	}
+	if strings.HasSuffix(strings.ToLower(host), ".internal") || strings.HasSuffix(strings.ToLower(host), ".local") {
+		return true
+	}
 	ip := net.ParseIP(host)
 	if ip != nil {
 		return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast()
+	}
+	// Resolve hostname and check resolved IPs for DNS rebinding protection
+	addrs, err := net.LookupHost(host)
+	if err != nil {
+		return true // Fail closed on DNS errors
+	}
+	for _, addr := range addrs {
+		resolvedIP := net.ParseIP(addr)
+		if resolvedIP == nil || resolvedIP.IsLoopback() || resolvedIP.IsPrivate() || resolvedIP.IsLinkLocalUnicast() || resolvedIP.IsLinkLocalMulticast() {
+			return true
+		}
 	}
 	return false
 }

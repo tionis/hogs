@@ -71,7 +71,7 @@ func CSRFMiddleware(secret string, exemptPrefixes []string, next http.Handler) h
 			submittedToken = r.Header.Get(csrfHeaderField)
 		}
 
-		if submittedToken != token {
+		if subtle.ConstantTimeCompare([]byte(submittedToken), []byte(token)) != 1 {
 			http.Error(w, "CSRF token mismatch", http.StatusForbidden)
 			return
 		}

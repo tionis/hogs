@@ -5,7 +5,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
+	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/gorilla/mux"
 	"github.com/tionis/hogs/agent"
@@ -162,6 +164,14 @@ func (h *AgentHandler) UpdateAgent(w http.ResponseWriter, r *http.Request) {
 		a.NodeName = nodeName
 	}
 	if caps := r.FormValue("capabilities"); caps != "" {
+		if !json.Valid([]byte(caps)) {
+			http.Error(w, "Invalid JSON in capabilities", http.StatusBadRequest)
+			return
+		}
+		if len(caps) > 64*1024 {
+			http.Error(w, "Capabilities JSON too large", http.StatusBadRequest)
+			return
+		}
 		a.Capabilities = json.RawMessage(caps)
 	}
 
@@ -206,7 +216,7 @@ func (h *AgentHandler) RegenerateToken(w http.ResponseWriter, r *http.Request) {
 	a.TokenPrefix = newToken[:8]
 
 	_, err = h.Store.DB.Exec("UPDATE agents SET token = ?, token_hash = ?, token_prefix = ? WHERE id = ?",
-		"", a.TokenHash, a.TokenPrefix, a.ID)
+		a.Token, a.TokenHash, a.TokenPrefix, a.ID)
 	if err != nil {
 		http.Error(w, "Failed to regenerate token", http.StatusInternalServerError)
 		return
@@ -248,6 +258,10 @@ func (h *AgentHandler) AgentFileList(w http.ResponseWriter, r *http.Request) {
 	if path == "" {
 		path = "."
 	}
+	if !isValidAgentPath(path) {
+		http.Error(w, "Invalid path", http.StatusBadRequest)
+		return
+	}
 
 	result, err := h.Service.FileList(serverName, path)
 	if err != nil {
@@ -266,6 +280,10 @@ func (h *AgentHandler) AgentFileRead(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "path is required", http.StatusBadRequest)
 		return
 	}
+	if !isValidAgentPath(path) {
+		http.Error(w, "Invalid path", http.StatusBadRequest)
+		return
+	}
 
 	result, err := h.Service.FileRead(serverName, path)
 	if err != nil {
@@ -280,6 +298,8 @@ func (h *AgentHandler) AgentFileRead(w http.ResponseWriter, r *http.Request) {
 func (h *AgentHandler) AgentFileWrite(w http.ResponseWriter, r *http.Request) {
 	serverName := mux.Vars(r)["serverName"]
 
+	r.Body = http.MaxBytesReader(w, r.Body, 10<<20) // 10 MB limit
+
 	var req struct {
 		Path       string `json:"path"`
 		ContentB64 string `json:"contentBase64"`
@@ -291,6 +311,10 @@ func (h *AgentHandler) AgentFileWrite(w http.ResponseWriter, r *http.Request) {
 
 	if req.Path == "" || req.ContentB64 == "" {
 		http.Error(w, "path and contentBase64 are required", http.StatusBadRequest)
+		return
+	}
+	if !isValidAgentPath(req.Path) {
+		http.Error(w, "Invalid path", http.StatusBadRequest)
 		return
 	}
 
@@ -311,6 +335,10 @@ func (h *AgentHandler) AgentFileDelete(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "path is required", http.StatusBadRequest)
 		return
 	}
+	if !isValidAgentPath(path) {
+		http.Error(w, "Invalid path", http.StatusBadRequest)
+		return
+	}
 
 	result, err := h.Service.FileDelete(serverName, path)
 	if err != nil {
@@ -329,6 +357,10 @@ func (h *AgentHandler) AgentMkdir(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "path is required", http.StatusBadRequest)
 		return
 	}
+	if !isValidAgentPath(path) {
+		http.Error(w, "Invalid path", http.StatusBadRequest)
+		return
+	}
 
 	result, err := h.Service.Mkdir(serverName, path)
 	if err != nil {
@@ -342,6 +374,8 @@ func (h *AgentHandler) AgentMkdir(w http.ResponseWriter, r *http.Request) {
 
 func (h *AgentHandler) AgentBackupCreate(w http.ResponseWriter, r *http.Request) {
 	serverName := mux.Vars(r)["serverName"]
+
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1 MB limit
 
 	var req struct {
 		Repo     string   `json:"repo"`
@@ -372,6 +406,8 @@ func (h *AgentHandler) AgentBackupCreate(w http.ResponseWriter, r *http.Request)
 func (h *AgentHandler) AgentBackupRestore(w http.ResponseWriter, r *http.Request) {
 	serverName := mux.Vars(r)["serverName"]
 
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1 MB limit
+
 	var req struct {
 		Repo     string `json:"repo"`
 		Password string `json:"password"`
@@ -400,6 +436,8 @@ func (h *AgentHandler) AgentBackupRestore(w http.ResponseWriter, r *http.Request
 
 func (h *AgentHandler) AgentBackupList(w http.ResponseWriter, r *http.Request) {
 	serverName := mux.Vars(r)["serverName"]
+
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1 MB limit
 
 	var req struct {
 		Repo     string `json:"repo"`
@@ -431,4 +469,15 @@ func generateAgentToken() string {
 		return ""
 	}
 	return "hogs_" + hex.EncodeToString(b)
+}
+
+func isValidAgentPath(path string) bool {
+	if path == "" {
+		return false
+	}
+	if filepath.IsAbs(path) {
+		return false
+	}
+	clean := filepath.Clean(path)
+	return clean != ".." && !strings.HasPrefix(clean, "..")
 }

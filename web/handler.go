@@ -292,6 +292,9 @@ var dangerousExtensions = map[string]bool{
 	".cmd": true, ".php": true, ".jsp": true, ".asp": true,
 	".aspx": true, ".py": true, ".rb": true, ".pl": true,
 	".cgi": true, ".com": true, ".app": true,
+	".jar": true, ".msi": true, ".ps1": true, ".vbs": true,
+	".scr": true, ".pif": true, ".hta": true, ".cpl": true,
+	".msc": true,
 }
 
 func isDangerousFile(name string) bool {

@@ -5,13 +5,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/tionis/hogs/auth"
-	"github.com/tionis/hogs/config"
-	"github.com/tionis/hogs/database"
-	"github.com/tionis/hogs/modmanager"
-	"github.com/tionis/hogs/query"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -22,6 +18,11 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/tionis/hogs/auth"
+	"github.com/tionis/hogs/config"
+	"github.com/tionis/hogs/database"
+	"github.com/tionis/hogs/modmanager"
+	"github.com/tionis/hogs/query"
 )
 
 // ServerHandler holds dependencies for API handlers.
@@ -166,12 +167,13 @@ func (h *ServerHandler) GetServerMods(w http.ResponseWriter, r *http.Request) {
 
 func (h *ServerHandler) Healthz(w http.ResponseWriter, r *http.Request) {
 	if err := h.Store.DB.Ping(); err != nil {
+		log.Printf("Health check failed: database ping error: %v", err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusServiceUnavailable)
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"status": "unhealthy",
 			"checks": map[string]string{
-				"database": err.Error(),
+				"database": "error",
 			},
 		})
 		return
@@ -236,6 +238,12 @@ func (h *ServerHandler) MapProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if isPrivateURL(targetURL.String()) {
+		log.Printf("Blocked map proxy to private URL for server %s: %s", serverName, targetURL.String())
+		http.Error(w, "Invalid map URL", http.StatusBadRequest)
+		return
+	}
+
 	proxy := httputil.NewSingleHostReverseProxy(targetURL)
 
 	// Custom director to rewrite the request to the target
@@ -286,6 +294,26 @@ func isValidServerName(name string) bool {
 		}
 	}
 	return true
+}
+
+// isPrivateURL checks if a URL points to a private/internal address.
+func isPrivateURL(rawURL string) bool {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return true
+	}
+	host := u.Hostname()
+	if host == "" {
+		return true
+	}
+	if strings.ToLower(host) == "localhost" || host == "127.0.0.1" || host == "::1" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	if ip != nil {
+		return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast()
+	}
+	return false
 }
 
 func (h *ServerHandler) GetBackground(w http.ResponseWriter, r *http.Request) {

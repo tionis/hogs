@@ -54,9 +54,7 @@ func NewAuthenticator(cfg *config.Config, store *database.Store) (*Authenticator
 	}
 
 	logoutOidcConfig := &oidc.Config{
-		ClientID:          cfg.OIDCClientID,
-		SkipClientIDCheck: true,
-		SkipIssuerCheck:   true,
+		ClientID: cfg.OIDCClientID,
 	}
 
 	cookieStore := sessions.NewCookieStore([]byte(cfg.SessionSecret))
@@ -245,6 +243,13 @@ func (a *Authenticator) getSession(r *http.Request) *database.Session {
 
 	expiresAt, err := time.Parse(time.RFC3339, dbSession.ExpiresAt)
 	if err != nil || time.Now().UTC().After(expiresAt) {
+		a.Store.DeleteSession(sessionID)
+		return nil
+	}
+
+	// Verify the user is still active
+	user, err := a.Store.GetUserByEmail(dbSession.UserEmail)
+	if err != nil || user == nil || !user.Active {
 		a.Store.DeleteSession(sessionID)
 		return nil
 	}

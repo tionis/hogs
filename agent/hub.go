@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -142,8 +143,8 @@ func NewHub(store *database.Store, cfg *config.Config) *Hub {
 				if origin == "" {
 					return true
 				}
-				// Allow same-origin connections only
-				return origin == "http://"+r.Host || origin == "https://"+r.Host || origin == "ws://"+r.Host || origin == "wss://"+r.Host
+				// Allow same-origin connections only (HTTP/HTTPS only)
+				return origin == "http://"+r.Host || origin == "https://"+r.Host
 			},
 		},
 	}
@@ -177,11 +178,17 @@ func (h *Hub) resolvePending(reqID string, result *GenericResultData) {
 }
 
 func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request) {
-	token := r.URL.Query().Get("token")
+	token := r.Header.Get("Authorization")
 	if token == "" {
-		http.Error(w, "missing token", http.StatusUnauthorized)
+		http.Error(w, "missing authorization header", http.StatusUnauthorized)
 		return
 	}
+	const bearerPrefix = "Bearer "
+	if !strings.HasPrefix(token, bearerPrefix) {
+		http.Error(w, "invalid authorization format", http.StatusUnauthorized)
+		return
+	}
+	token = strings.TrimPrefix(token, bearerPrefix)
 
 	agent, err := h.Store.GetAgentByToken(token)
 	if err != nil || agent == nil {

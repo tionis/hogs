@@ -7,10 +7,12 @@ import (
 	"net/http"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/tionis/hogs/agent"
+	"github.com/tionis/hogs/auth"
 	"github.com/tionis/hogs/backend"
 	"github.com/tionis/hogs/config"
 	"github.com/tionis/hogs/database"
@@ -23,10 +25,11 @@ type PterodactylHandler struct {
 	Config   *config.Config
 	Engine   *engine.Engine
 	AgentHub *agent.Hub
+	Auth     *auth.Authenticator
 }
 
-func NewPterodactylHandler(store *database.Store, cfg *config.Config, eng *engine.Engine, hub *agent.Hub) *PterodactylHandler {
-	return &PterodactylHandler{Store: store, Config: cfg, Engine: eng, AgentHub: hub}
+func NewPterodactylHandler(store *database.Store, cfg *config.Config, eng *engine.Engine, hub *agent.Hub, auth *auth.Authenticator) *PterodactylHandler {
+	return &PterodactylHandler{Store: store, Config: cfg, Engine: eng, AgentHub: hub, Auth: auth}
 }
 
 func (h *PterodactylHandler) client() *pterodactyl.Client {
@@ -341,11 +344,11 @@ func (h *PterodactylHandler) resolveBackend(server *database.Server, link *datab
 }
 
 func (h *PterodactylHandler) getUserEnv(r *http.Request) *engine.UserEnv {
-	email := ""
-	role := ""
-	if r != nil {
-		email = r.FormValue("user_email")
-		role = r.FormValue("user_role")
+	email := "anonymous"
+	role := "user"
+	if h.Auth != nil {
+		email = h.Auth.GetUserEmail(r)
+		role = h.Auth.GetUserRole(r)
 	}
 	if email == "" {
 		email = "anonymous"
@@ -365,6 +368,15 @@ func (h *PterodactylHandler) SendCommand(w http.ResponseWriter, r *http.Request)
 	vars := mux.Vars(r)
 	serverName := vars["serverName"]
 	command := r.FormValue("command")
+
+	if command == "" {
+		http.Error(w, "Command is required", http.StatusBadRequest)
+		return
+	}
+	if !isValidCommand(command) {
+		http.Error(w, "Invalid command format", http.StatusBadRequest)
+		return
+	}
 
 	server, err := h.Store.GetServerByName(serverName)
 	if err != nil {
@@ -569,4 +581,20 @@ func isActionAllowed(allowedActionsJSON string, action string) bool {
 		}
 	}
 	return false
+}
+
+// isValidCommand checks if a command is safe to send to the backend.
+// It rejects commands with shell metacharacters.
+func isValidCommand(command string) bool {
+	if command == "" {
+		return false
+	}
+	// Reject commands containing shell metacharacters
+	dangerousChars := []string{";", "&", "|", "`", "$", "(", ")", "<", ">", "\\", "\n", "\r"}
+	for _, ch := range dangerousChars {
+		if strings.Contains(command, ch) {
+			return false
+		}
+	}
+	return true
 }

@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -434,7 +435,9 @@ func (h *AutomationHandler) ExportAuditLog(w http.ResponseWriter, r *http.Reques
 		format = "json"
 	}
 
-	entries, err := h.Store.ListAuditLog(10000, 0)
+	// Limit export to prevent memory exhaustion
+	const maxExportLimit = 5000
+	entries, err := h.Store.ListAuditLog(maxExportLimit, 0)
 	if err != nil {
 		http.Error(w, "Failed to fetch audit log", http.StatusInternalServerError)
 		return
@@ -449,9 +452,10 @@ func (h *AutomationHandler) ExportAuditLog(w http.ResponseWriter, r *http.Reques
 		w.Header().Set("Content-Disposition", "attachment; filename=audit_log.csv")
 		w.Write([]byte("timestamp,user_email,server_name,action,params,result,reason,source\n"))
 		for _, e := range entries {
-			w.Write([]byte(fmt.Sprintf("%s,%s,%s,%s,%s,%s,%s,%s\n",
-				e.Timestamp, e.UserEmail, e.ServerName, e.Action,
-				string(e.Params), e.Result, e.Reason, e.Source)))
+			line := fmt.Sprintf("%s,%s,%s,%s,%s,%s,%s,%s\n",
+				escapeCSV(e.Timestamp), escapeCSV(e.UserEmail), escapeCSV(e.ServerName), escapeCSV(e.Action),
+				escapeCSV(string(e.Params)), escapeCSV(e.Result), escapeCSV(e.Reason), escapeCSV(e.Source))
+			w.Write([]byte(line))
 		}
 	default:
 		w.Header().Set("Content-Type", "application/json")
@@ -460,7 +464,25 @@ func (h *AutomationHandler) ExportAuditLog(w http.ResponseWriter, r *http.Reques
 	}
 }
 
+func escapeCSV(field string) string {
+	// Prevent CSV injection by prefixing formula-triggering characters
+	if len(field) > 0 {
+		switch field[0] {
+		case '=', '+', '-', '@', '\t', '\r':
+			field = "'" + field
+		}
+	}
+	// Quote fields containing commas, quotes, or newlines
+	if strings.ContainsAny(field, ",\"\n\r") {
+		field = strings.ReplaceAll(field, "\"", "\"\"")
+		field = "\"" + field + "\""
+	}
+	return field
+}
+
 func (h *AutomationHandler) TestConstraint(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1 MB limit
+
 	var req struct {
 		Condition string           `json:"condition"`
 		Server    engine.ServerEnv `json:"server"`

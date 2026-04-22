@@ -1,6 +1,7 @@
 package database
 
 import (
+	"crypto/hmac"
 	"crypto/sha256"
 	"database/sql"
 	"embed"
@@ -1222,10 +1223,9 @@ func (s *Store) UpdateAPIKeyLastUsed(id int) error {
 var APIKeyPepper string
 
 func HashAPIKey(key string) string {
-	h := sha256.New()
-	h.Write([]byte(APIKeyPepper))
-	h.Write([]byte(key))
-	return hex.EncodeToString(h.Sum(nil))
+	mac := hmac.New(sha256.New, []byte(APIKeyPepper))
+	mac.Write([]byte(key))
+	return hex.EncodeToString(mac.Sum(nil))
 }
 
 type ServerTemplate struct {

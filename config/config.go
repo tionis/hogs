@@ -19,6 +19,10 @@ type Config struct {
 	OIDCRedirectURL  string
 	SessionSecret    string
 
+	// Security Secrets
+	APIKeyPepper string
+	CSRFSecret   string
+
 	// OIDC Role Configuration
 	OIDCAdminGroup  string
 	OIDCUserGroup   string
@@ -80,6 +84,9 @@ func LoadConfig() *Config {
 		OIDCClientSecret: getEnv("OIDC_CLIENT_SECRET", ""),
 		OIDCRedirectURL:  getEnv("OIDC_REDIRECT_URL", "http://localhost:8080/auth/callback"),
 		SessionSecret:    getEnv("SESSION_SECRET", ""),
+
+		APIKeyPepper: getEnv("API_KEY_PEPPER", ""),
+		CSRFSecret:   getEnv("CSRF_SECRET", ""),
 
 		OIDCAdminGroup:  getEnv("OIDC_ADMIN_GROUP", "admins"),
 		OIDCUserGroup:   getEnv("OIDC_USER_GROUP", ""),

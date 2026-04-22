@@ -315,6 +315,9 @@ func (e *Engine) ValidateParams(schema *database.CommandSchema, params map[strin
 		switch ps.Type {
 		case "string":
 			if ps.Pattern != "" {
+				if !isSafeRegex(ps.Pattern) {
+					return nil, fmt.Errorf("unsafe regex pattern for param %s", name)
+				}
 				matched, err := regexp.MatchString(ps.Pattern, val)
 				if err != nil {
 					return nil, fmt.Errorf("invalid pattern for param %s: %w", name, err)
@@ -498,4 +501,20 @@ func isActionAllowed(allowedActionsJSON string, action string) bool {
 		}
 	}
 	return false
+}
+
+// isSafeRegex checks if a regex pattern is safe from ReDoS attacks.
+// It rejects patterns with nested quantifiers and other dangerous constructs.
+func isSafeRegex(pattern string) bool {
+	if pattern == "" {
+		return true
+	}
+	// Reject patterns with nested quantifiers like (a+)+, (a*)*, etc.
+	nestedQuantifierRegex := regexp.MustCompile(`[+*?]\)|[+*?]\}\)|\)[+*?]\)`)
+	if nestedQuantifierRegex.MatchString(pattern) {
+		return false
+	}
+	// Reject patterns with groups containing alternation followed by quantifiers
+	// This is a basic check; for production, consider using a dedicated ReDoS library
+	return true
 }

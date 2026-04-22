@@ -1,7 +1,9 @@
 package api
 
 import (
+	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
@@ -42,10 +44,7 @@ func (rl *RateLimiter) Cleanup() {
 
 func (rl *RateLimiter) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ip := r.RemoteAddr
-		if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
-			ip = forwarded
-		}
+		ip := getClientIP(r)
 
 		rl.mu.Lock()
 		now := time.Now()
@@ -70,4 +69,27 @@ func (rl *RateLimiter) Middleware(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+func getClientIP(r *http.Request) string {
+	ip := r.RemoteAddr
+	// Strip port if present
+	if idx := strings.LastIndex(ip, ":"); idx != -1 {
+		ip = ip[:idx]
+	}
+	// Only trust X-Forwarded-For from localhost (indicating a local reverse proxy)
+	// In production, configure a list of trusted proxy IPs
+	if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
+		if strings.HasPrefix(r.RemoteAddr, "127.0.0.1:") || strings.HasPrefix(r.RemoteAddr, "[::1]:") {
+			// Take the leftmost (original client) IP
+			parts := strings.Split(forwarded, ",")
+			if len(parts) > 0 {
+				candidate := strings.TrimSpace(parts[0])
+				if net.ParseIP(candidate) != nil {
+					ip = candidate
+				}
+			}
+		}
+	}
+	return ip
 }

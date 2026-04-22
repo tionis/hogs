@@ -26,21 +26,41 @@ import (
 	"github.com/gorilla/mux"
 )
 
-func securityHeadersMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Content-Type-Options", "nosniff")
-		w.Header().Set("X-Frame-Options", "DENY")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;")
-		next.ServeHTTP(w, r)
-	})
+func securityHeadersMiddleware(cfg *config.Config) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("X-Content-Type-Options", "nosniff")
+			w.Header().Set("X-Frame-Options", "DENY")
+			w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:;")
+			w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+			if cfg.TLSCert != "" && cfg.TLSKey != "" {
+				w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 func main() {
 	cfg := config.LoadConfig()
 
-	// Set API key hashing pepper (uses session secret as fallback)
-	if cfg.SessionSecret != "" {
+	// Set API key hashing pepper (uses dedicated pepper or session secret as fallback)
+	if cfg.APIKeyPepper != "" {
+		database.APIKeyPepper = cfg.APIKeyPepper
+	} else if cfg.SessionSecret != "" {
 		database.APIKeyPepper = cfg.SessionSecret
+		log.Println("WARNING: API_KEY_PEPPER not set, using SESSION_SECRET as fallback. Set API_KEY_PEPPER for better security.")
+	} else {
+		log.Fatalln("FATAL: Either API_KEY_PEPPER or SESSION_SECRET must be configured.")
+	}
+
+	csrfSecret := cfg.CSRFSecret
+	if csrfSecret == "" {
+		csrfSecret = cfg.SessionSecret
+		if csrfSecret == "" {
+			log.Fatalln("FATAL: Either CSRF_SECRET or SESSION_SECRET must be configured.")
+		}
+		log.Println("WARNING: CSRF_SECRET not set, using SESSION_SECRET as fallback. Set CSRF_SECRET for better security.")
 	}
 
 	store, err := database.NewStore(cfg.DatabasePath)
@@ -101,7 +121,7 @@ func main() {
 		log.Println("Agent WebSocket endpoint enabled at /agent/ws")
 	}
 
-	pteroHandler := api.NewPterodactylHandler(store, cfg, eng, agentHub)
+	pteroHandler := api.NewPterodactylHandler(store, cfg, eng, agentHub, authenticator)
 	automationHandler := api.NewAutomationHandler(store, cfg, eng)
 	dashboardHandler := api.NewDashboardHandler(store, cfg, eng, agentHub)
 	apiKeyHandler := api.NewAPIKeyHandler(store)
@@ -141,7 +161,6 @@ func main() {
 
 	router := mux.NewRouter()
 
-	csrfSecret := cfg.SessionSecret
 	csrfExemptPrefixes := []string{"/agent/ws", "/scim/v2", "/auth/callback", "/auth/backchannel-logout", "/api/"}
 	csrfRouter := auth.CSRFMiddleware(csrfSecret, csrfExemptPrefixes, router)
 	apiKeyRouter := auth.APIKeyMiddleware(store, csrfRouter)
@@ -315,7 +334,7 @@ func main() {
 	router.HandleFunc("/{serverName}", webHandler.ServerDetail).Methods("GET")
 
 	// Add security headers middleware
-	secureHandler := securityHeadersMiddleware(apiKeyRouter)
+	secureHandler := securityHeadersMiddleware(cfg)(apiKeyRouter)
 
 	srv := &http.Server{
 		Addr:    ":" + cfg.Port,
