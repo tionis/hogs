@@ -1,0 +1,72 @@
+{{define "title"}}Backups{{end}}
+
+{{define "content"}}
+<nav aria-label="breadcrumb">
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="/admin">Admin</a></li>
+    <li class="breadcrumb-item active" aria-current="page">Backups</li>
+  </ol>
+</nav>
+
+<h2>Backups</h2>
+<p class="text-muted">Manage restic backups for agent-managed servers. Backup operations run on the agent node.</p>
+
+{{if .Servers}}
+<div class="row row-cols-1 row-cols-md-2 g-4">
+  {{range .Servers}}
+  <div class="col">
+    <div class="card h-100">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span><strong>{{.Name}}</strong> <span class="game-badge" style="{{gameBadgeCSS .GameType}}; font-size:0.7em;">{{gameIcon .GameType}}{{gameDisplayName .GameType}}</span></span>
+        <span class="badge bg-secondary">Agent</span>
+      </div>
+      <div class="card-body">
+        <div class="d-flex gap-2 mb-3">
+          <button class="btn btn-sm btn-outline-primary" onclick="backupAction('{{.Name}}', 'create', this)">Create Backup</button>
+          <button class="btn btn-sm btn-outline-info" onclick="backupAction('{{.Name}}', 'list', this)">List Snapshots</button>
+        </div>
+        <div id="backup-result-{{.Name}}" style="display:none;">
+          <pre class="small mb-0" style="background:var(--bg-input);padding:0.5rem;border-radius:4px;max-height:300px;overflow:auto;"><code id="backup-output-{{.Name}}"></code></pre>
+        </div>
+      </div>
+    </div>
+  </div>
+  {{end}}
+</div>
+{{else}}
+<div class="alert alert-info">No servers configured.</div>
+{{end}}
+
+<script>
+async function backupAction(serverName, action, btn) {
+  setButtonLoading(btn, true);
+  const resultDiv = document.getElementById('backup-result-' + serverName);
+  const outputPre = document.getElementById('backup-output-' + serverName);
+  try {
+    const resp = await fetch('/api/agents/' + encodeURIComponent(serverName) + '/backup/' + action, {
+      method: 'POST',
+      headers: {'X-CSRF-Token': getCsrfToken()}
+    });
+    const data = await resp.json();
+    outputPre.textContent = JSON.stringify(data, null, 2);
+    resultDiv.style.display = 'block';
+  } catch (err) {
+    outputPre.textContent = 'Error: ' + err.message;
+    resultDiv.style.display = 'block';
+  } finally {
+    setButtonLoading(btn, false);
+  }
+}
+
+function setButtonLoading(btn, loading) {
+  btn.disabled = loading;
+  if (loading) btn.dataset.originalText = btn.textContent;
+  btn.textContent = loading ? '...' : (btn.dataset.originalText || btn.textContent);
+}
+
+function getCsrfToken() {
+  const match = document.cookie.match(/hogs-csrf=([^;]+)/);
+  return match ? decodeURIComponent(match[1]) : '';
+}
+</script>
+{{end}}

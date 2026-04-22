@@ -222,6 +222,7 @@ func main() {
 		router.Handle("/admin/users/update", authenticator.RequireRole("admin")(http.HandlerFunc(webHandler.HandleUserUpdate))).Methods("POST")
 		router.Handle("/admin/agents", authenticator.RequireRole("admin")(http.HandlerFunc(webHandler.Agents))).Methods("GET")
 		router.Handle("/admin/audit", authenticator.RequireRole("admin")(http.HandlerFunc(webHandler.AuditLog))).Methods("GET")
+		router.Handle("/admin/backups", authenticator.RequireRole("admin")(http.HandlerFunc(webHandler.Backups))).Methods("GET")
 
 		router.Handle("/admin/pterodactyl/link", authenticator.RequireRole("admin")(http.HandlerFunc(pteroHandler.LinkServer))).Methods("POST")
 		router.Handle("/admin/pterodactyl/unlink", authenticator.RequireRole("admin")(http.HandlerFunc(pteroHandler.UnlinkServer))).Methods("POST")

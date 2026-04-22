@@ -1305,3 +1305,40 @@ func (h *WebHandler) Dashboard(w http.ResponseWriter, r *http.Request) {
 	}
 	buf.WriteTo(w)
 }
+
+func (h *WebHandler) Backups(w http.ResponseWriter, r *http.Request) {
+	servers, err := h.Store.ListServers()
+	if err != nil {
+		http.Error(w, "Failed to load servers", http.StatusInternalServerError)
+		return
+	}
+
+	data := struct {
+		Servers        []database.Server
+		Authenticated  bool
+		UserRole       string
+		SiteName       string
+		UserEmail      string
+		BackgroundURLs BackgroundURLs
+	}{
+		Servers:        servers,
+		Authenticated:  true,
+		UserRole:       "admin",
+		SiteName:       h.siteName(),
+		UserEmail:      h.Auth.GetUserEmail(r),
+		BackgroundURLs: h.pickBackgrounds([]string{"home"}),
+	}
+
+	tmpl, err := template.New("base.html").Funcs(sharedFuncMap()).ParseFS(templateFS, "templates/base.html", "templates/backups.html")
+	if err != nil {
+		http.Error(w, "Template error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, data); err != nil {
+		http.Error(w, "Render error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	buf.WriteTo(w)
+}
