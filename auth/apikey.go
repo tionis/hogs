@@ -23,7 +23,9 @@ func NewAPIKeyAuthenticator(store *database.Store) *APIKeyAuthenticator {
 
 func GenerateAPIKey() (plain, hash, prefix string) {
 	b := make([]byte, 32)
-	rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		return "", "", ""
+	}
 	plain = apiKeyPrefix + hex.EncodeToString(b)
 	hash = database.HashAPIKey(plain)
 	prefix = plain[:8]

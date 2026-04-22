@@ -1217,9 +1217,15 @@ func (s *Store) UpdateAPIKeyLastUsed(id int) error {
 	return err
 }
 
+// APIKeyPepper is used to add a pepper to API key hashing.
+// It should be set at application startup.
+var APIKeyPepper string
+
 func HashAPIKey(key string) string {
-	h := sha256.Sum256([]byte(key))
-	return hex.EncodeToString(h[:])
+	h := sha256.New()
+	h.Write([]byte(APIKeyPepper))
+	h.Write([]byte(key))
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 type ServerTemplate struct {
@@ -1746,7 +1752,7 @@ func (s *Store) CreateAgent(a *Agent) error {
 		a.TokenPrefix = a.Token[:8]
 	}
 	result, err := s.DB.Exec("INSERT INTO agents (name, token, token_hash, token_prefix, node_name, capabilities) VALUES (?, ?, ?, ?, ?, ?)",
-		a.Name, a.Token, a.TokenHash, a.TokenPrefix, a.NodeName, string(a.Capabilities))
+		a.Name, "", a.TokenHash, a.TokenPrefix, a.NodeName, string(a.Capabilities))
 	if err != nil {
 		return err
 	}

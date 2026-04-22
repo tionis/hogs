@@ -326,8 +326,17 @@ func (h *ServerHandler) ServeBackgroundFile(w http.ResponseWriter, r *http.Reque
 	filename := vars["filename"]
 	bgDir := filepath.Join(h.Config.GameDataPath, "backgrounds")
 
+	// Prevent path traversal
+	target := filepath.Join(bgDir, filename)
+	cleanTarget := filepath.Clean(target)
+	cleanDir := filepath.Clean(bgDir)
+	if !strings.HasPrefix(cleanTarget, cleanDir+string(filepath.Separator)) && cleanTarget != cleanDir {
+		http.Error(w, "Invalid filename", http.StatusBadRequest)
+		return
+	}
+
 	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
-	http.ServeFile(w, r, filepath.Join(bgDir, filename))
+	http.ServeFile(w, r, cleanTarget)
 }
 
 func (h *ServerHandler) UploadBackground(w http.ResponseWriter, r *http.Request) {
@@ -343,9 +352,21 @@ func (h *ServerHandler) UploadBackground(w http.ResponseWriter, r *http.Request)
 	}
 	defer file.Close()
 
+	allowedExts := map[string]bool{".jpg": true, ".jpeg": true, ".png": true, ".gif": true, ".webp": true, ".svg": true}
+	ext := strings.ToLower(filepath.Ext(header.Filename))
+	if !allowedExts[ext] {
+		http.Error(w, "Only image files are allowed", http.StatusBadRequest)
+		return
+	}
+
 	fileData, err := io.ReadAll(file)
 	if err != nil {
 		http.Error(w, "Failed to read file", http.StatusInternalServerError)
+		return
+	}
+
+	if len(fileData) > 32<<20 {
+		http.Error(w, "File too large", http.StatusBadRequest)
 		return
 	}
 
@@ -360,7 +381,6 @@ func (h *ServerHandler) UploadBackground(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	ext := filepath.Ext(header.Filename)
 	filename := fmt.Sprintf("%d%s", time.Now().UnixNano(), ext)
 	dst := filepath.Join(bgDir, filename)
 

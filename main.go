@@ -26,8 +26,22 @@ import (
 	"github.com/gorilla/mux"
 )
 
+func securityHeadersMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;")
+		next.ServeHTTP(w, r)
+	})
+}
+
 func main() {
 	cfg := config.LoadConfig()
+
+	// Set API key hashing pepper (uses session secret as fallback)
+	if cfg.SessionSecret != "" {
+		database.APIKeyPepper = cfg.SessionSecret
+	}
 
 	store, err := database.NewStore(cfg.DatabasePath)
 	if err != nil {
@@ -300,15 +314,24 @@ func main() {
 
 	router.HandleFunc("/{serverName}", webHandler.ServerDetail).Methods("GET")
 
+	// Add security headers middleware
+	secureHandler := securityHeadersMiddleware(apiKeyRouter)
+
 	srv := &http.Server{
 		Addr:    ":" + cfg.Port,
-		Handler: apiKeyRouter,
+		Handler: secureHandler,
 	}
 
 	go func() {
 		log.Printf("Starting server on :%s", cfg.Port)
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("could not start server: %s\n", err)
+		if cfg.TLSCert != "" && cfg.TLSKey != "" {
+			if err := srv.ListenAndServeTLS(cfg.TLSCert, cfg.TLSKey); err != nil && err != http.ErrServerClosed {
+				log.Fatalf("could not start server: %s\n", err)
+			}
+		} else {
+			if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				log.Fatalf("could not start server: %s\n", err)
+			}
 		}
 	}()
 

@@ -4,6 +4,7 @@
 
 # Binaries
 hogs
+hogs-agent
 main
 
 # Dev Secrets

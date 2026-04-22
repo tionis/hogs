@@ -137,7 +137,14 @@ func NewHub(store *database.Store, cfg *config.Config) *Hub {
 		Conns:   make(map[int]*AgentConn),
 		pending: make(map[string]*pendingRequest),
 		upgrader: websocket.Upgrader{
-			CheckOrigin: func(r *http.Request) bool { return true },
+			CheckOrigin: func(r *http.Request) bool {
+				origin := r.Header.Get("Origin")
+				if origin == "" {
+					return true
+				}
+				// Allow same-origin connections only
+				return origin == "http://"+r.Host || origin == "https://"+r.Host || origin == "ws://"+r.Host || origin == "wss://"+r.Host
+			},
 		},
 	}
 }

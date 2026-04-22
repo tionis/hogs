@@ -77,6 +77,10 @@ func (h *APIKeyHandler) CreateAPIKey(w http.ResponseWriter, r *http.Request) {
 	}
 
 	plain, hash, prefix := auth.GenerateAPIKey()
+	if plain == "" {
+		http.Error(w, "Failed to generate API key", http.StatusInternalServerError)
+		return
+	}
 
 	key := &database.APIKey{
 		Name:      name,

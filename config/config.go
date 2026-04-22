@@ -54,6 +54,10 @@ type Config struct {
 	RateLimitLogin int
 	RateLimitAPI   int
 	RateLimitSCIM  int
+
+	// TLS
+	TLSCert string
+	TLSKey  string
 }
 
 // LoadConfig reads configuration from environment variables or sets defaults.
@@ -75,7 +79,7 @@ func LoadConfig() *Config {
 		OIDCClientID:     getEnv("OIDC_CLIENT_ID", ""),
 		OIDCClientSecret: getEnv("OIDC_CLIENT_SECRET", ""),
 		OIDCRedirectURL:  getEnv("OIDC_REDIRECT_URL", "http://localhost:8080/auth/callback"),
-		SessionSecret:    getEnv("SESSION_SECRET", "super-secret-key-change-me"),
+		SessionSecret:    getEnv("SESSION_SECRET", ""),
 
 		OIDCAdminGroup:  getEnv("OIDC_ADMIN_GROUP", "admins"),
 		OIDCUserGroup:   getEnv("OIDC_USER_GROUP", ""),
@@ -104,6 +108,9 @@ func LoadConfig() *Config {
 		RateLimitLogin: mustAtoi(getEnv("HOGS_RATE_LIMIT_LOGIN", "5")),
 		RateLimitAPI:   mustAtoi(getEnv("HOGS_RATE_LIMIT_API", "60")),
 		RateLimitSCIM:  mustAtoi(getEnv("HOGS_RATE_LIMIT_SCIM", "100")),
+
+		TLSCert: getEnv("TLS_CERT", ""),
+		TLSKey:  getEnv("TLS_KEY", ""),
 	}
 }
 

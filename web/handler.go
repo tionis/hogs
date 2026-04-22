@@ -186,6 +186,11 @@ func (h *WebHandler) HandleFileUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
+	if isDangerousFile(header.Filename) {
+		http.Error(w, "File type not allowed", http.StatusBadRequest)
+		return
+	}
+
 	if !isValidPath(serverName, relPath) {
 		http.Error(w, "Invalid path", http.StatusBadRequest)
 		return
@@ -224,7 +229,16 @@ func (h *WebHandler) HandleFileDelete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	targetPath := filepath.Join(h.Config.GameDataPath, serverName, relPath)
-	if err := os.RemoveAll(targetPath); err != nil {
+	info, err := os.Stat(targetPath)
+	if err != nil {
+		http.Error(w, "File not found", http.StatusNotFound)
+		return
+	}
+	if info.IsDir() {
+		http.Error(w, "Cannot delete directories", http.StatusBadRequest)
+		return
+	}
+	if err := os.Remove(targetPath); err != nil {
 		http.Error(w, "Error deleting file", http.StatusInternalServerError)
 		return
 	}
@@ -258,17 +272,31 @@ func (h *WebHandler) ServeAssets(w http.ResponseWriter, r *http.Request) {
 }
 
 func isValidPath(serverName, path string) bool {
-	// prevent .. traversal
-	if strings.Contains(path, "..") || strings.Contains(serverName, "..") {
+	if strings.Contains(serverName, "..") {
 		return false
 	}
-	// serverName restricted chars check
 	for _, r := range serverName {
 		if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_') {
 			return false
 		}
 	}
-	return true
+	if filepath.IsAbs(path) {
+		return false
+	}
+	clean := filepath.Clean(path)
+	return clean != ".." && !strings.HasPrefix(clean, "..")
+}
+
+var dangerousExtensions = map[string]bool{
+	".exe": true, ".dll": true, ".sh": true, ".bat": true,
+	".cmd": true, ".php": true, ".jsp": true, ".asp": true,
+	".aspx": true, ".py": true, ".rb": true, ".pl": true,
+	".cgi": true, ".com": true, ".app": true,
+}
+
+func isDangerousFile(name string) bool {
+	ext := strings.ToLower(filepath.Ext(name))
+	return dangerousExtensions[ext]
 }
 
 // ... (existing Create/Update/Delete handlers) ...

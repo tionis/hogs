@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strconv"
 	"time"
 
@@ -423,6 +424,10 @@ func (h *PterodactylHandler) WhitelistSet(w http.ResponseWriter, r *http.Request
 		http.Error(w, "Username is required", http.StatusBadRequest)
 		return
 	}
+	if !isValidMinecraftUsername(username) {
+		http.Error(w, "Invalid username format", http.StatusBadRequest)
+		return
+	}
 
 	server, err := h.Store.GetServerByName(serverName)
 	if err != nil {
@@ -527,6 +532,12 @@ func (h *PterodactylHandler) WhitelistStatus(w http.ResponseWriter, r *http.Requ
 	} else {
 		json.NewEncoder(w).Encode(map[string]string{"username": ""})
 	}
+}
+
+var minecraftUsernameRegex = regexp.MustCompile(`^[a-zA-Z0-9_]{3,16}$`)
+
+func isValidMinecraftUsername(name string) bool {
+	return minecraftUsernameRegex.MatchString(name)
 }
 
 func whitelistAddCommand(gameType, player string) string {

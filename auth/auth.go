@@ -31,6 +31,15 @@ type Authenticator struct {
 func NewAuthenticator(cfg *config.Config, store *database.Store) (*Authenticator, error) {
 	ctx := context.Background()
 
+	if cfg.SessionSecret == "" {
+		b := make([]byte, 32)
+		if _, err := rand.Read(b); err != nil {
+			return nil, err
+		}
+		cfg.SessionSecret = base64.StdEncoding.EncodeToString(b)
+		log.Println("WARNING: SESSION_SECRET not set. A random secret has been generated. Sessions will not persist across restarts. Set SESSION_SECRET to avoid this.")
+	}
+
 	if cfg.OIDCProviderURL == "" {
 		return nil, nil
 	}
@@ -55,7 +64,8 @@ func NewAuthenticator(cfg *config.Config, store *database.Store) (*Authenticator
 		Path:     "/",
 		MaxAge:   86400 * 30,
 		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
+		SameSite: http.SameSiteStrictMode,
+		Secure:   true,
 	}
 
 	return &Authenticator{
@@ -100,19 +110,19 @@ func (a *Authenticator) HandleCallback(w http.ResponseWriter, r *http.Request) {
 
 	oauth2Token, err := a.Config.Exchange(r.Context(), r.URL.Query().Get("code"))
 	if err != nil {
-		http.Error(w, "Failed to exchange token: "+err.Error(), http.StatusInternalServerError)
+		http.Error(w, "Failed to exchange token", http.StatusInternalServerError)
 		return
 	}
 
 	rawIDToken, ok := oauth2Token.Extra("id_token").(string)
 	if !ok {
-		http.Error(w, "No id_token field in oauth2 token", http.StatusInternalServerError)
+		http.Error(w, "Authentication failed", http.StatusInternalServerError)
 		return
 	}
 
 	idToken, err := a.Verifier.Verify(r.Context(), rawIDToken)
 	if err != nil {
-		http.Error(w, "Failed to verify ID Token: "+err.Error(), http.StatusInternalServerError)
+		http.Error(w, "Authentication failed", http.StatusInternalServerError)
 		return
 	}
 
@@ -122,7 +132,7 @@ func (a *Authenticator) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		Groups interface{} `json:"-"`
 	}
 	if err := idToken.Claims(&claims); err != nil {
-		http.Error(w, "Failed to parse claims: "+err.Error(), http.StatusInternalServerError)
+		http.Error(w, "Authentication failed", http.StatusInternalServerError)
 		return
 	}
 
@@ -130,7 +140,7 @@ func (a *Authenticator) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	role := a.resolveRole(claims.Email, groups)
 
 	if err := a.provisionUser(claims.Email, role); err != nil {
-		http.Error(w, "Failed to provision user: "+err.Error(), http.StatusInternalServerError)
+		http.Error(w, "Authentication failed", http.StatusInternalServerError)
 		return
 	}
 
@@ -383,8 +393,7 @@ func (a *Authenticator) CleanupSessions() {
 
 func generateRandomState() (string, error) {
 	b := make([]byte, 32)
-	_, err := rand.Read(b)
-	if err != nil {
+	if _, err := rand.Read(b); err != nil {
 		return "", err
 	}
 	return base64.StdEncoding.EncodeToString(b), nil

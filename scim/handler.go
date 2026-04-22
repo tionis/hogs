@@ -1,6 +1,7 @@
 package scim
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -27,7 +28,7 @@ func NewHandler(store *database.Store, cfg *config.Config, authenticator *auth.A
 func (h *Handler) BearerAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-		if token == "" || token != h.Cfg.SCIMBearerToken {
+		if token == "" || subtle.ConstantTimeCompare([]byte(token), []byte(h.Cfg.SCIMBearerToken)) != 1 {
 			scimError(w, 401, "Unauthorized", "Invalid or missing bearer token")
 			return
 		}

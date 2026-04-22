@@ -4,6 +4,7 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
 	"net/http"
 	"strings"
@@ -28,7 +29,7 @@ func signCSRFToken(token, secret string) string {
 
 func verifyCSRFToken(token, signature, secret string) bool {
 	expected := signCSRFToken(token, secret)
-	return hmac.Equal([]byte(signature), []byte(expected))
+	return subtle.ConstantTimeCompare([]byte(signature), []byte(expected)) == 1
 }
 
 func CSRFMiddleware(secret string, exemptPrefixes []string, next http.Handler) http.Handler {
@@ -86,9 +87,9 @@ func setCSRFCookie(w http.ResponseWriter, secret string) {
 		Name:     csrfCookieName,
 		Value:    token + "." + signature,
 		Path:     "/",
-		HttpOnly: false,
-		SameSite: http.SameSiteLaxMode,
-		Secure:   false,
+		HttpOnly: true,
+		SameSite: http.SameSiteStrictMode,
+		Secure:   true,
 	}
 	http.SetCookie(w, cookie)
 }

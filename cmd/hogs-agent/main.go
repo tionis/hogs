@@ -389,7 +389,10 @@ func executeCommand(command string) (string, error) {
 	running := strings.TrimSpace(string(psOut)) != ""
 
 	if running {
-		out, err := exec.Command("podman", "exec", containerName, "sh", "-c", command).CombinedOutput()
+		// Split command into args to avoid shell injection
+		args := []string{"exec", containerName}
+		args = append(args, strings.Fields(command)...)
+		out, err := exec.Command("podman", args...).CombinedOutput()
 		return strings.TrimSpace(string(out)), err
 	}
 
@@ -411,15 +414,25 @@ func getServiceStatus(unit string) (active bool, substate string) {
 
 // ── File Management ──
 
-func resolvePath(p string) string {
+func resolvePath(p string) (string, error) {
+	var path string
 	if filepath.IsAbs(p) {
-		return p
+		path = filepath.Clean(p)
+	} else {
+		path = filepath.Clean(filepath.Join(dataDir, p))
 	}
-	return filepath.Join(dataDir, p)
+	cleanDataDir := filepath.Clean(dataDir)
+	if !strings.HasPrefix(path, cleanDataDir+string(filepath.Separator)) && path != cleanDataDir {
+		return "", fmt.Errorf("path traversal detected")
+	}
+	return path, nil
 }
 
 func filelist(p string) map[string]interface{} {
-	path := resolvePath(p)
+	path, err := resolvePath(p)
+	if err != nil {
+		return map[string]interface{}{"success": false, "error": err.Error()}
+	}
 	entries, err := os.ReadDir(path)
 	if err != nil {
 		return map[string]interface{}{"success": false, "error": err.Error()}
@@ -452,7 +465,10 @@ func filelist(p string) map[string]interface{} {
 }
 
 func fileRead(p string) map[string]interface{} {
-	path := resolvePath(p)
+	path, err := resolvePath(p)
+	if err != nil {
+		return map[string]interface{}{"success": false, "error": err.Error()}
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return map[string]interface{}{"success": false, "error": err.Error()}
@@ -469,7 +485,10 @@ func fileRead(p string) map[string]interface{} {
 }
 
 func fileWrite(p string, contentBase64 string) map[string]interface{} {
-	path := resolvePath(p)
+	path, err := resolvePath(p)
+	if err != nil {
+		return map[string]interface{}{"success": false, "error": err.Error()}
+	}
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return map[string]interface{}{"success": false, "error": err.Error()}
@@ -492,18 +511,29 @@ func fileWrite(p string, contentBase64 string) map[string]interface{} {
 }
 
 func fileDelete(p string) map[string]interface{} {
-	path := resolvePath(p)
-	err := os.RemoveAll(path)
+	path, err := resolvePath(p)
 	if err != nil {
+		return map[string]interface{}{"success": false, "error": err.Error()}
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return map[string]interface{}{"success": false, "error": err.Error()}
+	}
+	if info.IsDir() {
+		return map[string]interface{}{"success": false, "error": "cannot delete directories"}
+	}
+	if err := os.Remove(path); err != nil {
 		return map[string]interface{}{"success": false, "error": err.Error()}
 	}
 	return map[string]interface{}{"success": true, "path": path}
 }
 
 func mkdir(p string) map[string]interface{} {
-	path := resolvePath(p)
-	err := os.MkdirAll(path, 0755)
+	path, err := resolvePath(p)
 	if err != nil {
+		return map[string]interface{}{"success": false, "error": err.Error()}
+	}
+	if err := os.MkdirAll(path, 0755); err != nil {
 		return map[string]interface{}{"success": false, "error": err.Error()}
 	}
 	return map[string]interface{}{"success": true, "path": path}
@@ -520,13 +550,20 @@ func resticEnv(repo, password string) []string {
 
 func backupCreate(repo, password string, paths []string, tags []string) map[string]interface{} {
 	if len(paths) == 0 {
-		resolved := resolvePath(".")
+		resolved, err := resolvePath(".")
+		if err != nil {
+			return map[string]interface{}{"success": false, "error": err.Error()}
+		}
 		paths = []string{resolved}
 	}
 
 	args := []string{"backup"}
 	for _, p := range paths {
-		args = append(args, resolvePath(p))
+		resolved, err := resolvePath(p)
+		if err != nil {
+			return map[string]interface{}{"success": false, "error": err.Error()}
+		}
+		args = append(args, resolved)
 	}
 	for _, t := range tags {
 		args = append(args, "--tag", t)
@@ -561,10 +598,17 @@ func backupCreate(repo, password string, paths []string, tags []string) map[stri
 }
 
 func backupRestore(repo, password, snapshot, target string) map[string]interface{} {
+	var err error
 	if target == "" {
-		target = resolvePath(".")
+		target, err = resolvePath(".")
+		if err != nil {
+			return map[string]interface{}{"success": false, "error": err.Error()}
+		}
 	} else {
-		target = resolvePath(target)
+		target, err = resolvePath(target)
+		if err != nil {
+			return map[string]interface{}{"success": false, "error": err.Error()}
+		}
 	}
 
 	args := []string{"restore", snapshot, "--target", target}

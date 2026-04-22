@@ -9,7 +9,10 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/tionis/hogs/database"
@@ -75,7 +78,31 @@ func matchesEvent(events json.RawMessage, eventType string) bool {
 	return false
 }
 
+func isPrivateURL(rawURL string) bool {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return true
+	}
+	host := u.Hostname()
+	if host == "" {
+		return true
+	}
+	if strings.ToLower(host) == "localhost" || host == "127.0.0.1" || host == "::1" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	if ip != nil {
+		return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast()
+	}
+	return false
+}
+
 func (d *Dispatcher) sendOne(w database.Webhook, payload []byte) {
+	if isPrivateURL(w.URL) {
+		log.Printf("webhook: blocked request to private URL for %q", w.Name)
+		return
+	}
+
 	signature := computeSignature(w.Secret, payload)
 
 	req, err := http.NewRequest(http.MethodPost, w.URL, bytes.NewReader(payload))

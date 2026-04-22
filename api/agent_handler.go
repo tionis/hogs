@@ -101,6 +101,10 @@ func (h *AgentHandler) CreateAgent(w http.ResponseWriter, r *http.Request) {
 	token := r.FormValue("token")
 	if token == "" {
 		token = generateAgentToken()
+		if token == "" {
+			http.Error(w, "Failed to generate token", http.StatusInternalServerError)
+			return
+		}
 	}
 
 	nodeName := r.FormValue("node_name")
@@ -193,12 +197,16 @@ func (h *AgentHandler) RegenerateToken(w http.ResponseWriter, r *http.Request) {
 	}
 
 	newToken := generateAgentToken()
+	if newToken == "" {
+		http.Error(w, "Failed to generate token", http.StatusInternalServerError)
+		return
+	}
 	a.Token = newToken
 	a.TokenHash = database.HashAPIKey(newToken)
 	a.TokenPrefix = newToken[:8]
 
 	_, err = h.Store.DB.Exec("UPDATE agents SET token = ?, token_hash = ?, token_prefix = ? WHERE id = ?",
-		a.Token, a.TokenHash, a.TokenPrefix, a.ID)
+		"", a.TokenHash, a.TokenPrefix, a.ID)
 	if err != nil {
 		http.Error(w, "Failed to regenerate token", http.StatusInternalServerError)
 		return
@@ -419,6 +427,8 @@ func (h *AgentHandler) AgentBackupList(w http.ResponseWriter, r *http.Request) {
 
 func generateAgentToken() string {
 	b := make([]byte, 32)
-	rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		return ""
+	}
 	return "hogs_" + hex.EncodeToString(b)
 }
