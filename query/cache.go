@@ -15,15 +15,24 @@ type cacheEntry struct {
 	Timestamp time.Time
 }
 
+type StatusChangeCallback func(serverName string, oldStatus, newStatus *ServerStatus)
+
 type ServerStatusCache struct {
-	mu    sync.RWMutex
-	cache map[string]*cacheEntry
+	mu       sync.RWMutex
+	cache    map[string]*cacheEntry
+	onChange StatusChangeCallback
 }
 
 func NewServerStatusCache() *ServerStatusCache {
 	return &ServerStatusCache{
 		cache: make(map[string]*cacheEntry),
 	}
+}
+
+func (c *ServerStatusCache) SetOnChange(cb StatusChangeCallback) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.onChange = cb
 }
 
 func (c *ServerStatusCache) Get(serverName string) (*ServerStatus, bool) {
@@ -49,10 +58,15 @@ func (c *ServerStatusCache) Get(serverName string) (*ServerStatus, bool) {
 
 func (c *ServerStatusCache) Set(serverName string, status *ServerStatus) {
 	c.mu.Lock()
-	defer c.mu.Unlock()
-
+	oldEntry := c.cache[serverName]
 	c.cache[serverName] = &cacheEntry{
 		Status:    status,
 		Timestamp: time.Now(),
+	}
+	onChange := c.onChange
+	c.mu.Unlock()
+
+	if onChange != nil && oldEntry != nil && oldEntry.Status.Online != status.Online {
+		onChange(serverName, oldEntry.Status, status)
 	}
 }

@@ -12,10 +12,11 @@ import (
 )
 
 type Scheduler struct {
-	Cron   *cron.Cron
-	Store  *database.Store
-	Engine *engine.Engine
-	jobs   map[int]cron.EntryID
+	Cron     *cron.Cron
+	Store    *database.Store
+	Engine   *engine.Engine
+	Notifier engine.Notifier
+	jobs     map[int]cron.EntryID
 }
 
 func NewScheduler(store *database.Store, eng *engine.Engine) *Scheduler {
@@ -24,6 +25,13 @@ func NewScheduler(store *database.Store, eng *engine.Engine) *Scheduler {
 		Store:  store,
 		Engine: eng,
 		jobs:   make(map[int]cron.EntryID),
+	}
+}
+
+func (s *Scheduler) SetNotifier(n engine.Notifier) {
+	s.Notifier = n
+	if s.Engine != nil {
+		s.Engine.SetNotifier(n)
 	}
 }
 
@@ -107,10 +115,16 @@ func (s *Scheduler) executeJob(job database.CronJob, params map[string]string, u
 		resultStr = "blocked"
 		output = result.Reason
 		log.Printf("Cron job %q: blocked - %s", job.Name, result.Reason)
+		if s.Notifier != nil {
+			s.Notifier.Send("cron_failure", fmt.Sprintf("Cron job %q blocked on server %s: %s", job.Name, server.Name, result.Reason))
+		}
 	case "denied":
 		resultStr = "denied"
 		output = result.Reason
 		log.Printf("Cron job %q: denied - %s", job.Name, result.Reason)
+		if s.Notifier != nil {
+			s.Notifier.Send("cron_failure", fmt.Sprintf("Cron job %q denied on server %s: %s", job.Name, server.Name, result.Reason))
+		}
 	case "queued":
 		resultStr = "queued"
 		log.Printf("Cron job %q: queued (not yet implemented as async)", job.Name)

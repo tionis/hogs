@@ -147,6 +147,44 @@ func TestRegisteredGameTypes(t *testing.T) {
 	}
 }
 
+func TestCacheStatusChangeCallback(t *testing.T) {
+	cache := NewServerStatusCache()
+
+	var changeCount int
+	var lastServer string
+	cache.SetOnChange(func(serverName string, oldStatus, newStatus *ServerStatus) {
+		changeCount++
+		lastServer = serverName
+	})
+
+	// Initial set (no old status, should not trigger)
+	cache.Set("srv", &ServerStatus{Online: true, Players: 1, MaxPlayers: 10})
+	if changeCount != 0 {
+		t.Errorf("expected 0 changes on first set, got %d", changeCount)
+	}
+
+	// Same status (no change)
+	cache.Set("srv", &ServerStatus{Online: true, Players: 2, MaxPlayers: 10})
+	if changeCount != 0 {
+		t.Errorf("expected 0 changes for same online status, got %d", changeCount)
+	}
+
+	// Status changes to offline
+	cache.Set("srv", &ServerStatus{Online: false, Players: 0, MaxPlayers: 10})
+	if changeCount != 1 {
+		t.Errorf("expected 1 change, got %d", changeCount)
+	}
+	if lastServer != "srv" {
+		t.Errorf("expected server srv, got %s", lastServer)
+	}
+
+	// Status changes to online
+	cache.Set("srv", &ServerStatus{Online: true, Players: 5, MaxPlayers: 10})
+	if changeCount != 2 {
+		t.Errorf("expected 2 changes, got %d", changeCount)
+	}
+}
+
 func formatType(v interface{}) string {
 	return fmt.Sprintf("%T", v)
 }

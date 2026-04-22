@@ -117,6 +117,10 @@ type consoleLine struct {
 	Timestamp string
 }
 
+type Notifier interface {
+	Send(eventType, message string)
+}
+
 type Hub struct {
 	Store    *database.Store
 	Config   *config.Config
@@ -132,6 +136,8 @@ type Hub struct {
 	consoleClientsMu sync.RWMutex
 	consoleBuffers   map[string][]consoleLine // serverName -> ring buffer
 	consoleBuffersMu sync.RWMutex
+
+	Notifier Notifier
 }
 
 type AgentConn struct {
@@ -163,6 +169,10 @@ func NewHub(store *database.Store, cfg *config.Config) *Hub {
 			},
 		},
 	}
+}
+
+func (h *Hub) SetNotifier(n Notifier) {
+	h.Notifier = n
 }
 
 func (h *Hub) allocRequestID() string {
@@ -231,6 +241,9 @@ func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request) {
 
 	h.Store.UpdateAgentOnline(agent.ID, true)
 	log.Printf("Agent %q (id=%d, node=%s) connected", agent.Name, agent.ID, agent.NodeName)
+	if h.Notifier != nil {
+		h.Notifier.Send("agent_connect", fmt.Sprintf("Agent %s (node=%s) connected", agent.Name, agent.NodeName))
+	}
 
 	go ac.writePump()
 	ac.readPump()
@@ -371,6 +384,10 @@ func (h *Hub) RemoveConn(agentID int) {
 	}
 	h.pendingMu.Unlock()
 
+	agent, _ := h.Store.GetAgent(agentID)
+	if agent != nil && h.Notifier != nil {
+		h.Notifier.Send("agent_disconnect", fmt.Sprintf("Agent %s (node=%s) disconnected", agent.Name, agent.NodeName))
+	}
 	h.Store.UpdateAgentOnline(agentID, false)
 }
 

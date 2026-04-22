@@ -3,6 +3,7 @@ package engine
 import (
 	"encoding/json"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -702,6 +703,63 @@ func TestTestExpressionError(t *testing.T) {
 	_, err := eng.TestExpression("invalid [ syntax", map[string]interface{}{})
 	if err == nil {
 		t.Error("expected compile error for invalid expression")
+	}
+}
+
+type fakeNotifier struct {
+	lastEventType string
+	lastMessage   string
+}
+
+func (f *fakeNotifier) Send(eventType, message string) {
+	f.lastEventType = eventType
+	f.lastMessage = message
+}
+
+func TestEngineSetNotifier(t *testing.T) {
+	eng := testEngine(t)
+	fn := &fakeNotifier{}
+	eng.SetNotifier(fn)
+	if eng.Notifier != fn {
+		t.Error("expected notifier to be set")
+	}
+}
+
+func TestConstraintViolationNotification(t *testing.T) {
+	eng := testEngine(t)
+	fn := &fakeNotifier{}
+	eng.SetNotifier(fn)
+
+	// Use the engine's store
+	store := eng.Store
+	server := &database.Server{Name: "TestServer", GameType: "minecraft", State: "online"}
+	if err := store.CreateServer(server); err != nil {
+		t.Fatalf("failed to create server: %v", err)
+	}
+
+	// Link server so Evaluate proceeds to constraints
+	// Set ACL rule to allow everything so we reach constraints
+	store.DB.Exec("INSERT INTO pterodactyl_servers (server_id, ptero_server_id, ptero_identifier, allowed_actions, acl_rule) VALUES (?, ?, ?, ?, ?)",
+		server.ID, "test-uuid", "test-id", "[\"start\"]", "true")
+
+	// Create a constraint that always blocks
+	store.DB.Exec("INSERT INTO constraints (name, condition, strategy, priority, enabled) VALUES (?, ?, ?, ?, ?)",
+		"test-block", "false", "deny", 1, 1)
+
+	user := &UserEnv{Email: "test@example.com", Role: "user"}
+	result := eng.Evaluate(server, "start", nil, user)
+
+	if result.Allowed {
+		t.Errorf("expected action to be blocked, got result=%s reason=%s", result.Result, result.Reason)
+	}
+	if result.Result != "blocked" {
+		t.Errorf("expected blocked result, got %s", result.Result)
+	}
+	if fn.lastEventType != "constraint_violation" {
+		t.Errorf("expected constraint_violation notification, got %q (result=%s)", fn.lastEventType, result.Result)
+	}
+	if !strings.Contains(fn.lastMessage, "TestServer") {
+		t.Errorf("expected message to contain server name, got %q", fn.lastMessage)
 	}
 }
 

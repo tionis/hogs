@@ -41,14 +41,23 @@ type ActionResult struct {
 	Status  int
 }
 
+type Notifier interface {
+	Send(eventType, message string)
+}
+
 type Engine struct {
-	Store  *database.Store
-	Config *config.Config
-	Cache  *query.ServerStatusCache
+	Store    *database.Store
+	Config   *config.Config
+	Cache    *query.ServerStatusCache
+	Notifier Notifier
 }
 
 func NewEngine(store *database.Store, cfg *config.Config, cache *query.ServerStatusCache) *Engine {
 	return &Engine{Store: store, Config: cfg, Cache: cache}
+}
+
+func (e *Engine) SetNotifier(n Notifier) {
+	e.Notifier = n
 }
 
 func (e *Engine) buildEnv(server *database.Server, user *UserEnv) (map[string]interface{}, error) {
@@ -444,6 +453,9 @@ func (e *Engine) Evaluate(server *database.Server, action string, params map[str
 	} else if !constraintResult.Allowed {
 		auditEntry.Result = "blocked"
 		auditEntry.Reason = constraintResult.Reason
+		if e.Notifier != nil {
+			e.Notifier.Send("constraint_violation", fmt.Sprintf("Constraint blocked action %s on server %s: %s", action, server.Name, constraintResult.Reason))
+		}
 		return constraintResult
 	}
 

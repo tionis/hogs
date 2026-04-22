@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 
 	"github.com/tionis/hogs/agent"
@@ -75,7 +76,10 @@ func main() {
 
 	cache := query.NewServerStatusCache()
 
+	notifyService := notify.NewService(store)
+
 	eng := engine.NewEngine(store, cfg, cache)
+	eng.SetNotifier(notifyService)
 
 	authenticator, err := auth.NewAuthenticator(cfg, store)
 	if err != nil {
@@ -117,6 +121,7 @@ func main() {
 	var consoleHandler *api.ConsoleHandler
 	if cfg.AgentEnabled {
 		agentHub = agent.NewHub(store, cfg)
+		agentHub.SetNotifier(notifyService)
 		agentService = agent.NewAgentService(store, agentHub)
 		agentHandler = api.NewAgentHandler(store, agentService, agentHub)
 		consoleHandler = api.NewConsoleHandler(agentHub, authenticator)
@@ -130,7 +135,6 @@ func main() {
 	templateHandler := api.NewTemplateHandler(store)
 	webhookDispatcher := webhook.NewDispatcher(store)
 	webhookHandler := api.NewWebhookHandler(store, webhookDispatcher)
-	notifyService := notify.NewService(store)
 	notificationHandler := api.NewNotificationHandler(store, notifyService)
 
 	var scimHandler *scim.Handler
@@ -142,10 +146,22 @@ func main() {
 	var scheduler *hogscron.Scheduler
 	if cfg.CronEnabled {
 		scheduler = hogscron.NewScheduler(store, eng)
+		scheduler.SetNotifier(notifyService)
 		if err := scheduler.Start(); err != nil {
 			log.Printf("Warning: cron scheduler failed to start: %v", err)
 		}
 	}
+
+	// Server status change notifications
+	cache.SetOnChange(func(serverName string, oldStatus, newStatus *query.ServerStatus) {
+		if oldStatus.Online != newStatus.Online {
+			if newStatus.Online {
+				notifyService.Send("server_up", fmt.Sprintf("Server %s is now online (%d/%d players)", serverName, newStatus.Players, newStatus.MaxPlayers))
+			} else {
+				notifyService.Send("server_down", fmt.Sprintf("Server %s is now offline", serverName))
+			}
+		}
+	})
 
 	loginLimiter := api.NewRateLimiter(cfg.RateLimitLogin, time.Minute)
 	apiLimiter := api.NewRateLimiter(cfg.RateLimitAPI, time.Minute)
