@@ -859,28 +859,8 @@ func (h *WebHandler) Users(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *WebHandler) HandleUserUpdate(w http.ResponseWriter, r *http.Request) {
-	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Invalid form data", http.StatusBadRequest)
-		return
-	}
-
-	userID, err := strconv.Atoi(r.FormValue("user_id"))
-	if err != nil {
-		http.Error(w, "Invalid user ID", http.StatusBadRequest)
-		return
-	}
-
-	role := r.FormValue("role")
-	if role != "admin" && role != "user" {
-		http.Error(w, "Invalid role", http.StatusBadRequest)
-		return
-	}
-
-	if err := h.Store.UpdateUserRole(userID, role); err != nil {
-		http.Error(w, "Failed to update user role", http.StatusInternalServerError)
-		return
-	}
-
+	// User updates are disabled — OIDC is the authoritative source.
+	// This endpoint is kept for backwards compatibility but does nothing.
 	http.Redirect(w, r, "/admin/users", http.StatusFound)
 }
 
