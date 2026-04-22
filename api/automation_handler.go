@@ -527,3 +527,68 @@ func (h *AutomationHandler) CleanupAuditLog(w http.ResponseWriter, r *http.Reque
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
+
+func (h *AutomationHandler) BulkTags(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Servers []string `json:"servers"`
+		Tags    []string `json:"tags"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	var updated int
+	for _, name := range req.Servers {
+		server, err := h.Store.GetServerByName(name)
+		if err != nil || server == nil {
+			continue
+		}
+		if err := h.Store.SetServerTags(server.ID, req.Tags); err != nil {
+			log.Printf("BulkTags: failed to set tags for %s: %v", name, err)
+			continue
+		}
+		updated++
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"message": fmt.Sprintf("Updated tags for %d/%d servers", updated, len(req.Servers)),
+		"updated": updated,
+	})
+}
+
+func (h *AutomationHandler) BulkACL(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Servers []string `json:"servers"`
+		ACLRule string   `json:"acl_rule"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	var updated int
+	for _, name := range req.Servers {
+		server, err := h.Store.GetServerByName(name)
+		if err != nil || server == nil {
+			continue
+		}
+		link, err := h.Store.GetPterodactylLink(server.ID)
+		if err != nil || link == nil {
+			continue
+		}
+		link.ACLRule = req.ACLRule
+		if err := h.Store.UpdatePterodactylLink(link); err != nil {
+			log.Printf("BulkACL: failed to update ACL for %s: %v", name, err)
+			continue
+		}
+		updated++
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"message": fmt.Sprintf("Updated ACL for %d/%d servers", updated, len(req.Servers)),
+		"updated": updated,
+	})
+}

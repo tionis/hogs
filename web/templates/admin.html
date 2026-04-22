@@ -21,12 +21,20 @@
 
 <!-- Mass Operations Bar -->
 <div id="mass-ops-bar" class="card mb-3" style="display:none;">
-  <div class="card-body d-flex align-items-center gap-3 py-2">
-    <span class="text-muted small"><span id="selected-count">0</span> selected</span>
-    <button class="btn btn-sm btn-outline-success" onclick="bulkAction('start')">Start</button>
-    <button class="btn btn-sm btn-outline-danger" onclick="bulkAction('stop')">Stop</button>
-    <button class="btn btn-sm btn-outline-warning" onclick="bulkAction('restart')">Restart</button>
-    <button class="btn btn-sm btn-outline-secondary ms-auto" onclick="clearSelection()">Clear</button>
+  <div class="card-body py-2">
+    <div class="d-flex align-items-center gap-3 mb-2">
+      <span class="text-muted small"><span id="selected-count">0</span> selected</span>
+      <button class="btn btn-sm btn-outline-success" onclick="bulkAction('start')">Start</button>
+      <button class="btn btn-sm btn-outline-danger" onclick="bulkAction('stop')">Stop</button>
+      <button class="btn btn-sm btn-outline-warning" onclick="bulkAction('restart')">Restart</button>
+      <button class="btn btn-sm btn-outline-secondary ms-auto" onclick="clearSelection()">Clear</button>
+    </div>
+    <div class="d-flex align-items-center gap-2">
+      <input type="text" class="form-control form-control-sm" id="bulk-tags" placeholder="Tags (comma-separated)" style="max-width: 250px;">
+      <button class="btn btn-sm btn-outline-info" onclick="bulkTagAction()">Apply Tags</button>
+      <input type="text" class="form-control form-control-sm" id="bulk-acl" placeholder='ACL rule (e.g. user.Role == "admin")' style="max-width: 350px;">
+      <button class="btn btn-sm btn-outline-info" onclick="bulkAclAction()">Apply ACL</button>
+    </div>
   </div>
 </div>
 
@@ -238,6 +246,51 @@
     }
     const okCount = results.filter(r => r.ok).length;
     alert('Bulk ' + action + ': ' + okCount + '/' + results.length + ' succeeded.');
+  }
+
+  async function bulkTagAction() {
+    const checked = document.querySelectorAll('.server-checkbox:checked');
+    if (checked.length === 0) return;
+    const names = Array.from(checked).map(cb => cb.dataset.name);
+    const tagsInput = document.getElementById('bulk-tags').value.trim();
+    if (!tagsInput) {
+      alert('Enter tags to apply');
+      return;
+    }
+    const tags = tagsInput.split(',').map(t => t.trim()).filter(t => t);
+    try {
+      const resp = await fetch('/api/admin/bulk-tags', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-CSRF-Token': getCsrfToken()},
+        body: JSON.stringify({servers: names, tags: tags})
+      });
+      const data = await resp.json();
+      alert('Bulk tags: ' + (data.message || 'done'));
+    } catch (err) {
+      alert('Error: ' + err.message);
+    }
+  }
+
+  async function bulkAclAction() {
+    const checked = document.querySelectorAll('.server-checkbox:checked');
+    if (checked.length === 0) return;
+    const names = Array.from(checked).map(cb => cb.dataset.name);
+    const aclRule = document.getElementById('bulk-acl').value.trim();
+    if (!aclRule) {
+      alert('Enter an ACL rule to apply');
+      return;
+    }
+    try {
+      const resp = await fetch('/api/admin/bulk-acl', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-CSRF-Token': getCsrfToken()},
+        body: JSON.stringify({servers: names, acl_rule: aclRule})
+      });
+      const data = await resp.json();
+      alert('Bulk ACL: ' + (data.message || 'done'));
+    } catch (err) {
+      alert('Error: ' + err.message);
+    }
   }
 
   function getCsrfToken() {

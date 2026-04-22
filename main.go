@@ -272,6 +272,8 @@ func main() {
 		router.Handle("/api/audit", authenticator.RequireRole("admin")(http.HandlerFunc(automationHandler.GetAuditLog))).Methods("GET")
 		router.Handle("/api/audit/export", authenticator.RequireRole("admin")(http.HandlerFunc(automationHandler.ExportAuditLog))).Methods("GET")
 		router.Handle("/api/constraints/test", authenticator.RequireRole("admin")(http.HandlerFunc(automationHandler.TestConstraint))).Methods("POST")
+		router.Handle("/api/admin/bulk-tags", authenticator.RequireRole("admin")(http.HandlerFunc(automationHandler.BulkTags))).Methods("POST")
+		router.Handle("/api/admin/bulk-acl", authenticator.RequireRole("admin")(http.HandlerFunc(automationHandler.BulkACL))).Methods("POST")
 
 		router.Handle("/api/dashboard", authenticator.RequireRole("admin")(http.HandlerFunc(dashboardHandler.Overview))).Methods("GET")
 		router.Handle("/api/dashboard/agents", authenticator.RequireRole("admin")(http.HandlerFunc(dashboardHandler.AgentList))).Methods("GET")
