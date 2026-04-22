@@ -17,6 +17,7 @@
         <th>#</th>
         <th>Email</th>
         <th>Role</th>
+        <th>Groups</th>
         <th>External ID</th>
         <th>Display Name</th>
         <th>First Seen</th>
@@ -29,6 +30,15 @@
         <td>{{.ID}}</td>
         <td>{{.Email}}</td>
         <td><span class="badge {{if eq .Role "admin"}}bg-danger{{else}}bg-secondary{{end}}">{{.Role}}</span></td>
+        <td>
+          {{if .Groups}}
+            {{range .Groups}}
+              <span class="badge bg-info me-1">{{.DisplayName}}</span>
+            {{end}}
+          {{else}}
+            <em class="text-muted">none</em>
+          {{end}}
+        </td>
         <td class="small">{{if .ExternalID}}{{.ExternalID}}{{else}}<em class="text-muted">none</em>{{end}}</td>
         <td>{{if .DisplayName}}{{.DisplayName}}{{else}}<em class="text-muted">none</em>{{end}}</td>
         <td class="small text-muted">{{.FirstSeen}}</td>

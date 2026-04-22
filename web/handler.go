@@ -828,15 +828,29 @@ func (h *WebHandler) Users(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	type UserWithGroups struct {
+		database.User
+		Groups []database.SCIMGroup
+	}
+
+	var usersWithGroups []UserWithGroups
+	for _, u := range users {
+		groups, _ := h.Store.GetSCIMGroupsForUser(u.ID)
+		usersWithGroups = append(usersWithGroups, UserWithGroups{
+			User:   u,
+			Groups: groups,
+		})
+	}
+
 	data := struct {
-		Users          []database.User
+		Users          []UserWithGroups
 		Authenticated  bool
 		UserRole       string
 		SiteName       string
 		UserEmail      string
 		BackgroundURLs BackgroundURLs
 	}{
-		Users:          users,
+		Users:          usersWithGroups,
 		Authenticated:  true,
 		UserRole:       "admin",
 		SiteName:       h.siteName(),
