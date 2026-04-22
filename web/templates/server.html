@@ -113,7 +113,7 @@
     </div>
     {{end}}
 
-    <div class="card mb-4">
+    <div class="card mb-4" id="file-browser-card">
       <div class="card-header">
         File Browser
       </div>
@@ -308,16 +308,21 @@ document.addEventListener("DOMContentLoaded", function() {
     connectConsole();
     {{end}}
 
+    const fileBrowserCard = document.getElementById('file-browser-card');
     fetch(`/api/servers/${serverName}/mods`)
     .then(r => {
         if (!r.ok) throw new Error("No files found or server error");
         return r.json();
     })
     .then(data => {
+      if (!data.children || data.children.length === 0) {
+        if (fileBrowserCard) fileBrowserCard.style.display = 'none';
+        return;
+      }
       container.innerHTML = renderFileTree(data, serverName);
     })
     .catch(e => {
-      container.innerHTML = `<div class="alert alert-warning">${e.message}</div>`;
+      if (fileBrowserCard) fileBrowserCard.style.display = 'none';
     });
 
     if (userEmail) {
