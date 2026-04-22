@@ -392,6 +392,24 @@
       });
 
       document.addEventListener("DOMContentLoaded", function() {
+        // Inject CSRF token into all POST forms
+        function injectCSRFToken() {
+          const match = document.cookie.match(/hogs-csrf=([^;]+)/);
+          if (!match) return;
+          const cookieValue = decodeURIComponent(match[1]);
+          const token = cookieValue.split('.')[0];
+          if (!token) return;
+          document.querySelectorAll('form[method="POST"]').forEach(function(form) {
+            if (form.querySelector('input[name="csrf_token"]')) return;
+            const input = document.createElement('input');
+            input.type = 'hidden';
+            input.name = 'csrf_token';
+            input.value = token;
+            form.appendChild(input);
+          });
+        }
+        injectCSRFToken();
+
         function updateServerStatus(el) {
           const serverName = el.dataset.server;
           const gameType = el.dataset.gameType || 'minecraft';
