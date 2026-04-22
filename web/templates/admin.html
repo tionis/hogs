@@ -12,7 +12,6 @@
       <a href="/admin/backups" class="btn btn-sm btn-outline-info">Backups</a>
       <a href="/admin/backgrounds" class="btn btn-sm btn-outline-info">Backgrounds</a>
     <a href="/admin/settings" class="btn btn-sm btn-outline-info">Settings</a>
-    <a href="/admin/users" class="btn btn-sm btn-outline-secondary">Debug Users</a>
     <button type="button" class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#addServerModal">
       + Add Server
     </button>
@@ -298,4 +297,8 @@
     return match ? decodeURIComponent(match[1]) : '';
   }
 </script>
+
+<div class="mt-5 text-end">
+  <a href="/admin/users" class="text-muted small">Debug Users</a>
+</div>
 {{end}}
