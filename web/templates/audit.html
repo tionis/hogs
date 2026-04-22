@@ -51,8 +51,13 @@ const limit = 50;
 function loadLog(newOffset) {
   if (newOffset < 0) newOffset = 0;
   offset = newOffset;
-  fetch('/api/audit?limit=' + limit + '&offset=' + offset)
-    .then(r => r.json())
+  fetch('/api/audit?limit=' + limit + '&offset=' + offset, { credentials: 'same-origin' })
+    .then(r => {
+      if (!r.ok) {
+        throw new Error('HTTP ' + r.status + ': ' + r.statusText);
+      }
+      return r.json();
+    })
     .then(data => {
       const entries = data.entries || [];
       const tbody = document.getElementById('audit-entries');
