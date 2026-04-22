@@ -85,6 +85,18 @@
           <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
         </div>
         <div class="modal-body">
+          {{if .ServerTemplates}}
+          <div class="mb-3">
+            <label for="addTemplate" class="form-label">Template (optional)</label>
+            <select class="form-select" id="addTemplate" onchange="applyTemplate(this.value)">
+              <option value="">-- None --</option>
+              {{range .ServerTemplates}}
+              <option value="{{.ID}}" data-settings="{{json .DefaultSettings}}" data-game="{{.GameType}}">{{.Name}}</option>
+              {{end}}
+            </select>
+            <div class="form-text">Selecting a template pre-fills game type and settings.</div>
+          </div>
+          {{end}}
           <div class="mb-3">
             <label for="addName" class="form-label">Name (Unique ID)</label>
             <input type="text" class="form-control" id="addName" name="name" required pattern="[a-zA-Z0-9_-]+" title="Alphanumeric, dashes, underscores only">
@@ -170,6 +182,22 @@
   }
 
   toggleGameFields('add');
+
+  function applyTemplate(templateId) {
+    if (!templateId) return;
+    const select = document.getElementById('addTemplate');
+    const option = select.querySelector('option[value="' + templateId + '"]');
+    if (!option) return;
+    const settings = option.dataset.settings ? JSON.parse(option.dataset.settings) : {};
+    const gameType = option.dataset.game;
+    if (gameType) {
+      document.getElementById('addGameType').value = gameType;
+      toggleGameFields('add');
+    }
+    if (settings.map_url) document.getElementById('addMapURL').value = settings.map_url;
+    if (settings.mod_url) document.getElementById('addModURL').value = settings.mod_url;
+    if (settings.description) document.getElementById('addDescription').value = settings.description;
+  }
 
   function toggleSelectAll() {
     const checked = document.getElementById('select-all').checked;

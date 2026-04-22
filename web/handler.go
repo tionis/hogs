@@ -448,20 +448,27 @@ func (h *WebHandler) Admin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	templates, _ := h.Store.ListServerTemplates()
+	if templates == nil {
+		templates = []database.ServerTemplate{}
+	}
+
 	data := struct {
-		Servers        []database.Server
-		Authenticated  bool
-		UserRole       string
-		SiteName       string
-		UserEmail      string
-		BackgroundURLs BackgroundURLs
+		Servers         []database.Server
+		ServerTemplates []database.ServerTemplate
+		Authenticated   bool
+		UserRole        string
+		SiteName        string
+		UserEmail       string
+		BackgroundURLs  BackgroundURLs
 	}{
-		Servers:        servers,
-		Authenticated:  true,
-		UserRole:       "admin",
-		SiteName:       h.siteName(),
-		UserEmail:      h.Auth.GetUserEmail(r),
-		BackgroundURLs: h.pickBackgrounds([]string{"home"}),
+		Servers:         servers,
+		ServerTemplates: templates,
+		Authenticated:   true,
+		UserRole:        "admin",
+		SiteName:        h.siteName(),
+		UserEmail:       h.Auth.GetUserEmail(r),
+		BackgroundURLs:  h.pickBackgrounds([]string{"home"}),
 	}
 
 	tmpl, err := template.New("base.html").Funcs(sharedFuncMap()).ParseFS(templateFS, "templates/base.html", "templates/admin.html")
