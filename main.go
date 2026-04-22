@@ -114,10 +114,12 @@ func main() {
 	var agentHub *agent.Hub
 	var agentHandler *api.AgentHandler
 	var agentService *agent.AgentService
+	var consoleHandler *api.ConsoleHandler
 	if cfg.AgentEnabled {
 		agentHub = agent.NewHub(store, cfg)
 		agentService = agent.NewAgentService(store, agentHub)
 		agentHandler = api.NewAgentHandler(store, agentService, agentHub)
+		consoleHandler = api.NewConsoleHandler(agentHub, authenticator)
 		log.Println("Agent WebSocket endpoint enabled at /agent/ws")
 	}
 
@@ -281,6 +283,10 @@ func main() {
 
 	if agentHub != nil {
 		router.HandleFunc("/agent/ws", agentHub.ServeWS)
+	}
+
+	if consoleHandler != nil && authenticator != nil {
+		router.Handle("/servers/{serverName}/console", authenticator.RequireRole("admin", "user")(http.HandlerFunc(consoleHandler.ServeWS)))
 	}
 
 	if agentHandler != nil && authenticator != nil {

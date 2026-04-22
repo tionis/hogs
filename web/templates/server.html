@@ -98,6 +98,20 @@
     </div>
     
     <div class="card mb-4">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span>Console</span>
+        <span id="console-status" class="badge bg-secondary">Disconnected</span>
+      </div>
+      <div class="card-body p-0">
+        <div id="console-output" style="background:var(--bg-input);color:var(--text-primary);font-family:monospace;font-size:0.85rem;height:300px;overflow-y:auto;padding:0.75rem;"></div>
+        <div class="input-group input-group-sm p-2" style="background:var(--bg-card);border-top:1px solid var(--border-color);">
+          <input type="text" id="console-input" class="form-control form-control-sm" placeholder="Enter command..." autocomplete="off" disabled>
+          <button class="btn btn-primary btn-sm" id="console-send" onclick="sendConsoleInput()" disabled>Send</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card mb-4">
       <div class="card-header">
         File Browser
       </div>
@@ -226,7 +240,70 @@ document.addEventListener("DOMContentLoaded", function() {
     const serverName = "{{.Server.Name}}";
     const userEmail = "{{.UserEmail}}";
     const container = document.getElementById('file-browser');
-    
+
+    // Console WebSocket
+    const consoleOutput = document.getElementById('console-output');
+    const consoleInput = document.getElementById('console-input');
+    const consoleSend = document.getElementById('console-send');
+    const consoleStatus = document.getElementById('console-status');
+    let consoleWs = null;
+
+    function connectConsole() {
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = protocol + '//' + window.location.host + '/servers/' + encodeURIComponent(serverName) + '/console';
+        consoleWs = new WebSocket(wsUrl);
+
+        consoleWs.onopen = function() {
+            consoleStatus.className = 'badge bg-success';
+            consoleStatus.textContent = 'Connected';
+            consoleInput.disabled = false;
+            consoleSend.disabled = false;
+        };
+
+        consoleWs.onclose = function() {
+            consoleStatus.className = 'badge bg-secondary';
+            consoleStatus.textContent = 'Disconnected';
+            consoleInput.disabled = true;
+            consoleSend.disabled = true;
+            consoleWs = null;
+            // Auto-reconnect after 5s
+            setTimeout(connectConsole, 5000);
+        };
+
+        consoleWs.onerror = function(err) {
+            consoleStatus.className = 'badge bg-danger';
+            consoleStatus.textContent = 'Error';
+        };
+
+        consoleWs.onmessage = function(event) {
+            const msg = JSON.parse(event.data);
+            if (msg.type === 'console') {
+                const line = document.createElement('div');
+                line.textContent = msg.line;
+                consoleOutput.appendChild(line);
+                consoleOutput.scrollTop = consoleOutput.scrollHeight;
+                // Limit DOM size
+                while (consoleOutput.children.length > 500) {
+                    consoleOutput.removeChild(consoleOutput.firstChild);
+                }
+            }
+        };
+    }
+
+    window.sendConsoleInput = function() {
+        if (!consoleWs || consoleWs.readyState !== WebSocket.OPEN) return;
+        const input = consoleInput.value.trim();
+        if (!input) return;
+        consoleWs.send(JSON.stringify({input: input}));
+        consoleInput.value = '';
+    };
+
+    consoleInput.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') sendConsoleInput();
+    });
+
+    connectConsole();
+
     fetch(`/api/servers/${serverName}/mods`)
     .then(r => {
         if (!r.ok) throw new Error("No files found or server error");

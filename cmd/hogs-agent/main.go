@@ -16,6 +16,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -321,8 +322,109 @@ func handleMessage(message []byte, c *websocket.Conn) {
 		result := backupList(data.Repo, data.Password)
 		sendResult(c, "backup_list_result", env.RequestID, result)
 
+	case "console_subscribe":
+		startConsoleStreaming(c)
+
+	case "console_input":
+		var data struct {
+			Input string `json:"input"`
+		}
+		json.Unmarshal(env.Data, &data)
+		executeConsoleInput(data.Input)
+
 	default:
 		log.Printf("Unknown message type: %s", env.Type)
+	}
+}
+
+var (
+	consoleCmd      *exec.Cmd
+	consoleCancel   chan struct{}
+	consoleCancelMu sync.Mutex
+)
+
+func startConsoleStreaming(c *websocket.Conn) {
+	unit := unitName()
+	if unit == "" {
+		log.Println("Console subscribe: no service name configured")
+		return
+	}
+
+	consoleCancelMu.Lock()
+	if consoleCancel != nil {
+		close(consoleCancel)
+	}
+	consoleCancel = make(chan struct{})
+	cancel := consoleCancel
+	consoleCancelMu.Unlock()
+
+	go func() {
+		// Tail journalctl for this unit
+		cmd := exec.Command("journalctl", "-u", unit, "-f", "-n", "100", "--no-hostname", "-o", "cat")
+		stdout, err := cmd.StdoutPipe()
+		if err != nil {
+			log.Printf("journalctl stdout pipe failed: %v", err)
+			return
+		}
+		stderr, err := cmd.StderrPipe()
+		if err != nil {
+			log.Printf("journalctl stderr pipe failed: %v", err)
+			return
+		}
+		if err := cmd.Start(); err != nil {
+			log.Printf("journalctl start failed: %v", err)
+			return
+		}
+
+		reader := io.MultiReader(stdout, stderr)
+		scanner := bufio.NewScanner(reader)
+		for scanner.Scan() {
+			select {
+			case <-cancel:
+				cmd.Process.Kill()
+				return
+			default:
+				line := scanner.Text()
+				env := Envelope{
+					Type: "console",
+					Data: mustMarshal(map[string]string{
+						"line":      line,
+						"timestamp": time.Now().UTC().Format(time.RFC3339),
+					}),
+				}
+				if err := c.WriteJSON(env); err != nil {
+					log.Printf("console write failed: %v", err)
+					cmd.Process.Kill()
+					return
+				}
+			}
+		}
+		if err := cmd.Wait(); err != nil {
+			log.Printf("journalctl exited: %v", err)
+		}
+	}()
+}
+
+func executeConsoleInput(input string) {
+	unit := unitName()
+	if unit == "" {
+		log.Println("Console input: no service name configured")
+		return
+	}
+	containerName := unit
+	if strings.HasSuffix(unit, ".service") {
+		containerName = strings.TrimSuffix(unit, ".service")
+	}
+	psOut, _ := exec.Command("podman", "ps", "--filter", "name="+containerName, "--format", "{{.Names}}").Output()
+	if strings.TrimSpace(string(psOut)) == "" {
+		log.Printf("Console input: container %s not running", containerName)
+		return
+	}
+	// Send input via podman exec using shell to interpret it
+	cmd := exec.Command("podman", "exec", "-i", containerName, "sh", "-c", input)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Printf("console input error: %v: %s", err, string(out))
 	}
 }
 

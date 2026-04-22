@@ -110,6 +110,13 @@ type pendingRequest struct {
 	agentID int
 }
 
+const consoleBufferSize = 500
+
+type consoleLine struct {
+	Line      string
+	Timestamp string
+}
+
 type Hub struct {
 	Store    *database.Store
 	Config   *config.Config
@@ -120,11 +127,17 @@ type Hub struct {
 	pending   map[string]*pendingRequest
 	pendingMu sync.Mutex
 	nextReqID uint64
+
+	consoleClients   map[string]map[*websocket.Conn]bool // serverName -> browser conns
+	consoleClientsMu sync.RWMutex
+	consoleBuffers   map[string][]consoleLine // serverName -> ring buffer
+	consoleBuffersMu sync.RWMutex
 }
 
 type AgentConn struct {
 	AgentID      int
 	NodeName     string
+	ServerName   string
 	Hub          *Hub
 	Conn         *websocket.Conn
 	Send         chan []byte
@@ -133,10 +146,12 @@ type AgentConn struct {
 
 func NewHub(store *database.Store, cfg *config.Config) *Hub {
 	return &Hub{
-		Store:   store,
-		Config:  cfg,
-		Conns:   make(map[int]*AgentConn),
-		pending: make(map[string]*pendingRequest),
+		Store:          store,
+		Config:         cfg,
+		Conns:          make(map[int]*AgentConn),
+		pending:        make(map[string]*pendingRequest),
+		consoleClients: make(map[string]map[*websocket.Conn]bool),
+		consoleBuffers: make(map[string][]consoleLine),
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool {
 				origin := r.Header.Get("Origin")
@@ -236,6 +251,107 @@ func (h *Hub) GetConnByNode(nodeName string) *AgentConn {
 		}
 	}
 	return nil
+}
+
+func (h *Hub) GetConnByServerName(serverName string) *AgentConn {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	for _, ac := range h.Conns {
+		if ac.ServerName == serverName {
+			return ac
+		}
+	}
+	return nil
+}
+
+func (h *Hub) AddConsoleClient(serverName string, conn *websocket.Conn) {
+	if conn == nil {
+		return
+	}
+	h.consoleClientsMu.Lock()
+	if h.consoleClients[serverName] == nil {
+		h.consoleClients[serverName] = make(map[*websocket.Conn]bool)
+	}
+	h.consoleClients[serverName][conn] = true
+	h.consoleClientsMu.Unlock()
+
+	// Send buffered lines as replay
+	h.consoleBuffersMu.RLock()
+	lines := make([]consoleLine, len(h.consoleBuffers[serverName]))
+	copy(lines, h.consoleBuffers[serverName])
+	h.consoleBuffersMu.RUnlock()
+
+	for _, line := range lines {
+		msg, _ := json.Marshal(map[string]string{"type": "console", "line": line.Line, "timestamp": line.Timestamp})
+		conn.WriteMessage(websocket.TextMessage, msg)
+	}
+}
+
+func (h *Hub) RemoveConsoleClient(serverName string, conn *websocket.Conn) {
+	h.consoleClientsMu.Lock()
+	if clients := h.consoleClients[serverName]; clients != nil {
+		delete(clients, conn)
+		if len(clients) == 0 {
+			delete(h.consoleClients, serverName)
+		}
+	}
+	h.consoleClientsMu.Unlock()
+	if conn != nil {
+		conn.Close()
+	}
+}
+
+func (h *Hub) broadcastConsole(serverName string, line consoleLine) {
+	// Add to buffer
+	h.consoleBuffersMu.Lock()
+	buf := h.consoleBuffers[serverName]
+	buf = append(buf, line)
+	if len(buf) > consoleBufferSize {
+		buf = buf[len(buf)-consoleBufferSize:]
+	}
+	h.consoleBuffers[serverName] = buf
+	h.consoleBuffersMu.Unlock()
+
+	// Broadcast to clients
+	msg, _ := json.Marshal(map[string]string{"type": "console", "line": line.Line, "timestamp": line.Timestamp})
+	h.consoleClientsMu.RLock()
+	clients := h.consoleClients[serverName]
+	for conn := range clients {
+		conn.WriteMessage(websocket.TextMessage, msg)
+	}
+	h.consoleClientsMu.RUnlock()
+}
+
+func (h *Hub) SendConsoleInput(serverName, input string) error {
+	ac := h.GetConnByServerName(serverName)
+	if ac == nil {
+		return fmt.Errorf("agent for server %s is offline", serverName)
+	}
+	payload, _ := json.Marshal(map[string]string{"input": input})
+	env := Envelope{Type: "console_input", Data: payload}
+	msg, _ := json.Marshal(env)
+	select {
+	case ac.Send <- msg:
+		return nil
+	default:
+		return fmt.Errorf("agent send buffer full")
+	}
+}
+
+func (h *Hub) SendConsoleSubscribe(serverName string) error {
+	ac := h.GetConnByServerName(serverName)
+	if ac == nil {
+		return fmt.Errorf("agent for server %s is offline", serverName)
+	}
+	payload, _ := json.Marshal(map[string]string{"serverName": serverName})
+	env := Envelope{Type: "console_subscribe", Data: payload}
+	msg, _ := json.Marshal(env)
+	select {
+	case ac.Send <- msg:
+		return nil
+	default:
+		return fmt.Errorf("agent send buffer full")
+	}
 }
 
 func (h *Hub) RemoveConn(agentID int) {
@@ -397,10 +513,11 @@ func (ac *AgentConn) readPump() {
 				continue
 			}
 			ac.NodeName = reg.NodeName
+			ac.ServerName = reg.ServerName
 			ac.Capabilities = reg.Capabilities
 			caps, _ := json.Marshal(reg.Capabilities)
 			ac.Hub.Store.UpdateAgentCapabilities(ac.AgentID, caps)
-			log.Printf("Agent %d registered: node=%s caps=%v", ac.AgentID, reg.NodeName, reg.Capabilities)
+			log.Printf("Agent %d registered: node=%s server=%s caps=%v", ac.AgentID, reg.NodeName, reg.ServerName, reg.Capabilities)
 
 		case "status":
 			var status StatusReportData
@@ -444,6 +561,9 @@ func (ac *AgentConn) readPump() {
 				continue
 			}
 			log.Printf("Agent %d console: %s", ac.AgentID, line.Line)
+			if ac.ServerName != "" {
+				ac.Hub.broadcastConsole(ac.ServerName, consoleLine{Line: line.Line, Timestamp: line.Timestamp})
+			}
 
 		case "file_list_result":
 			var result GenericResultData

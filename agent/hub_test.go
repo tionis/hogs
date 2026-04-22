@@ -354,6 +354,90 @@ func TestGenericResultDataSerialization(t *testing.T) {
 	}
 }
 
+func TestConsoleBufferAndBroadcast(t *testing.T) {
+	hub, _ := testHub(t)
+
+	// Simulate adding console lines
+	hub.broadcastConsole("test-server", consoleLine{Line: "line1", Timestamp: "2024-01-01T00:00:00Z"})
+	hub.broadcastConsole("test-server", consoleLine{Line: "line2", Timestamp: "2024-01-01T00:00:01Z"})
+
+	// Verify buffer
+	hub.consoleBuffersMu.RLock()
+	buf := hub.consoleBuffers["test-server"]
+	hub.consoleBuffersMu.RUnlock()
+	if len(buf) != 2 {
+		t.Errorf("expected 2 lines in buffer, got %d", len(buf))
+	}
+	if buf[0].Line != "line1" {
+		t.Errorf("expected line1, got %s", buf[0].Line)
+	}
+}
+
+func TestConsoleBufferLimit(t *testing.T) {
+	hub, _ := testHub(t)
+
+	// Add more than consoleBufferSize lines
+	for i := 0; i < consoleBufferSize+10; i++ {
+		hub.broadcastConsole("test-server", consoleLine{Line: string(rune('a' + i%26)), Timestamp: "2024-01-01T00:00:00Z"})
+	}
+
+	hub.consoleBuffersMu.RLock()
+	buf := hub.consoleBuffers["test-server"]
+	hub.consoleBuffersMu.RUnlock()
+	if len(buf) != consoleBufferSize {
+		t.Errorf("expected buffer to be limited to %d, got %d", consoleBufferSize, len(buf))
+	}
+}
+
+func TestConsoleClientManagement(t *testing.T) {
+	hub, _ := testHub(t)
+
+	// Create a mock websocket connection (we can't easily create a real one without a server)
+	// Just test that add/remove don't panic
+	// In a real scenario we'd use a websocket test server
+
+	// Test that adding/removing clients works with nil conn doesn't panic
+	hub.AddConsoleClient("srv1", nil)
+	hub.RemoveConsoleClient("srv1", nil)
+
+	// Verify client map is clean
+	hub.consoleClientsMu.RLock()
+	clients := hub.consoleClients["srv1"]
+	hub.consoleClientsMu.RUnlock()
+	if clients != nil && len(clients) > 0 {
+		t.Error("expected no clients after removal")
+	}
+}
+
+func TestGetConnByServerName(t *testing.T) {
+	hub, store := testHub(t)
+
+	// Create an agent
+	agent := &database.Agent{Name: "test-agent", NodeName: "node1", TokenHash: "hash", TokenPrefix: "pre"}
+	if err := store.CreateAgent(agent); err != nil {
+		t.Fatalf("failed to create agent: %v", err)
+	}
+
+	// Manually add a connection with ServerName
+	ac := &AgentConn{AgentID: agent.ID, ServerName: "MyServer", NodeName: "node1", Hub: hub, Send: make(chan []byte, 10)}
+	hub.mu.Lock()
+	hub.Conns[agent.ID] = ac
+	hub.mu.Unlock()
+
+	got := hub.GetConnByServerName("MyServer")
+	if got == nil {
+		t.Fatal("expected to find connection by server name")
+	}
+	if got.ServerName != "MyServer" {
+		t.Errorf("expected ServerName MyServer, got %s", got.ServerName)
+	}
+
+	// Nonexistent server
+	if hub.GetConnByServerName("Nonexistent") != nil {
+		t.Error("expected nil for nonexistent server")
+	}
+}
+
 func TestContextCancellation(t *testing.T) {
 	hub, _ := testHub(t)
 	ctx, cancel := context.WithCancel(context.Background())
