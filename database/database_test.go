@@ -362,3 +362,93 @@ func TestPterodactylCommandCRUD(t *testing.T) {
 		t.Errorf("len(commands) after delete = %d, want 1", len(commands))
 	}
 }
+
+func TestAgentPendingOpCRUD(t *testing.T) {
+	store := testStore(t)
+
+	op := &AgentPendingOp{
+		RequestID: "req-123",
+		AgentID:   1,
+		OpType:    "action",
+		Payload:   `{"action":"start"}`,
+		CreatedAt: "2024-01-01T00:00:00Z",
+		ExpiresAt: "2024-01-01T00:05:00Z",
+		Resolved:  false,
+	}
+
+	if err := store.CreateAgentPendingOp(op); err != nil {
+		t.Fatalf("CreateAgentPendingOp failed: %v", err)
+	}
+	if op.ID == 0 {
+		t.Error("expected ID to be set")
+	}
+
+	got, err := store.GetAgentPendingOp("req-123")
+	if err != nil {
+		t.Fatalf("GetAgentPendingOp failed: %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected op, got nil")
+	}
+	if got.OpType != "action" {
+		t.Errorf("OpType = %q, want action", got.OpType)
+	}
+
+	ops, err := store.ListPendingOpsByAgent(1)
+	if err != nil {
+		t.Fatalf("ListPendingOpsByAgent failed: %v", err)
+	}
+	if len(ops) != 1 {
+		t.Errorf("len(ops) = %d, want 1", len(ops))
+	}
+
+	allOps, err := store.ListAllPendingOps()
+	if err != nil {
+		t.Fatalf("ListAllPendingOps failed: %v", err)
+	}
+	if len(allOps) != 1 {
+		t.Errorf("len(allOps) = %d, want 1", len(allOps))
+	}
+
+	if err := store.ResolveAgentPendingOp("req-123"); err != nil {
+		t.Fatalf("ResolveAgentPendingOp failed: %v", err)
+	}
+
+	resolved, _ := store.GetAgentPendingOp("req-123")
+	if !resolved.Resolved {
+		t.Error("expected op to be resolved")
+	}
+
+	// After resolve, should not appear in pending lists
+	ops, _ = store.ListPendingOpsByAgent(1)
+	if len(ops) != 0 {
+		t.Errorf("len(ops) after resolve = %d, want 0", len(ops))
+	}
+}
+
+func TestAgentPendingOpCleanup(t *testing.T) {
+	store := testStore(t)
+
+	// Create an expired resolved op
+	op := &AgentPendingOp{
+		RequestID: "req-old",
+		AgentID:   1,
+		OpType:    "action",
+		Payload:   "{}",
+		CreatedAt: "2020-01-01T00:00:00Z",
+		ExpiresAt: "2020-01-01T00:05:00Z",
+		Resolved:  true,
+	}
+	if err := store.CreateAgentPendingOp(op); err != nil {
+		t.Fatalf("CreateAgentPendingOp failed: %v", err)
+	}
+
+	if err := store.CleanupExpiredPendingOps(); err != nil {
+		t.Fatalf("CleanupExpiredPendingOps failed: %v", err)
+	}
+
+	got, _ := store.GetAgentPendingOp("req-old")
+	if got != nil {
+		t.Error("expected expired op to be cleaned up")
+	}
+}

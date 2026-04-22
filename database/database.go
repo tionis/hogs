@@ -1846,3 +1846,107 @@ func (s *Store) DeleteAgent(id int) error {
 	_, err := s.DB.Exec("DELETE FROM agents WHERE id = ?", id)
 	return err
 }
+
+type AgentPendingOp struct {
+	ID        int    `json:"id"`
+	RequestID string `json:"requestId"`
+	AgentID   int    `json:"agentId"`
+	OpType    string `json:"opType"`
+	Payload   string `json:"payload"`
+	CreatedAt string `json:"createdAt"`
+	ExpiresAt string `json:"expiresAt"`
+	Resolved  bool   `json:"resolved"`
+}
+
+func (s *Store) CreateAgentPendingOp(op *AgentPendingOp) error {
+	resolved := 0
+	if op.Resolved {
+		resolved = 1
+	}
+	result, err := s.DB.Exec(
+		"INSERT INTO agent_pending_ops (request_id, agent_id, op_type, payload, created_at, expires_at, resolved) VALUES (?, ?, ?, ?, ?, ?, ?)",
+		op.RequestID, op.AgentID, op.OpType, op.Payload, op.CreatedAt, op.ExpiresAt, resolved,
+	)
+	if err != nil {
+		return err
+	}
+	id, _ := result.LastInsertId()
+	op.ID = int(id)
+	return nil
+}
+
+func (s *Store) GetAgentPendingOp(requestID string) (*AgentPendingOp, error) {
+	row := s.DB.QueryRow(
+		"SELECT id, request_id, agent_id, op_type, payload, created_at, expires_at, resolved FROM agent_pending_ops WHERE request_id = ?",
+		requestID,
+	)
+	var op AgentPendingOp
+	var resolved int
+	err := row.Scan(&op.ID, &op.RequestID, &op.AgentID, &op.OpType, &op.Payload, &op.CreatedAt, &op.ExpiresAt, &resolved)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	op.Resolved = resolved == 1
+	return &op, nil
+}
+
+func (s *Store) ListPendingOpsByAgent(agentID int) ([]AgentPendingOp, error) {
+	rows, err := s.DB.Query(
+		"SELECT id, request_id, agent_id, op_type, payload, created_at, expires_at, resolved FROM agent_pending_ops WHERE agent_id = ? AND resolved = 0 ORDER BY created_at",
+		agentID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var ops []AgentPendingOp
+	for rows.Next() {
+		var op AgentPendingOp
+		var resolved int
+		if err := rows.Scan(&op.ID, &op.RequestID, &op.AgentID, &op.OpType, &op.Payload, &op.CreatedAt, &op.ExpiresAt, &resolved); err != nil {
+			return nil, err
+		}
+		op.Resolved = resolved == 1
+		ops = append(ops, op)
+	}
+	return ops, nil
+}
+
+func (s *Store) ListAllPendingOps() ([]AgentPendingOp, error) {
+	rows, err := s.DB.Query(
+		"SELECT id, request_id, agent_id, op_type, payload, created_at, expires_at, resolved FROM agent_pending_ops WHERE resolved = 0 ORDER BY created_at",
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var ops []AgentPendingOp
+	for rows.Next() {
+		var op AgentPendingOp
+		var resolved int
+		if err := rows.Scan(&op.ID, &op.RequestID, &op.AgentID, &op.OpType, &op.Payload, &op.CreatedAt, &op.ExpiresAt, &resolved); err != nil {
+			return nil, err
+		}
+		op.Resolved = resolved == 1
+		ops = append(ops, op)
+	}
+	return ops, nil
+}
+
+func (s *Store) ResolveAgentPendingOp(requestID string) error {
+	_, err := s.DB.Exec(
+		"UPDATE agent_pending_ops SET resolved = 1 WHERE request_id = ?",
+		requestID,
+	)
+	return err
+}
+
+func (s *Store) CleanupExpiredPendingOps() error {
+	_, err := s.DB.Exec("DELETE FROM agent_pending_ops WHERE expires_at < datetime('now') AND resolved = 1")
+	return err
+}

@@ -77,7 +77,7 @@ func TestHubAllocRequestID(t *testing.T) {
 func TestHubRegisterAndResolvePending(t *testing.T) {
 	hub, _ := testHub(t)
 	reqID := hub.allocRequestID()
-	pr := hub.registerPending(reqID, 1)
+	pr := hub.registerPending(reqID, 1, "action", []byte("{}"))
 
 	result := &GenericResultData{Success: true, Data: "test"}
 
@@ -247,7 +247,7 @@ func TestAgentServiceSendCommandNoBackend(t *testing.T) {
 func TestRemoveConnFailsPendingRequests(t *testing.T) {
 	hub, _ := testHub(t)
 	reqID := hub.allocRequestID()
-	_ = hub.registerPending(reqID, 42)
+	_ = hub.registerPending(reqID, 42, "action", []byte("{}"))
 
 	hub.RemoveConn(42)
 
@@ -464,5 +464,63 @@ func TestAgentBackendStatusNotImplemented(t *testing.T) {
 	_, err := ab.Status(ctx)
 	if err == nil {
 		t.Error("expected error for unimplemented status")
+	}
+}
+
+func TestHubLoadAndRecoverPendingOps(t *testing.T) {
+	hub, store := testHub(t)
+
+	// Create a stale pending op in DB
+	op := &database.AgentPendingOp{
+		RequestID: "stale-req",
+		AgentID:   1,
+		OpType:    "action",
+		Payload:   `{"action":"start"}`,
+		CreatedAt: "2024-01-01T00:00:00Z",
+		ExpiresAt: "2099-01-01T00:05:00Z",
+		Resolved:  false,
+	}
+	if err := store.CreateAgentPendingOp(op); err != nil {
+		t.Fatalf("CreateAgentPendingOp failed: %v", err)
+	}
+
+	// Load and recover should mark it resolved
+	hub.LoadAndRecoverPendingOps()
+
+	resolved, _ := store.GetAgentPendingOp("stale-req")
+	if resolved == nil || !resolved.Resolved {
+		t.Error("expected stale pending op to be resolved after recovery")
+	}
+}
+
+func TestHubPendingOpPersistence(t *testing.T) {
+	hub, store := testHub(t)
+
+	reqID := hub.allocRequestID()
+	pr := hub.registerPending(reqID, 1, "command", []byte(`{"command":"help"}`))
+	if pr == nil {
+		t.Fatal("expected pending request")
+	}
+
+	// Verify it was persisted
+	op, err := store.GetAgentPendingOp(reqID)
+	if err != nil {
+		t.Fatalf("GetAgentPendingOp failed: %v", err)
+	}
+	if op == nil {
+		t.Fatal("expected op to be persisted")
+	}
+	if op.OpType != "command" {
+		t.Errorf("OpType = %q, want command", op.OpType)
+	}
+
+	// Resolve it
+	result := &GenericResultData{Success: true}
+	hub.resolvePending(reqID, result)
+
+	// Verify it was marked resolved
+	resolved, _ := store.GetAgentPendingOp(reqID)
+	if resolved == nil || !resolved.Resolved {
+		t.Error("expected op to be marked resolved")
 	}
 }

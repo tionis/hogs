@@ -182,11 +182,27 @@ func (h *Hub) allocRequestID() string {
 	return strconv.FormatUint(h.nextReqID, 10)
 }
 
-func (h *Hub) registerPending(reqID string, agentID int) *pendingRequest {
+func (h *Hub) registerPending(reqID string, agentID int, opType string, payload []byte) *pendingRequest {
 	pr := &pendingRequest{ch: make(chan *GenericResultData, 1), agentID: agentID}
 	h.pendingMu.Lock()
 	h.pending[reqID] = pr
 	h.pendingMu.Unlock()
+
+	// Persist to DB for recovery
+	if h.Store != nil {
+		op := &database.AgentPendingOp{
+			RequestID: reqID,
+			AgentID:   agentID,
+			OpType:    opType,
+			Payload:   string(payload),
+			CreatedAt: time.Now().UTC().Format(time.RFC3339),
+			ExpiresAt: time.Now().UTC().Add(5 * time.Minute).Format(time.RFC3339),
+			Resolved:  false,
+		}
+		if err := h.Store.CreateAgentPendingOp(op); err != nil {
+			log.Printf("Warning: failed to persist pending op %s: %v", reqID, err)
+		}
+	}
 	return pr
 }
 
@@ -200,6 +216,61 @@ func (h *Hub) resolvePending(reqID string, result *GenericResultData) {
 	if ok {
 		pr.ch <- result
 	}
+
+	// Mark resolved in DB
+	if h.Store != nil {
+		if err := h.Store.ResolveAgentPendingOp(reqID); err != nil {
+			log.Printf("Warning: failed to resolve pending op %s: %v", reqID, err)
+		}
+	}
+}
+
+func (h *Hub) LoadAndRecoverPendingOps() {
+	if h.Store == nil {
+		return
+	}
+
+	ops, err := h.Store.ListAllPendingOps()
+	if err != nil {
+		log.Printf("Warning: failed to load pending ops: %v", err)
+		return
+	}
+
+	if len(ops) == 0 {
+		return
+	}
+
+	log.Printf("Found %d unresolved pending ops from previous session", len(ops))
+	for _, op := range ops {
+		// These ops were interrupted by a restart; we cannot resume them
+		// because the original caller/channel is gone. Mark them as resolved
+		// with a failure status so they don't linger forever.
+		if err := h.Store.ResolveAgentPendingOp(op.RequestID); err != nil {
+			log.Printf("Warning: failed to resolve stale pending op %s: %v", op.RequestID, err)
+		}
+		if h.Notifier != nil {
+			h.Notifier.Send("agent_disconnect", fmt.Sprintf("Pending operation %s for agent %d was lost due to server restart", op.OpType, op.AgentID))
+		}
+	}
+
+	// Clean up old resolved ops
+	if err := h.Store.CleanupExpiredPendingOps(); err != nil {
+		log.Printf("Warning: failed to cleanup expired pending ops: %v", err)
+	}
+}
+
+func (h *Hub) StartPendingOpsCleanup() {
+	go func() {
+		ticker := time.NewTicker(15 * time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			if h.Store != nil {
+				if err := h.Store.CleanupExpiredPendingOps(); err != nil {
+					log.Printf("Warning: pending ops cleanup failed: %v", err)
+				}
+			}
+		}
+	}()
 }
 
 func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request) {
@@ -402,7 +473,7 @@ func (h *Hub) sendEnvelopeWithResult(ctx context.Context, agentID int, msgType s
 	env := Envelope{Type: msgType, RequestID: reqID, Data: payload}
 	msg, _ := json.Marshal(env)
 
-	pr := h.registerPending(reqID, agentID)
+	pr := h.registerPending(reqID, agentID, msgType, payload)
 
 	select {
 	case ac.Send <- msg:
