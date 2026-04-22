@@ -174,6 +174,7 @@ func main() {
 		router.HandleFunc("/auth/backchannel-logout", authenticator.HandleBackChannelLogout).Methods("POST")
 
 		router.Handle("/admin", authenticator.RequireRole("admin")(http.HandlerFunc(webHandler.Admin))).Methods("GET")
+		router.Handle("/admin/dashboard", authenticator.RequireRole("admin")(http.HandlerFunc(webHandler.Dashboard))).Methods("GET")
 		router.Handle("/admin/servers/{id}", authenticator.RequireRole("admin")(http.HandlerFunc(webHandler.ServerEdit))).Methods("GET")
 		router.Handle("/admin/servers/add", authenticator.RequireRole("admin")(http.HandlerFunc(webHandler.HandleServerCreate))).Methods("POST")
 		router.Handle("/admin/servers/update", authenticator.RequireRole("admin")(http.HandlerFunc(webHandler.HandleServerUpdate))).Methods("POST")

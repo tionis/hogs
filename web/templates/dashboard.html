@@ -1,0 +1,194 @@
+{{define "title"}}Dashboard{{end}}
+
+{{define "content"}}
+<nav aria-label="breadcrumb">
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item active" aria-current="page">Dashboard</li>
+  </ol>
+</nav>
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h1 class="h2">Dashboard</h1>
+  <div class="btn-toolbar gap-2">
+    <a href="/admin" class="btn btn-sm btn-outline-primary">Server Management</a>
+    <a href="/admin/constraints" class="btn btn-sm btn-outline-info">Constraints</a>
+    <a href="/admin/cron" class="btn btn-sm btn-outline-info">Cron</a>
+    <a href="/admin/agents" class="btn btn-sm btn-outline-info">Agents</a>
+    <a href="/admin/audit" class="btn btn-sm btn-outline-info">Audit Log</a>
+  </div>
+</div>
+
+<!-- Server Stats Cards -->
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-4 col-lg">
+    <div class="card text-center h-100">
+      <div class="card-body">
+        <div class="display-5 fw-bold text-primary">{{.TotalServers}}</div>
+        <div class="text-muted small">Total Servers</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-4 col-lg">
+    <div class="card text-center h-100">
+      <div class="card-body">
+        <div class="display-5 fw-bold text-success">{{.OnlineServers}}</div>
+        <div class="text-muted small">Online</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-4 col-lg">
+    <div class="card text-center h-100">
+      <div class="card-body">
+        <div class="display-5 fw-bold text-danger">{{.OfflineServers}}</div>
+        <div class="text-muted small">Offline</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-4 col-lg">
+    <div class="card text-center h-100">
+      <div class="card-body">
+        <div class="display-5 fw-bold text-warning">{{.MaintenanceServers}}</div>
+        <div class="text-muted small">Maintenance</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-4 col-lg">
+    <div class="card text-center h-100">
+      <div class="card-body">
+        <div class="display-5 fw-bold text-info">{{.PlannedServers}}</div>
+        <div class="text-muted small">Planned</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-4">
+  <!-- Game Type Breakdown -->
+  <div class="col-lg-4">
+    <div class="card h-100">
+      <div class="card-header">Game Types</div>
+      <div class="card-body">
+        {{if .GameTypes}}
+        <div class="list-group list-group-flush">
+          {{range $game, $count := .GameTypes}}
+          <div class="list-group-item d-flex justify-content-between align-items-center px-0">
+            <span><span class="game-badge" style="{{gameBadgeCSS $game}}">{{gameIcon $game}}{{gameDisplayName $game}}</span></span>
+            <span class="badge bg-secondary">{{$count}}</span>
+          </div>
+          {{end}}
+        </div>
+        {{else}}
+        <p class="text-muted">No servers configured.</p>
+        {{end}}
+      </div>
+    </div>
+  </div>
+
+  <!-- Agent Status -->
+  <div class="col-lg-4">
+    <div class="card h-100">
+      <div class="card-header">Agents</div>
+      <div class="card-body">
+        {{if .Agents}}
+        <div class="d-flex justify-content-around mb-3">
+          <div class="text-center">
+            <div class="display-6 fw-bold">{{len .Agents}}</div>
+            <div class="text-muted small">Total</div>
+          </div>
+          <div class="text-center">
+            <div class="display-6 fw-bold text-success">{{.ConnectedAgents}}</div>
+            <div class="text-muted small">Connected</div>
+          </div>
+          <div class="text-center">
+            <div class="display-6 fw-bold text-danger">{{sub (len .Agents) .ConnectedAgents}}</div>
+            <div class="text-muted small">Disconnected</div>
+          </div>
+        </div>
+        <div class="list-group list-group-flush">
+          {{range .Agents}}
+          <div class="list-group-item d-flex justify-content-between align-items-center px-0">
+            <span><strong>{{.Name}}</strong> <code class="small">{{.NodeName}}</code></span>
+            {{if .Online}}<span class="badge bg-success">Online</span>{{else}}<span class="badge bg-secondary">Offline</span>{{end}}
+          </div>
+          {{end}}
+        </div>
+        {{else}}
+        <p class="text-muted">No agents registered.</p>
+        {{end}}
+      </div>
+    </div>
+  </div>
+
+  <!-- System Status -->
+  <div class="col-lg-4">
+    <div class="card h-100">
+      <div class="card-header">System Status</div>
+      <div class="card-body">
+        <div class="mb-3">
+          <div class="d-flex justify-content-between">
+            <span>Cron Scheduler</span>
+            {{if .CronEnabled}}<span class="badge bg-success">Enabled</span>{{else}}<span class="badge bg-secondary">Disabled</span>{{end}}
+          </div>
+        </div>
+        <div class="mb-3">
+          <div class="d-flex justify-content-between">
+            <span>Authentication</span>
+            <span class="badge bg-success">Active</span>
+          </div>
+        </div>
+        <div class="mb-3">
+          <div class="d-flex justify-content-between">
+            <span>Database</span>
+            <span class="badge bg-success">Connected</span>
+          </div>
+        </div>
+        <hr>
+        <div class="d-grid gap-2">
+          <a href="/admin/settings" class="btn btn-sm btn-outline-primary">Settings</a>
+          <a href="/admin/backgrounds" class="btn btn-sm btn-outline-primary">Backgrounds</a>
+          <a href="/admin/users" class="btn btn-sm btn-outline-primary">Users</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Recent Audit Log -->
+<div class="card mt-4">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span>Recent Audit Log</span>
+    <a href="/admin/audit" class="btn btn-sm btn-outline-primary">View All</a>
+  </div>
+  <div class="card-body">
+    {{if .RecentAudit}}
+    <div class="table-responsive">
+      <table class="table table-sm">
+        <thead><tr><th>Time</th><th>Action</th><th>Server</th><th>User</th><th>Result</th></tr></thead>
+        <tbody>
+          {{range .RecentAudit}}
+          <tr>
+            <td class="text-muted small">{{.Timestamp}}</td>
+            <td><code>{{.Action}}</code></td>
+            <td>{{.ServerName}}</td>
+            <td>{{.UserEmail}}</td>
+            <td>
+              {{if eq .Result "success"}}<span class="badge bg-success">Success</span>
+              {{else if eq .Result "denied"}}<span class="badge bg-danger">Denied</span>
+              {{else if eq .Result "queued"}}<span class="badge bg-warning">Queued</span>
+              {{else}}<span class="badge bg-secondary">{{.Result}}</span>{{end}}
+            </td>
+          </tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+    {{else}}
+    <p class="text-muted">No audit entries yet.</p>
+    {{end}}
+  </div>
+</div>
+
+<script>
+function sub(a, b) { return a - b; }
+</script>
+{{end}}

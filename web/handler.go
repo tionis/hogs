@@ -1195,3 +1195,99 @@ func (h *WebHandler) AuditLog(w http.ResponseWriter, r *http.Request) {
 	}
 	buf.WriteTo(w)
 }
+
+func (h *WebHandler) Dashboard(w http.ResponseWriter, r *http.Request) {
+	servers, err := h.Store.ListServers()
+	if err != nil {
+		http.Error(w, "Failed to load servers", http.StatusInternalServerError)
+		return
+	}
+
+	totalServers := len(servers)
+	onlineServers := 0
+	offlineServers := 0
+	maintenanceServers := 0
+	plannedServers := 0
+
+	gameTypes := make(map[string]int)
+	for _, s := range servers {
+		switch s.State {
+		case "online":
+			onlineServers++
+		case "offline":
+			offlineServers++
+		case "maintenance":
+			maintenanceServers++
+		case "planned":
+			plannedServers++
+		}
+		gameTypes[s.GameType]++
+	}
+
+	agents, _ := h.Store.ListAgents()
+	if agents == nil {
+		agents = []database.Agent{}
+	}
+	connectedAgents := 0
+	for _, a := range agents {
+		if a.Online {
+			connectedAgents++
+		}
+	}
+
+	recentAudit, err := h.Store.ListAuditLog(10, 0)
+	if err != nil {
+		recentAudit = []database.AuditLogEntry{}
+	}
+
+	cronEnabled := h.Config.CronEnabled
+
+	data := struct {
+		Servers            []database.Server
+		TotalServers       int
+		OnlineServers      int
+		OfflineServers     int
+		MaintenanceServers int
+		PlannedServers     int
+		GameTypes          map[string]int
+		Agents             []database.Agent
+		ConnectedAgents    int
+		RecentAudit        []database.AuditLogEntry
+		CronEnabled        bool
+		Authenticated      bool
+		UserRole           string
+		SiteName           string
+		UserEmail          string
+		BackgroundURLs     BackgroundURLs
+	}{
+		Servers:            servers,
+		TotalServers:       totalServers,
+		OnlineServers:      onlineServers,
+		OfflineServers:     offlineServers,
+		MaintenanceServers: maintenanceServers,
+		PlannedServers:     plannedServers,
+		GameTypes:          gameTypes,
+		Agents:             agents,
+		ConnectedAgents:    connectedAgents,
+		RecentAudit:        recentAudit,
+		CronEnabled:        cronEnabled,
+		Authenticated:      true,
+		UserRole:           "admin",
+		SiteName:           h.siteName(),
+		UserEmail:          h.Auth.GetUserEmail(r),
+		BackgroundURLs:     h.pickBackgrounds([]string{"home"}),
+	}
+
+	tmpl, err := template.New("base.html").Funcs(sharedFuncMap()).ParseFS(templateFS, "templates/base.html", "templates/dashboard.html")
+	if err != nil {
+		http.Error(w, "Template error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, data); err != nil {
+		http.Error(w, "Render error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	buf.WriteTo(w)
+}

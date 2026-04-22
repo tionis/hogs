@@ -73,5 +73,8 @@ func sharedFuncMap() template.FuncMap {
 			}
 			return false
 		},
+		"sub": func(a, b int) int {
+			return a - b
+		},
 	}
 }
