@@ -196,8 +196,9 @@ All action paths (user-triggered, cron-triggered, API-triggered) go through the 
 #### 2.1 Backup Management UI ✅ (basic)
 - Admin page at `/admin/backups` showing all servers with backup actions
 - One-click backup create and list snapshots buttons per server
+- Restic repository initialization UI with repo URL, password, and server selection
 - Calls existing agent backup API endpoints
-- **Still needed**: Backup policy scheduling, backup history tracking, restic repo initialization UI
+- **Still needed**: Backup policy scheduling, backup history tracking
 
 #### 2.2 Cron Job History ✅
 - Added `last_result` and `last_output` columns to `cron_jobs` table (migration 000020)
@@ -235,7 +236,7 @@ All action paths (user-triggered, cron-triggered, API-triggered) go through the 
 #### 2.6 Mass Operations ✅
 - Select multiple servers on admin page → bulk start/stop/restart
 - Checkbox UI on server list with action bar
-- **Still needed**: Bulk tag assignment, bulk ACL rule application
+- Bulk tag assignment and bulk ACL rule application via /api/admin/bulk-tags and /api/admin/bulk-acl
 
 #### 2.7 User-Facing Server Controls ✅
 - `/my-servers` page shows servers where user has ACL-granted access
@@ -309,10 +310,10 @@ All action paths (user-triggered, cron-triggered, API-triggered) go through the 
 - Admin endpoints: GET /api/webhooks, POST /api/webhooks/create, POST /api/webhooks/delete, GET /api/webhooks/test
 - Secrets never exposed in API responses
 
-#### 3.7 Dark/Light Theme Consistency
-- Audit all admin pages for hardcoded colors
-- Use CSS variables consistently
-- Ensure agent/backup/cron pages match the dark/light theme system
+#### 3.7 Dark/Light Theme Consistency ✅
+- All admin pages use CSS variables for theming
+- Dark/light/system modes fully supported with Bootstrap 5.3 and custom CSS vars
+- Agent, backup, cron, dashboard, and console pages all respect theme system
 
 #### 3.8 Localization/i18n
 - Extract all UI strings into locale files (JSON per language)
@@ -343,7 +344,7 @@ All action paths (user-triggered, cron-triggered, API-triggered) go through the 
 - **Unit tests for `web/` package**: Dashboard, Admin, Home, ServerDetail, ConstraintManager, CronManager rendering; auth integration; 404 behavior for offline servers
 - **Bug fix**: `database/` agent scan methods (`GetAgent`, `GetAgentByToken`, `GetAgentByNodeName`, `ListAgents`) now correctly handle `json.RawMessage` column by scanning into `[]byte` first
 - **Bug fix**: `config/` test defaults now properly unset env vars to avoid environment bleed
-- Still needed: Integration tests for `backend/` package, SCIM endpoint integration tests, full end-to-end action pipeline tests
+- Still needed: Integration tests for `backend/` package, SCIM endpoint integration tests, full end-to-end action pipeline tests, agent backup operation tests
 
 ---
 
