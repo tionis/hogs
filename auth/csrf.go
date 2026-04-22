@@ -88,7 +88,7 @@ func setCSRFCookie(w http.ResponseWriter, secret string, secure bool) {
 		Name:     csrfCookieName,
 		Value:    token + "." + signature,
 		Path:     "/",
-		HttpOnly: true,
+		HttpOnly: false,
 		SameSite: http.SameSiteStrictMode,
 		Secure:   secure,
 	}
