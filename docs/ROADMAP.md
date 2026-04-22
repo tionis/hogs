@@ -148,13 +148,13 @@ All action paths (user-triggered, cron-triggered, API-triggered) go through the 
 - Returns `{result, error}` — boolean result or compilation error
 - Interactive UI in `/admin/constraints` page with server/user env prefill
 
-#### 1.5 Console Streaming via journald
+#### 1.5 Console Streaming via journald ✅
 - WebSocket proxy from browser → HOGS server → agent for live console I/O
 - Agent tails the container's systemd journal (`journalctl -u <unit> -f`) and streams lines as `console` messages
 - HOGS buffers recent lines per-server (last 500 lines) for replay on connect
-- For Pterodactyl-managed servers, proxy the existing Pterodactyl websocket console
 - Show console on server detail page with input field for commands
-- Console input is sent as `command` messages routed to `podman exec`
+- Console input is sent as `console_input` messages routed to `podman exec`
+- **Still needed**: For Pterodactyl-managed servers, proxy the existing Pterodactyl websocket console
 
 #### 1.6 Agent-Aware Server Edit ✅
 - PterodactylHandler.LinkServer now accepts `node` form field to assign agent-managed servers
@@ -340,7 +340,7 @@ All action paths (user-triggered, cron-triggered, API-triggered) go through the 
 #### 3.11 Test Coverage ✅ (partial)
 - **Unit tests for `engine/` package**: ACL evaluation, constraint evaluation, param validation, template rendering, helper functions (HasTag, CountRunning, FilterByTag, ParseWeekday), source detection in audit log, expression testing
 - **Unit tests for `cron/` package**: scheduler creation, job loading, AddJob/UpdateJob/RemoveJob, enable/disable, Start/Stop
-- **Unit tests for `agent/` package**: Hub creation, connection lookup, request ID allocation, pending request correlation, context cancellation, Envelope serialization, result type detection, ResolveBackend (no-link, Pterodactyl, agent), AgentService offline errors, ServeWS auth validation, AgentBackend.Name/Status
+- **Unit tests for `agent/` package**: Hub creation, connection lookup, request ID allocation, pending request correlation, context cancellation, Envelope serialization, result type detection, ResolveBackend (no-link, Pterodactyl, agent), AgentService offline errors, ServeWS auth validation, AgentBackend.Name/Status, console buffer/broadcast/limit, client lifecycle, server name lookup
 - **Unit tests for `web/` package**: Dashboard, Admin, Home, ServerDetail, ConstraintManager, CronManager rendering; auth integration; 404 behavior for offline servers
 - **Bug fix**: `database/` agent scan methods (`GetAgent`, `GetAgentByToken`, `GetAgentByNodeName`, `ListAgents`) now correctly handle `json.RawMessage` column by scanning into `[]byte` first
 - **Bug fix**: `config/` test defaults now properly unset env vars to avoid environment bleed
