@@ -142,11 +142,11 @@ All action paths (user-triggered, cron-triggered, API-triggered) go through the 
 - GET /api/audit/export?format=json|csv — export full audit log as downloadable JSON or CSV
 - `/admin/audit` HTML page with auto-populating table, pagination, result badges, and CSV/JSON export
 
-#### 1.4 Constraint Tester ✅ (API layer)
+#### 1.4 Constraint Tester ✅
 - POST /api/constraints/test — evaluate expression with server/user/time environment
 - Pre-fills environment with server list, user roles, time context
 - Returns `{result, error}` — boolean result or compilation error
-- **Still needed**: Interactive UI in `/admin/constraints` page
+- Interactive UI in `/admin/constraints` page with server/user env prefill
 
 #### 1.5 Console Streaming via journald
 - WebSocket proxy from browser → HOGS server → agent for live console I/O
@@ -206,7 +206,7 @@ All action paths (user-triggered, cron-triggered, API-triggered) go through the 
 - Scheduler stores result and output after each job execution
 - `UpdateCronJobResult()` updates the cron job's last_result/last_output
 - `CreateCronJobLog()` and `ListCronJobLogs()` for audit trail
-- **Still needed**: Show success/failure in cron manager admin page
+- Cron manager admin page shows last_result badge and expandable last_output
 
 #### 2.3 Notification/Alerting System ✅
 - Migration 000026 creates `notification_channels` table (id, name, type, url, events, enabled, created_at)
@@ -222,7 +222,7 @@ All action paths (user-triggered, cron-triggered, API-triggered) go through the 
 - New `GET /api/dashboard` endpoint: total/online/offline/maintenance/planned server counts, game type breakdown, agent connectivity (connected/disconnected), cron status, last 10 audit entries
 - New `GET /api/dashboard/agents` endpoint: list all agents with online/offline connection status
 - Both endpoints require admin role
-- **Still needed**: Admin UI page rendering this data
+- `/admin/dashboard` HTML page with stat cards, game type breakdown, agent status, recent audit log, and system status
 
 #### 2.5 Server Resource Metrics ✅
 - Agent status reports now store metrics in `server_metrics` table (migration 000021)
@@ -232,17 +232,17 @@ All action paths (user-triggered, cron-triggered, API-triggered) go through the 
 - Configurable retention via `HOGS_METRICS_RETENTION_DAYS` (default 7)
 - Periodic cleanup goroutine runs hourly (also handles audit log cleanup)
 
-#### 2.6 Mass Operations
+#### 2.6 Mass Operations ✅
 - Select multiple servers on admin page → bulk start/stop/restart
-- Bulk tag assignment
-- Bulk ACL rule application
 - Checkbox UI on server list with action bar
+- **Still needed**: Bulk tag assignment, bulk ACL rule application
 
-#### 2.7 User-Facing Server Controls
+#### 2.7 User-Facing Server Controls ✅
 - `/my-servers` page shows servers where user has ACL-granted access
-- Action buttons (start/stop/restart) that pass through engine.Evaluate()
+- Action buttons (start/stop/restart) with CSRF protection that pass through engine.Evaluate()
 - Command execution UI for parameterized commands (rendered from command schemas)
-- Whitelist button (for games that support it)
+- Whitelist modal with add/remove player support
+- Success/error feedback with auto-dismiss
 
 #### 2.8 Rate Limiting ✅
 - New `api/ratelimit.go`: IP-based sliding window rate limiter
@@ -301,7 +301,7 @@ All action paths (user-triggered, cron-triggered, API-triggered) go through the 
 - `ServerTemplate` model with JSON fields for settings, commands, and tags
 - CRUD: ListServerTemplates, GetServerTemplate (by ID or name), CreateServerTemplate, DeleteServerTemplate
 - Admin endpoints: GET /api/templates, POST /api/templates/create, POST /api/templates/delete
-- **Still needed**: Admin UI template selector on server creation page
+- Admin UI template selector in Add Server modal with client-side prefill of game type and settings
 
 #### 3.6 Webhook Outgoing ✅
 - Migration 000025 creates `webhooks` table (id, name, url, secret, events, enabled, created_at)
@@ -342,9 +342,10 @@ All action paths (user-triggered, cron-triggered, API-triggered) go through the 
 - **Unit tests for `engine/` package**: ACL evaluation, constraint evaluation, param validation, template rendering, helper functions (HasTag, CountRunning, FilterByTag, ParseWeekday), source detection in audit log, expression testing
 - **Unit tests for `cron/` package**: scheduler creation, job loading, AddJob/UpdateJob/RemoveJob, enable/disable, Start/Stop
 - **Unit tests for `agent/` package**: Hub creation, connection lookup, request ID allocation, pending request correlation, context cancellation, Envelope serialization, result type detection, ResolveBackend (no-link, Pterodactyl, agent), AgentService offline errors, ServeWS auth validation, AgentBackend.Name/Status
+- **Unit tests for `web/` package**: Dashboard, Admin, Home, ServerDetail, ConstraintManager, CronManager rendering; auth integration; 404 behavior for offline servers
 - **Bug fix**: `database/` agent scan methods (`GetAgent`, `GetAgentByToken`, `GetAgentByNodeName`, `ListAgents`) now correctly handle `json.RawMessage` column by scanning into `[]byte` first
 - **Bug fix**: `config/` test defaults now properly unset env vars to avoid environment bleed
-- Still needed: Integration tests for `backend/` package, SCIM endpoint integration tests
+- Still needed: Integration tests for `backend/` package, SCIM endpoint integration tests, full end-to-end action pipeline tests
 
 ---
 

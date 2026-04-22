@@ -558,11 +558,17 @@ func (h *WebHandler) ServerEdit(w http.ResponseWriter, r *http.Request) {
 		serverTags = []string{}
 	}
 
+	agents, _ := h.Store.ListAgents()
+	if agents == nil {
+		agents = []database.Agent{}
+	}
+
 	data := struct {
 		Server          *database.Server
 		PteroConfigured bool
 		PteroLink       *PterodactylLinkData
 		ServerTags      []string
+		Agents          []database.Agent
 		Authenticated   bool
 		UserRole        string
 		SiteName        string
@@ -573,6 +579,7 @@ func (h *WebHandler) ServerEdit(w http.ResponseWriter, r *http.Request) {
 		PteroConfigured: h.Config.PterodactylURL != "",
 		PteroLink:       pteroLink,
 		ServerTags:      serverTags,
+		Agents:          agents,
 		Authenticated:   true,
 		UserRole:        "admin",
 		SiteName:        h.siteName(),
