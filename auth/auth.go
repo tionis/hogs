@@ -418,3 +418,28 @@ func generateRandomState() (string, error) {
 	}
 	return base64.StdEncoding.EncodeToString(b), nil
 }
+
+// CookieStore returns the underlying cookie store (for test helpers).
+func (a *Authenticator) CookieStore() *sessions.CookieStore {
+	return a.cookieStore
+}
+
+// NewTestAuthenticator creates an Authenticator for testing without OIDC.
+func NewTestAuthenticator(store *database.Store, secret string) *Authenticator {
+	if secret == "" {
+		secret = "test-secret"
+	}
+	cookieStore := sessions.NewCookieStore([]byte(secret))
+	cookieStore.Options = &sessions.Options{
+		Path:     "/",
+		MaxAge:   86400 * 30,
+		HttpOnly: true,
+		SameSite: http.SameSiteStrictMode,
+		Secure:   false,
+	}
+	return &Authenticator{
+		Store:       store,
+		Cfg:         &config.Config{SessionSecret: secret},
+		cookieStore: cookieStore,
+	}
+}
