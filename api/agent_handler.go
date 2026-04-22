@@ -463,6 +463,35 @@ func (h *AgentHandler) AgentBackupList(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(result)
 }
 
+func (h *AgentHandler) AgentBackupInit(w http.ResponseWriter, r *http.Request) {
+	serverName := mux.Vars(r)["serverName"]
+
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1 MB limit
+
+	var req struct {
+		Repo     string `json:"repo"`
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	if req.Repo == "" || req.Password == "" {
+		http.Error(w, "repo and password are required", http.StatusBadRequest)
+		return
+	}
+
+	result, err := h.Service.BackupInit(serverName, req.Repo, req.Password)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
+}
+
 func generateAgentToken() string {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {

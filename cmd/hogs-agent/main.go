@@ -322,6 +322,12 @@ func handleMessage(message []byte, c *websocket.Conn) {
 		result := backupList(data.Repo, data.Password)
 		sendResult(c, "backup_list_result", env.RequestID, result)
 
+	case "backup_init":
+		var data BackupRequestData
+		json.Unmarshal(env.Data, &data)
+		result := backupInit(data.Repo, data.Password)
+		sendResult(c, "backup_init_result", env.RequestID, result)
+
 	case "console_subscribe":
 		startConsoleStreaming(c)
 
@@ -792,6 +798,16 @@ func backupList(repo, password string) map[string]interface{} {
 		"success":   true,
 		"snapshots": result,
 	}
+}
+
+func backupInit(repo, password string) map[string]interface{} {
+	cmd := exec.Command(resticBin, "init", "--json")
+	cmd.Env = append(os.Environ(), resticEnv(repo, password)...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return map[string]interface{}{"success": false, "error": string(output)}
+	}
+	return map[string]interface{}{"success": true, "message": "restic repository initialized"}
 }
 
 // ── Status Reporting ──

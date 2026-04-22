@@ -207,3 +207,13 @@ func (s *AgentService) BackupList(serverName, repo, password string) (*GenericRe
 	defer cancel()
 	return s.Hub.SendBackupList(ctx, agentID, repo, password)
 }
+
+func (s *AgentService) BackupInit(serverName, repo, password string) (*GenericResultData, error) {
+	_, agentID := ResolveBackend(serverName, s.Store, s.Hub)
+	if agentID <= 0 {
+		return nil, fmt.Errorf("no agent backend")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	return s.Hub.SendBackupInit(ctx, agentID, repo, password)
+}

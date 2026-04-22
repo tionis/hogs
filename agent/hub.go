@@ -467,6 +467,10 @@ func (h *Hub) SendBackupList(ctx context.Context, agentID int, repo, password st
 	return h.sendEnvelopeWithResult(ctx, agentID, "backup_list", BackupListRequestData{Repo: repo, Password: password})
 }
 
+func (h *Hub) SendBackupInit(ctx context.Context, agentID int, repo, password string) (*GenericResultData, error) {
+	return h.sendEnvelopeWithResult(ctx, agentID, "backup_init", BackupCreateRequestData{Repo: repo, Password: password})
+}
+
 var resultTypes = map[string]string{
 	"action_result":         "action_result",
 	"command_result":        "command_result",
@@ -478,6 +482,7 @@ var resultTypes = map[string]string{
 	"backup_create_result":  "backup_create_result",
 	"backup_restore_result": "backup_restore_result",
 	"backup_list_result":    "backup_list_result",
+	"backup_init_result":    "backup_init_result",
 }
 
 func isResultType(t string) bool {

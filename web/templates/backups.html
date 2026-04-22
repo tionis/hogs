@@ -11,6 +11,35 @@
 <h2>Backups</h2>
 <p class="text-muted">Manage restic backups for agent-managed servers. Backup operations run on the agent node.</p>
 
+<div class="card mb-4">
+  <div class="card-header">Initialize Restic Repository</div>
+  <div class="card-body">
+    <div class="row">
+      <div class="col-md-4 mb-2">
+        <label class="form-label">Repository</label>
+        <input type="text" class="form-control form-control-sm" id="restic-repo" placeholder="/backup/repo or s3:s3.amazonaws.com/bucket">
+      </div>
+      <div class="col-md-3 mb-2">
+        <label class="form-label">Password</label>
+        <input type="password" class="form-control form-control-sm" id="restic-password" placeholder="restic password">
+      </div>
+      <div class="col-md-3 mb-2">
+        <label class="form-label">Server</label>
+        <select class="form-select form-select-sm" id="restic-server">
+          <option value="">Select server...</option>
+          {{range .Servers}}
+          <option value="{{.Name}}">{{.Name}}</option>
+          {{end}}
+        </select>
+      </div>
+      <div class="col-md-2 mb-2 d-flex align-items-end">
+        <button class="btn btn-sm btn-primary w-100" onclick="initRepo()">Init Repo</button>
+      </div>
+    </div>
+    <div id="restic-init-result" class="mt-2" style="display:none;"></div>
+  </div>
+</div>
+
 {{if .Servers}}
 <div class="row row-cols-1 row-cols-md-2 g-4">
   {{range .Servers}}
@@ -56,6 +85,43 @@ async function backupAction(serverName, action, btn) {
   } finally {
     setButtonLoading(btn, false);
   }
+}
+
+async function initRepo() {
+  const repo = document.getElementById('restic-repo').value.trim();
+  const password = document.getElementById('restic-password').value;
+  const server = document.getElementById('restic-server').value;
+  const resultDiv = document.getElementById('restic-init-result');
+
+  if (!repo || !password || !server) {
+    resultDiv.innerHTML = '<div class="alert alert-warning small py-1">All fields are required.</div>';
+    resultDiv.style.display = 'block';
+    return;
+  }
+
+  try {
+    const resp = await fetch('/api/agents/' + encodeURIComponent(server) + '/backup/init', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-CSRF-Token': getCsrfToken()},
+      body: JSON.stringify({repo: repo, password: password})
+    });
+    const data = await resp.json();
+    if (data.success) {
+      resultDiv.innerHTML = '<div class="alert alert-success small py-1">Repository initialized successfully.</div>';
+    } else {
+      resultDiv.innerHTML = '<div class="alert alert-danger small py-1">' + escapeHtml(data.error || 'Failed') + '</div>';
+    }
+    resultDiv.style.display = 'block';
+  } catch (err) {
+    resultDiv.innerHTML = '<div class="alert alert-danger small py-1">' + escapeHtml(err.message) + '</div>';
+    resultDiv.style.display = 'block';
+  }
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
 }
 
 function setButtonLoading(btn, loading) {
