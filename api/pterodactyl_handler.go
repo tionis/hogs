@@ -356,7 +356,20 @@ func (h *PterodactylHandler) getUserEnv(r *http.Request) *engine.UserEnv {
 	if role == "" {
 		role = "user"
 	}
-	return &engine.UserEnv{Email: email, Role: role}
+
+	// Fetch user's SCIM groups
+	var groups []string
+	if email != "anonymous" && h.Store != nil {
+		user, _ := h.Store.GetUserByEmail(email)
+		if user != nil {
+			scimGroups, _ := h.Store.GetSCIMGroupsForUser(user.ID)
+			for _, g := range scimGroups {
+				groups = append(groups, g.DisplayName)
+			}
+		}
+	}
+
+	return &engine.UserEnv{Email: email, Role: role, Groups: groups}
 }
 
 func (h *PterodactylHandler) evaluateACLEnabled(link *database.PterodactylLink, server *database.Server, action string, user *engine.UserEnv) bool {

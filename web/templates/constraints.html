@@ -34,9 +34,10 @@
             <tr><td><code>server.Running</code></td><td><code>bool</code></td><td>Is the server currently online</td></tr>
             <tr><td><code>user.Email</code></td><td><code>string</code></td><td>Requesting user's email</td></tr>
             <tr><td><code>user.Role</code></td><td><code>string</code></td><td>User role (<code>admin</code> or <code>user</code>)</td></tr>
+            <tr><td><code>user.Groups</code></td><td><code>[]string</code></td><td>User's SCIM groups</td></tr>
             <tr><td><code>time.Hour</code></td><td><code>int</code></td><td>Current hour (0-23)</td></tr>
             <tr><td><code>time.Weekday</code></td><td><code>time.Weekday</code></td><td>Current weekday</td></tr>
-            <tr><td><code>action</code></td><td><code>string</code></td><td>The requested action (start, stop, restart, ...)</td></tr>
+            <tr><td><code>action</code></td><td><code>string</code></td><td>The requested action (start, stop, restart, view, ...)</td></tr>
           </tbody>
         </table>
       </div>
@@ -47,6 +48,7 @@
           <thead><tr><th>Function</th><th>Signature</th><th>Description</th></tr></thead>
           <tbody>
             <tr><td><code>hasTag</code></td><td><code>(server, string) bool</code></td><td>Check if server has a tag</td></tr>
+            <tr><td><code>inList</code></td><td><code>(item string, []string) bool</code></td><td>Check if item is in a list</td></tr>
             <tr><td><code>serversOnNode</code></td><td><code>(node string) []ServerEnv</code></td><td>Get all servers on a node</td></tr>
             <tr><td><code>runningOnNode</code></td><td><code>(node string) []ServerEnv</code></td><td>Get running servers on a node</td></tr>
             <tr><td><code>countRunning</code></td><td><code>([]ServerEnv) int</code></td><td>Count running servers in a list</td></tr>
@@ -73,7 +75,16 @@ hasTag(server, "eu-west") && (time.Hour < 8 || time.Hour > 22)
 action == "restart" && (time.Weekday == weekday("Saturday") || time.Weekday == weekday("Sunday"))
 
 # Only allow minecraft servers for regular users
-user.Role != "admin" && server.GameType != "minecraft"</code></pre>
+user.Role != "admin" && server.GameType != "minecraft"
+
+# Require group membership for restricted servers
+!hasTag(server, "restricted") || inList("minecraft-players", user.Groups)
+
+# Hide server from anonymous users (visibility constraint using "view" action)
+action == "view" && user.Email != "anonymous"
+
+# Only show server to admins or members of the "beta-testers" group
+action == "view" && (user.Role == "admin" || inList("beta-testers", user.Groups))</code></pre>
     </div>
   </div>
 </div>
@@ -183,16 +194,20 @@ user.Role != "admin" && server.GameType != "minecraft"</code></pre>
           </div>
         </div>
         <div class="row">
-          <div class="col-md-6 mb-3">
+          <div class="col-md-4 mb-3">
             <label class="form-label">User Email</label>
             <input type="text" class="form-control form-control-sm" id="test-user-email" value="admin@example.com">
           </div>
-          <div class="col-md-6 mb-3">
+          <div class="col-md-4 mb-3">
             <label class="form-label">User Role</label>
             <select class="form-select form-select-sm" id="test-user-role">
               <option value="admin">admin</option>
               <option value="user">user</option>
             </select>
+          </div>
+          <div class="col-md-4 mb-3">
+            <label class="form-label">Groups (comma-separated)</label>
+            <input type="text" class="form-control form-control-sm" id="test-user-groups" value="minecraft-players,admins">
           </div>
         </div>
         <div class="form-check mb-3">
@@ -280,6 +295,7 @@ async function testConstraint() {
   }
 
   const tags = document.getElementById('test-server-tags').value.split(',').map(t => t.trim()).filter(t => t);
+  const groups = document.getElementById('test-user-groups').value.split(',').map(t => t.trim()).filter(t => t);
   const payload = {
     condition: condition,
     server: {
@@ -292,7 +308,8 @@ async function testConstraint() {
     },
     user: {
       Email: document.getElementById('test-user-email').value,
-      Role: document.getElementById('test-user-role').value
+      Role: document.getElementById('test-user-role').value,
+      Groups: groups
     }
   };
 

@@ -24,8 +24,9 @@ type ServerEnv struct {
 }
 
 type UserEnv struct {
-	Email string `json:"email"`
-	Role  string `json:"role"`
+	Email  string   `json:"email"`
+	Role   string   `json:"role"`
+	Groups []string `json:"groups"`
 }
 
 type TimeEnv struct {
@@ -125,6 +126,7 @@ func (e *Engine) buildEnv(server *database.Server, user *UserEnv) (map[string]in
 		"user":    user,
 		"time":    timeEnv,
 		"hasTag":  func(s ServerEnv, tag string) bool { return HasTag(s, tag) },
+		"inList":  func(item string, list []string) bool { return InList(list, item) },
 		"serversOnNode": func(node string) []ServerEnv {
 			return filterByNode(serverEnvs, node)
 		},
@@ -142,6 +144,15 @@ func (e *Engine) buildEnv(server *database.Server, user *UserEnv) (map[string]in
 func HasTag(s ServerEnv, tag string) bool {
 	for _, t := range s.Tags {
 		if t == tag {
+			return true
+		}
+	}
+	return false
+}
+
+func InList(list []string, item string) bool {
+	for _, v := range list {
+		if v == item {
 			return true
 		}
 	}
@@ -400,51 +411,49 @@ func (e *Engine) RenderTemplate(template string, params map[string]string) strin
 }
 
 func (e *Engine) Evaluate(server *database.Server, action string, params map[string]string, user *UserEnv) *ActionResult {
-	source := "user"
-	if user.Email == "system" {
-		source = "cron"
-	} else if user.Email == "" && user.Role == "admin" {
-		source = "api"
+	source := "web"
+	if user != nil {
+		if user.Email == "system" && user.Role == "system" {
+			source = "cron"
+		} else if user.Email == "" && user.Role == "admin" {
+			source = "api"
+		}
 	}
 
 	auditEntry := &database.AuditLogEntry{
-		Timestamp:  time.Now().UTC().Format(time.RFC3339),
-		UserEmail:  user.Email,
-		ServerName: server.Name,
 		Action:     action,
-		Params:     paramsToJSON(params),
+		ServerName: server.Name,
+		UserEmail:  "",
+		Timestamp:  time.Now().UTC().Format(time.RFC3339),
+		Result:     "allowed",
 		Source:     source,
 	}
-
-	defer func() {
-		if err := e.Store.CreateAuditLog(auditEntry); err != nil {
-			log.Printf("Warning: failed to write audit log: %v", err)
-		}
-	}()
-
-	link, err := e.Store.GetPterodactylLink(server.ID)
-	if err != nil || link == nil {
-		auditEntry.Result = "denied"
-		auditEntry.Reason = "server not linked to Pterodactyl"
-		return &ActionResult{Allowed: false, Result: "denied", Reason: "Server not linked to Pterodactyl", Status: 404}
+	if user != nil {
+		auditEntry.UserEmail = user.Email
 	}
 
-	if action != "start" && action != "stop" && action != "restart" && action != "whitelist" {
-		if len(params) > 0 || action != "" {
-		}
+	link, err := e.Store.GetPterodactylLink(server.ID)
+	if err != nil {
+		auditEntry.Result = "error"
+		auditEntry.Reason = err.Error()
+		return &ActionResult{Allowed: false, Result: "error", Reason: err.Error()}
+	}
+	if link == nil {
+		auditEntry.Result = "error"
+		auditEntry.Reason = "no pterodactyl link"
+		return &ActionResult{Allowed: false, Result: "error", Reason: "no pterodactyl link", Status: 404}
 	}
 
 	aclAllowed, err := e.EvaluateACL(link, server, action, user)
 	if err != nil {
-		log.Printf("ACL evaluation error for server %s action %s: %v", server.Name, action, err)
-		auditEntry.Result = "denied"
-		auditEntry.Reason = fmt.Sprintf("ACL evaluation error: %v", err)
-		return &ActionResult{Allowed: false, Result: "denied", Reason: "ACL evaluation error", Status: 500}
+		auditEntry.Result = "error"
+		auditEntry.Reason = err.Error()
+		return &ActionResult{Allowed: false, Result: "error", Reason: err.Error()}
 	}
 	if !aclAllowed {
 		auditEntry.Result = "denied"
-		auditEntry.Reason = "ACL rule denied action"
-		return &ActionResult{Allowed: false, Result: "denied", Reason: "Action not permitted by ACL rule", Status: 403}
+		auditEntry.Reason = fmt.Sprintf("ACL denied action %s", action)
+		return &ActionResult{Allowed: false, Result: "denied", Reason: fmt.Sprintf("ACL denied action %s", action)}
 	}
 
 	constraintResult, err := e.EvaluateConstraints(server, action, user)
@@ -459,9 +468,33 @@ func (e *Engine) Evaluate(server *database.Server, action string, params map[str
 		return constraintResult
 	}
 
-	auditEntry.Result = "allowed"
-	auditEntry.Reason = ""
+	if e.Notifier != nil {
+		go e.Notifier.Send(fmt.Sprintf("server_%s", action), fmt.Sprintf("Action %s on server %s by %s", action, server.Name, auditEntry.UserEmail))
+	}
+
+	if err := e.Store.CreateAuditLog(auditEntry); err != nil {
+		log.Printf("Warning: audit log creation failed: %v", err)
+	}
+
 	return &ActionResult{Allowed: true, Result: "allowed", Status: 200}
+}
+
+// EvaluateVisibility checks if a user can see a server.
+// It evaluates constraints with action="view" and checks server state.
+func (e *Engine) EvaluateVisibility(server *database.Server, user *UserEnv) bool {
+	// Offline servers are hidden from anonymous users
+	if server.State == "offline" && user == nil {
+		return false
+	}
+
+	// Evaluate constraints with "view" action
+	result, err := e.EvaluateConstraints(server, "view", user)
+	if err != nil {
+		log.Printf("Visibility constraint error for server %s: %v", server.Name, err)
+		return true // Default to visible on error
+	}
+
+	return result.Allowed
 }
 
 func (e *Engine) LogAction(serverName, action, userEmail, result, reason, source string, params map[string]string) {

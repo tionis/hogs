@@ -98,6 +98,34 @@ func (h *WebHandler) userRole(r *http.Request) string {
 	return h.Auth.GetUserRole(r)
 }
 
+func (h *WebHandler) getUserEnv(r *http.Request) *engine.UserEnv {
+	email := "anonymous"
+	role := "user"
+	if h.Auth != nil {
+		email = h.Auth.GetUserEmail(r)
+		role = h.Auth.GetUserRole(r)
+	}
+	if email == "" {
+		email = "anonymous"
+	}
+	if role == "" {
+		role = "user"
+	}
+
+	var groups []string
+	if email != "anonymous" && h.Store != nil {
+		user, _ := h.Store.GetUserByEmail(email)
+		if user != nil {
+			scimGroups, _ := h.Store.GetSCIMGroupsForUser(user.ID)
+			for _, g := range scimGroups {
+				groups = append(groups, g.DisplayName)
+			}
+		}
+	}
+
+	return &engine.UserEnv{Email: email, Role: role, Groups: groups}
+}
+
 type PterodactylLinkData struct {
 	ServerID        int                           `json:"serverId"`
 	PteroServerID   string                        `json:"pteroServerId"`
@@ -313,14 +341,17 @@ func (h *WebHandler) Home(w http.ResponseWriter, r *http.Request) {
 	}
 
 	isAuthenticated := h.Auth != nil && h.Auth.IsAuthenticated(r)
+	userEnv := h.getUserEnv(r)
 
-	// Filter servers
+	// Filter servers by visibility constraints
 	var visibleServers []database.Server
 	for _, s := range allServers {
 		// "offline" state hides the server from public view.
 		// "auto" state shows it, and the frontend determines the badge status.
 		if s.State != "offline" || isAuthenticated {
-			visibleServers = append(visibleServers, s)
+			if h.Engine.EvaluateVisibility(&s, userEnv) {
+				visibleServers = append(visibleServers, s)
+			}
 		}
 	}
 
@@ -381,6 +412,13 @@ func (h *WebHandler) ServerDetail(w http.ResponseWriter, r *http.Request) {
 
 	isAuthenticated := h.Auth != nil && h.Auth.IsAuthenticated(r)
 	userRole := h.userRole(r)
+	userEnv := h.getUserEnv(r)
+
+	// Check visibility constraints
+	if !h.Engine.EvaluateVisibility(server, userEnv) {
+		http.Error(w, "Server not found", http.StatusNotFound)
+		return
+	}
 
 	// Access control: if offline and not admin, return 404
 	if server.State == "offline" && !isAuthenticated {

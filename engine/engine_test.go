@@ -675,8 +675,8 @@ func TestSourceDetection(t *testing.T) {
 	if err := row.Scan(&source); err != nil {
 		t.Fatalf("failed to read audit log source: %v", err)
 	}
-	if source != "user" {
-		t.Errorf("Source = %q, want %q", source, "user")
+	if source != "web" {
+		t.Errorf("Source = %q, want %q", source, "web")
 	}
 }
 
