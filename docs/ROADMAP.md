@@ -156,10 +156,10 @@ All action paths (user-triggered, cron-triggered, API-triggered) go through the 
 - Show console on server detail page with input field for commands
 - Console input is sent as `command` messages routed to `podman exec`
 
-#### 1.6 Agent-Aware Server Edit ✅ (API layer)
+#### 1.6 Agent-Aware Server Edit ✅
 - PterodactylHandler.LinkServer now accepts `node` form field to assign agent-managed servers
 - Node field stored in PterodactylLink and used by resolveBackend() for routing
-- **Still needed**: Node selector dropdown in server edit page UI
+- Node selector dropdown in server edit page UI with agent list
 
 #### 1.7 Backend Routing for Actions/Commands ✅
 - PterodactylHandler now uses `resolveBackend()` to determine whether a server is agent-managed or Pterodactyl-managed
@@ -193,12 +193,11 @@ All action paths (user-triggered, cron-triggered, API-triggered) go through the 
 
 ### Priority 2: Important Gaps (needed for production use)
 
-#### 2.1 Backup Management UI
-- Admin page at `/admin/backups` showing all backup policies per server
-- Create/schedule backup policies (restic repo, paths, tags, cron schedule)
-- One-click backup/restore buttons per server
-- Backup history with snapshot ID, size, date
-- Restic repo initialization from UI (`restic init`)
+#### 2.1 Backup Management UI ✅ (basic)
+- Admin page at `/admin/backups` showing all servers with backup actions
+- One-click backup create and list snapshots buttons per server
+- Calls existing agent backup API endpoints
+- **Still needed**: Backup policy scheduling, backup history tracking, restic repo initialization UI
 
 #### 2.2 Cron Job History ✅
 - Added `last_result` and `last_output` columns to `cron_jobs` table (migration 000020)
