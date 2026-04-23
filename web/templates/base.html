@@ -482,6 +482,11 @@
 
           input.addEventListener('input', render);
           input.addEventListener('change', render);
+          input.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+            }
+          });
           render();
         };
 
