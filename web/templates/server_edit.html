@@ -70,9 +70,14 @@
           </div>
           <div class="mb-3">
             <label class="form-label">Tags</label>
-            <input type="text" class="form-control" name="tags" value="{{range $i, $t := .ServerTags}}{{if $i}}, {{end}}{{$t}}{{end}}" placeholder="e.g. production, eu-west, game">
-            <div class="form-text">Comma-separated tags for constraints and filtering</div>
+            <div id="editTagsContainer" class="tag-input-container mb-1"></div>
+            <input type="hidden" id="editTagsHidden" name="tags" value="{{range $i, $t := .ServerTags}}{{if $i}},{{end}}{{$t}}{{end}}">
+            <div class="form-text">Type tag and press Enter, comma, or space</div>
           </div>
+          <script>document.addEventListener('DOMContentLoaded', function() {
+            const initialTags = document.getElementById('editTagsHidden').value.split(',').filter(t => t.trim());
+            initTagInput('editTagsContainer', 'editTagsHidden', initialTags);
+          });</script>
           <div class="mb-3">
             <label class="form-label">Metadata</label>
             <div id="editMetadataContainer">
@@ -219,55 +224,6 @@
     </div>
 
     {{if .PteroConfigured}}
-    <div class="card mt-3">
-      <div class="card-header">Server Tags</div>
-      <div class="card-body">
-        <form id="tags-form" onsubmit="submitTags(event)">
-          <div class="mb-3" id="tags-container">
-          </div>
-          <button type="button" class="btn btn-sm btn-secondary mb-2" onclick="addTag()">+ Add Tag</button>
-          <button type="submit" class="btn btn-sm btn-primary">Save Tags</button>
-        </form>
-        <script>
-          const existingTags = [];
-          function addTag(val) {
-            const container = document.getElementById('tags-container');
-            const div = document.createElement('div');
-            div.className = 'input-group mb-2';
-            div.innerHTML = `<input type="text" class="form-control form-control-sm" name="tags" placeholder="e.g. minecraft, game, production" value="${val || ''}"><button type="button" class="btn btn-outline-danger btn-sm" onclick="this.parentElement.remove()">X</button>`;
-            container.appendChild(div);
-          }
-          function getCsrfToken() {
-            const match = document.cookie.match(/hogs-csrf=([^;]+)/);
-            if (!match) return '';
-            const cookieValue = decodeURIComponent(match[1]);
-            return cookieValue.split('.')[0];
-          }
-          function submitTags(e) {
-            e.preventDefault();
-            const tags = Array.from(document.querySelectorAll('#tags-container input[name="tags"]')).map(i => i.value).filter(v => v.trim());
-            fetch('/admin/tags/{{.Server.ID}}', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/x-www-form-urlencoded',
-                'X-CSRF-Token': getCsrfToken()
-              },
-              body: tags.map(t => 'tags=' + encodeURIComponent(t)).join('&')
-            }).then(r => {
-              if (r.ok) {
-                location.reload();
-              } else {
-                alert('Failed to save tags: ' + r.statusText);
-              }
-            }).catch(err => {
-              alert('Error: ' + err.message);
-            });
-          }
-          {{range .ServerTags}}addTag("{{.}}");{{end}}
-        </script>
-      </div>
-    </div>
-
     {{if .PteroLink}}
     <div class="card mt-3">
       <div class="card-header">ACL Rule</div>

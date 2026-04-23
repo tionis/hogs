@@ -156,9 +156,11 @@
           </div>
           <div class="mb-3">
             <label class="form-label">Tags</label>
-            <input type="text" class="form-control" id="addTags" name="tags" placeholder="e.g. production, eu-west, game">
-            <div class="form-text">Comma-separated tags for constraints and filtering</div>
+            <div id="addTagsContainer" class="tag-input-container mb-1"></div>
+            <input type="hidden" id="addTagsHidden" name="tags">
+            <div class="form-text">Type tag and press Enter, comma, or space</div>
           </div>
+          <script>document.addEventListener('DOMContentLoaded', function() { initTagInput('addTagsContainer', 'addTagsHidden', []); });</script>
           <div class="mb-3">
             <label class="form-label">Metadata</label>
             <div id="addMetadataContainer"></div>

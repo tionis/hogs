@@ -254,6 +254,56 @@
       .form-check-input:checked { background-color: var(--accent); border-color: var(--accent); }
       .form-label, .form-text { color: var(--text-secondary); }
 
+      /* ── Tag Input ── */
+      .tag-input-container {
+        background: var(--bg-input);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        padding: 0.375rem 0.5rem;
+        min-height: 38px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.375rem;
+        align-items: center;
+        cursor: text;
+      }
+      .tag-input-container:focus-within {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 0.2rem var(--accent-glow);
+      }
+      .tag-input-container .tag-pill {
+        background: var(--accent);
+        color: #fff;
+        padding: 0.2rem 0.5rem;
+        border-radius: 12px;
+        font-size: 0.8rem;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        white-space: nowrap;
+      }
+      .tag-input-container .tag-pill button {
+        background: none;
+        border: none;
+        color: inherit;
+        padding: 0;
+        font-size: 1rem;
+        line-height: 1;
+        cursor: pointer;
+        opacity: 0.7;
+      }
+      .tag-input-container .tag-pill button:hover { opacity: 1; }
+      .tag-input-container input {
+        background: transparent;
+        border: none;
+        color: var(--text-primary);
+        outline: none;
+        flex: 1;
+        min-width: 120px;
+        padding: 0.2rem;
+      }
+      .tag-input-container input::placeholder { color: var(--text-secondary); }
+
       /* ── List groups ── */
       .list-group-item { background: transparent; color: var(--text-primary) !important; border-color: var(--border-color); }
       .list-group-item-action:hover { background: var(--bg-card-hover); color: var(--text-primary); }
@@ -409,6 +459,91 @@
           });
         }
         injectCSRFToken();
+
+        // Tag Input Component
+        window.initTagInput = function(containerId, hiddenInputId, initialTags) {
+          const container = document.getElementById(containerId);
+          if (!container) return;
+          const hiddenInput = document.getElementById(hiddenInputId);
+          let tags = initialTags || [];
+
+          function render() {
+            // Clear container but keep input
+            const existingInput = container.querySelector('input');
+            container.innerHTML = '';
+            tags.forEach(tag => {
+              const pill = document.createElement('span');
+              pill.className = 'tag-pill';
+              pill.innerHTML = `${escapeHtml(tag)} <button type="button" onclick="window.removeTag('${containerId}', '${hiddenInputId}', '${tag.replace(/'/g, "\\'")}')">&times;</button>`;
+              container.appendChild(pill);
+            });
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.placeholder = tags.length === 0 ? 'Type tag and press Enter...' : '';
+            input.addEventListener('keydown', function(e) {
+              if (e.key === 'Enter' || e.key === ',' || e.key === ' ') {
+                e.preventDefault();
+                const val = this.value.trim();
+                if (val && !tags.includes(val)) {
+                  tags.push(val);
+                  updateHidden();
+                  render();
+                }
+              } else if (e.key === 'Backspace' && this.value === '' && tags.length > 0) {
+                tags.pop();
+                updateHidden();
+                render();
+              }
+            });
+            input.addEventListener('blur', function() {
+              const val = this.value.trim();
+              if (val && !tags.includes(val)) {
+                tags.push(val);
+                updateHidden();
+                render();
+              }
+            });
+            container.appendChild(input);
+            if (existingInput && existingInput.value) {
+              input.value = existingInput.value;
+            }
+            input.focus();
+          }
+
+          function updateHidden() {
+            if (hiddenInput) hiddenInput.value = tags.join(',');
+          }
+
+          function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+          }
+
+          container.addEventListener('click', function() {
+            const input = container.querySelector('input');
+            if (input) input.focus();
+          });
+
+          render();
+        };
+
+        window.removeTag = function(containerId, hiddenInputId, tag) {
+          const container = document.getElementById(containerId);
+          if (!container) return;
+          const hiddenInput = document.getElementById(hiddenInputId);
+          const pills = container.querySelectorAll('.tag-pill');
+          pills.forEach(pill => {
+            if (pill.textContent.trim().replace('×', '').trim() === tag) {
+              pill.remove();
+            }
+          });
+          const remainingTags = [];
+          container.querySelectorAll('.tag-pill').forEach(pill => {
+            remainingTags.push(pill.textContent.trim().replace('×', '').trim());
+          });
+          if (hiddenInput) hiddenInput.value = remainingTags.join(',');
+        };
 
         function updateServerStatus(el) {
           const serverName = el.dataset.server;
