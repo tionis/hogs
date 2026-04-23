@@ -237,6 +237,10 @@
             div.innerHTML = `<input type="text" class="form-control form-control-sm" name="tags" placeholder="e.g. minecraft, game, production" value="${val || ''}"><button type="button" class="btn btn-outline-danger btn-sm" onclick="this.parentElement.remove()">X</button>`;
             container.appendChild(div);
           }
+          function getCsrfToken() {
+            const match = document.cookie.match(/hogs-csrf=([^;]+)/);
+            return match ? decodeURIComponent(match[1]) : '';
+          }
           function submitTags(e) {
             e.preventDefault();
             const tags = Array.from(document.querySelectorAll('#tags-container input[name="tags"]')).map(i => i.value).filter(v => v.trim());
