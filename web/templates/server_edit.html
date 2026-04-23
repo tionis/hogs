@@ -313,7 +313,10 @@
       document.querySelectorAll('input[list="ptero-server-list"]').forEach(input => {
         input.addEventListener('change', function() {
           const dl = this.list;
-          const selected = dl.querySelector(`option[value="${this.value}"]`);
+          let selected = dl.querySelector(`option[value="${this.value}"]`);
+          if (!selected) {
+            selected = Array.from(dl.options).find(o => o.dataset.identifier === this.value);
+          }
           const hiddenId = this.closest('form').querySelector('input[name="ptero_identifier"]');
           if (selected && hiddenId) hiddenId.value = selected.dataset.identifier || '';
         });

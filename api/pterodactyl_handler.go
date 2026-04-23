@@ -333,9 +333,14 @@ func (h *PterodactylHandler) resolveBackend(server *database.Server, link *datab
 	if identifier == "" {
 		id, err := h.resolveIdentifier(c, link.PteroServerID)
 		if err != nil {
-			return nil, fmt.Errorf("failed to resolve Pterodactyl identifier: %w", err)
+			// Fallback: PteroServerID may already be the short identifier
+			// (e.g. user typed it manually instead of selecting from the
+			// datalist). The Pterodactyl client API accepts both UUID and
+			// short identifier, so use it directly.
+			identifier = link.PteroServerID
+		} else {
+			identifier = id
 		}
-		identifier = id
 		link.PteroIdentifier = identifier
 		h.Store.UpdatePterodactylLink(link)
 	}
