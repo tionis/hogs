@@ -450,8 +450,7 @@
           if (!input || !preview) return;
 
           function parseTags() {
-            return input.value.split(/[,
-]+/).map(t => t.trim()).filter(t => t.length > 0);
+            return input.value.split(',').map(t => t.trim()).filter(t => t.length > 0);
           }
 
           function render() {
