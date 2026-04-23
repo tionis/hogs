@@ -160,7 +160,29 @@
             <div id="addTagsPreview" class="tag-preview"></div>
             <div class="form-text">Comma-separated tags for constraints and filtering</div>
           </div>
-          <script>document.addEventListener('DOMContentLoaded', function() { initTagPreview('addTags', 'addTagsPreview'); });</script>
+          <script>
+          (function() {
+            const input = document.getElementById('addTags');
+            const preview = document.getElementById('addTagsPreview');
+            function parseTags() { return input.value.split(',').map(t => t.trim()).filter(t => t.length > 0); }
+            function render() {
+              const tags = parseTags();
+              preview.innerHTML = '';
+              if (tags.length === 0) { preview.innerHTML = '<span class="text-muted small">No tags</span>'; return; }
+              tags.forEach((tag, idx) => {
+                const pill = document.createElement('span');
+                pill.className = 'tag-pill';
+                pill.innerHTML = tag.replace(/</g, '&lt;').replace(/>/g, '&gt;') + ' <button type="button">&times;</button>';
+                pill.querySelector('button').onclick = function() {
+                  const current = parseTags(); current.splice(idx, 1); input.value = current.join(', '); render();
+                };
+                preview.appendChild(pill);
+              });
+            }
+            input.addEventListener('input', render);
+            render();
+          })();
+          </script>
           <div class="mb-3">
             <label class="form-label">Metadata</label>
             <div id="addMetadataContainer"></div>
