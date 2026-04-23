@@ -103,7 +103,7 @@ action == "view" && (user.Role == "admin" || inList("beta-testers", user.Groups)
         <td>{{.Priority}}</td>
         <td>{{if .Enabled}}<span class="badge bg-success">Yes</span>{{else}}<span class="badge bg-secondary">No</span>{{end}}</td>
         <td>
-          <button type="button" class="btn btn-sm btn-outline-primary" onclick="openEditModal({{.ID}}, {{json .Name}}, {{json .Description}}, {{json .Condition}}, {{json .Strategy}}, {{.Priority}}, {{.Enabled}})">Edit</button>
+          <button type="button" class="btn btn-sm btn-outline-primary" onclick="openEditModal({{.ID}}, '{{.Name}}', '{{.Description}}', '{{.Condition}}', '{{.Strategy}}', {{.Priority}}, {{.Enabled}})">Edit</button>
           <form action="/admin/constraints/delete" method="POST" class="d-inline" onsubmit="return confirm('Delete this constraint?');">
             <input type="hidden" name="id" value="{{.ID}}">
             <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
