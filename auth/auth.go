@@ -163,10 +163,7 @@ func (a *Authenticator) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		displayName = claims.PreferredUsername
 	}
 
-	log.Printf("OIDC login: email=%s sub=%s name=%s displayName=%s groups=%v groupsClaim=%s", claims.Email, claims.Sub, claims.Name, displayName, groups, a.Cfg.OIDCGroupsClaim)
-
 	if err := a.provisionUser(claims.Email, role, claims.Sub, displayName, groups); err != nil {
-		log.Printf("OIDC provisionUser failed: %v", err)
 		http.Error(w, "Authentication failed", http.StatusInternalServerError)
 		return
 	}
@@ -354,9 +351,6 @@ func (a *Authenticator) provisionUser(email, role, externalID, displayName strin
 		if err != nil {
 			return fmt.Errorf("CreateUser failed: %w", err)
 		}
-		log.Printf("Created new user: id=%d email=%s", user.ID, email)
-	} else {
-		log.Printf("Existing user: id=%d email=%s", user.ID, email)
 	}
 	if role == "admin" && user.Role != "admin" {
 		if err := a.Store.UpdateUserRole(user.ID, "admin"); err != nil {
@@ -369,11 +363,9 @@ func (a *Authenticator) provisionUser(email, role, externalID, displayName strin
 	if err := a.Store.UpdateUserSCIM(user.ID, externalID, displayName, true); err != nil {
 		return fmt.Errorf("UpdateUserSCIM failed: %w", err)
 	}
-	log.Printf("Updated user SCIM: id=%d external_id=%s display_name=%s", user.ID, externalID, displayName)
 	if err := a.Store.SyncUserOIDCGroups(user.ID, groups); err != nil {
 		return fmt.Errorf("SyncUserOIDCGroups failed: %w", err)
 	}
-	log.Printf("Synced user groups: id=%d groups=%v", user.ID, groups)
 	return nil
 }
 
