@@ -496,17 +496,9 @@
               }
             });
             input.addEventListener('blur', function() {
-              const val = this.value.trim();
-              if (val && !tags.includes(val)) {
-                tags.push(val);
-                updateHidden();
-                render();
-              }
+              // Don't auto-add on blur to avoid duplicate adds when Enter triggers blur
             });
             container.appendChild(input);
-            if (existingInput && existingInput.value) {
-              input.value = existingInput.value;
-            }
             input.focus();
           }
 
