@@ -69,6 +69,11 @@
             </div>
           </div>
           <div class="mb-3">
+            <label class="form-label">Tags</label>
+            <input type="text" class="form-control" name="tags" value="{{range $i, $t := .ServerTags}}{{if $i}}, {{end}}{{$t}}{{end}}" placeholder="e.g. production, eu-west, game">
+            <div class="form-text">Comma-separated tags for constraints and filtering</div>
+          </div>
+          <div class="mb-3">
             <label class="form-label">Metadata</label>
             <div id="editMetadataContainer">
               {{range $k, $v := .Server.Metadata}}
@@ -237,9 +242,20 @@
             const tags = Array.from(document.querySelectorAll('#tags-container input[name="tags"]')).map(i => i.value).filter(v => v.trim());
             fetch('/admin/tags/{{.Server.ID}}', {
               method: 'POST',
-              headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+              headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'X-CSRF-Token': getCsrfToken()
+              },
               body: tags.map(t => 'tags=' + encodeURIComponent(t)).join('&')
-            }).then(() => { location.reload(); });
+            }).then(r => {
+              if (r.ok) {
+                location.reload();
+              } else {
+                alert('Failed to save tags: ' + r.statusText);
+              }
+            }).catch(err => {
+              alert('Error: ' + err.message);
+            });
           }
           {{range .ServerTags}}addTag("{{.}}");{{end}}
         </script>

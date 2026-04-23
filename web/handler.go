@@ -13,6 +13,7 @@ import (
 	"github.com/tionis/hogs/modmanager"
 	"html/template"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -561,6 +562,21 @@ func (h *WebHandler) HandleServerCreate(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	tagsInput := strings.TrimSpace(r.FormValue("tags"))
+	if tagsInput != "" {
+		var cleanTags []string
+		for _, t := range strings.Split(tagsInput, ",") {
+			if t = strings.TrimSpace(t); t != "" {
+				cleanTags = append(cleanTags, t)
+			}
+		}
+		if len(cleanTags) > 0 {
+			if err := h.Store.SetServerTags(server.ID, cleanTags); err != nil {
+				log.Printf("Warning: failed to set tags for new server %s: %v", server.Name, err)
+			}
+		}
+	}
+
 	http.Redirect(w, r, "/admin", http.StatusFound)
 }
 
@@ -681,6 +697,23 @@ func (h *WebHandler) HandleServerUpdate(w http.ResponseWriter, r *http.Request) 
 	if err := h.Store.UpdateServer(server); err != nil {
 		http.Error(w, "Failed to update server: "+err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	tagsInput := strings.TrimSpace(r.FormValue("tags"))
+	if tagsInput != "" {
+		var cleanTags []string
+		for _, t := range strings.Split(tagsInput, ",") {
+			if t = strings.TrimSpace(t); t != "" {
+				cleanTags = append(cleanTags, t)
+			}
+		}
+		if err := h.Store.SetServerTags(server.ID, cleanTags); err != nil {
+			log.Printf("Warning: failed to update tags for server %s: %v", server.Name, err)
+		}
+	} else {
+		if err := h.Store.SetServerTags(server.ID, []string{}); err != nil {
+			log.Printf("Warning: failed to clear tags for server %s: %v", server.Name, err)
+		}
 	}
 
 	http.Redirect(w, r, "/admin/servers/"+strconv.Itoa(id), http.StatusFound)
