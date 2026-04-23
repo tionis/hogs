@@ -3,6 +3,7 @@ module github.com/tionis/hogs
 go 1.24.4
 
 require (
+	github.com/containrrr/shoutrrr v0.8.0
 	github.com/coreos/go-oidc/v3 v3.17.0
 	github.com/expr-lang/expr v1.17.8
 	github.com/golang-migrate/migrate/v4 v4.19.1
@@ -16,9 +17,8 @@ require (
 )
 
 require (
-	github.com/containrrr/shoutrrr v0.8.0 // indirect
 	github.com/fatih/color v1.15.0 // indirect
-	github.com/go-jose/go-jose/v4 v4.1.3 // indirect
+	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
 	github.com/gorilla/securecookie v1.1.2 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.17 // indirect
