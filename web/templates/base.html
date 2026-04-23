@@ -476,8 +476,9 @@
           input.style.outline = 'none';
           input.style.color = 'inherit';
           input.style.flex = '1';
-          input.style.minWidth = '120px';
-          input.style.padding = '0.2rem';
+          input.style.minWidth = '80px';
+          input.style.padding = '0.25rem';
+          input.style.display = 'inline-block';
 
           function updatePills() {
             pillsContainer.innerHTML = '';
@@ -525,6 +526,11 @@
           container.innerHTML = '';
           container.appendChild(pillsContainer);
           container.appendChild(input);
+          container.addEventListener('click', function(e) {
+            if (e.target === container || e.target === pillsContainer) {
+              input.focus();
+            }
+          });
           updatePills();
           updateHidden();
         };
