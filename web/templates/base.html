@@ -467,39 +467,32 @@
           const hiddenInput = document.getElementById(hiddenInputId);
           let tags = initialTags || [];
 
-          function render() {
-            // Clear container but keep input
-            const existingInput = container.querySelector('input');
-            container.innerHTML = '';
-            tags.forEach(tag => {
+          const pillsContainer = document.createElement('div');
+          pillsContainer.style.display = 'contents';
+          const input = document.createElement('input');
+          input.type = 'text';
+          input.style.background = 'transparent';
+          input.style.border = 'none';
+          input.style.outline = 'none';
+          input.style.color = 'inherit';
+          input.style.flex = '1';
+          input.style.minWidth = '120px';
+          input.style.padding = '0.2rem';
+
+          function updatePills() {
+            pillsContainer.innerHTML = '';
+            tags.forEach((tag, idx) => {
               const pill = document.createElement('span');
               pill.className = 'tag-pill';
-              pill.innerHTML = `${escapeHtml(tag)} <button type="button" onclick="window.removeTag('${containerId}', '${hiddenInputId}', '${tag.replace(/'/g, "\\'")}')">&times;</button>`;
-              container.appendChild(pill);
-            });
-            const input = document.createElement('input');
-            input.type = 'text';
-            input.placeholder = tags.length === 0 ? 'Type tag and press Enter...' : '';
-            input.addEventListener('keydown', function(e) {
-              if (e.key === 'Enter' || e.key === ',' || e.key === ' ') {
-                e.preventDefault();
-                const val = this.value.trim();
-                if (val && !tags.includes(val)) {
-                  tags.push(val);
-                  updateHidden();
-                  render();
-                }
-              } else if (e.key === 'Backspace' && this.value === '' && tags.length > 0) {
-                tags.pop();
+              pill.innerHTML = `${escapeHtml(tag)} <button type="button">&times;</button>`;
+              pill.querySelector('button').onclick = function() {
+                tags.splice(idx, 1);
+                updatePills();
                 updateHidden();
-                render();
-              }
+              };
+              pillsContainer.appendChild(pill);
             });
-            input.addEventListener('blur', function() {
-              // Don't auto-add on blur to avoid duplicate adds when Enter triggers blur
-            });
-            container.appendChild(input);
-            input.focus();
+            input.placeholder = tags.length === 0 ? 'Type tag and press Enter...' : '';
           }
 
           function updateHidden() {
@@ -512,29 +505,28 @@
             return div.innerHTML;
           }
 
-          container.addEventListener('click', function() {
-            const input = container.querySelector('input');
-            if (input) input.focus();
-          });
-
-          render();
-        };
-
-        window.removeTag = function(containerId, hiddenInputId, tag) {
-          const container = document.getElementById(containerId);
-          if (!container) return;
-          const hiddenInput = document.getElementById(hiddenInputId);
-          const pills = container.querySelectorAll('.tag-pill');
-          pills.forEach(pill => {
-            if (pill.textContent.trim().replace('×', '').trim() === tag) {
-              pill.remove();
+          input.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' || e.key === ',' || e.key === ' ') {
+              e.preventDefault();
+              const val = this.value.trim();
+              if (val && !tags.includes(val)) {
+                tags.push(val);
+                this.value = '';
+                updatePills();
+                updateHidden();
+              }
+            } else if (e.key === 'Backspace' && this.value === '' && tags.length > 0) {
+              tags.pop();
+              updatePills();
+              updateHidden();
             }
           });
-          const remainingTags = [];
-          container.querySelectorAll('.tag-pill').forEach(pill => {
-            remainingTags.push(pill.textContent.trim().replace('×', '').trim());
-          });
-          if (hiddenInput) hiddenInput.value = remainingTags.join(',');
+
+          container.innerHTML = '';
+          container.appendChild(pillsContainer);
+          container.appendChild(input);
+          updatePills();
+          updateHidden();
         };
 
         function updateServerStatus(el) {
