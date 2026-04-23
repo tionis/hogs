@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"fmt"
 	"log"
 	"net/http"
 	"strings"
@@ -162,7 +163,10 @@ func (a *Authenticator) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		displayName = claims.PreferredUsername
 	}
 
+	log.Printf("OIDC login: email=%s sub=%s name=%s displayName=%s groups=%v groupsClaim=%s", claims.Email, claims.Sub, claims.Name, displayName, groups, a.Cfg.OIDCGroupsClaim)
+
 	if err := a.provisionUser(claims.Email, role, claims.Sub, displayName, groups); err != nil {
+		log.Printf("OIDC provisionUser failed: %v", err)
 		http.Error(w, "Authentication failed", http.StatusInternalServerError)
 		return
 	}
@@ -343,28 +347,33 @@ func (a *Authenticator) provisionUser(email, role, externalID, displayName strin
 	}
 	user, err := a.Store.GetUserByEmail(email)
 	if err != nil {
-		return err
+		return fmt.Errorf("GetUserByEmail failed: %w", err)
 	}
 	if user == nil {
 		user, err = a.Store.CreateUser(email, role)
 		if err != nil {
-			return err
+			return fmt.Errorf("CreateUser failed: %w", err)
 		}
+		log.Printf("Created new user: id=%d email=%s", user.ID, email)
+	} else {
+		log.Printf("Existing user: id=%d email=%s", user.ID, email)
 	}
 	if role == "admin" && user.Role != "admin" {
 		if err := a.Store.UpdateUserRole(user.ID, "admin"); err != nil {
-			return err
+			return fmt.Errorf("UpdateUserRole failed: %w", err)
 		}
 	}
 	if err := a.Store.TouchUserLastLogin(user.ID); err != nil {
-		return err
+		return fmt.Errorf("TouchUserLastLogin failed: %w", err)
 	}
 	if err := a.Store.UpdateUserSCIM(user.ID, externalID, displayName, true); err != nil {
-		return err
+		return fmt.Errorf("UpdateUserSCIM failed: %w", err)
 	}
+	log.Printf("Updated user SCIM: id=%d external_id=%s display_name=%s", user.ID, externalID, displayName)
 	if err := a.Store.SyncUserOIDCGroups(user.ID, groups); err != nil {
-		return err
+		return fmt.Errorf("SyncUserOIDCGroups failed: %w", err)
 	}
+	log.Printf("Synced user groups: id=%d groups=%v", user.ID, groups)
 	return nil
 }
 
