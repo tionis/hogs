@@ -70,7 +70,7 @@
           </div>
           <div class="mb-3">
             <label class="form-label">Tags</label>
-            <input type="text" class="form-control" id="editTags" name="tags" value="{{range $i, $t := .ServerTags}}{{if $i}}, {{end}}{{$t}}{{end}}" placeholder="production, eu-west, game">
+            <input type="text" class="form-control" id="editTags" name="tags" value="{{range $i, $t := .ServerTags}}{{if $i}}, {{end}}{{$t}}{{end}}" placeholder="production, eu-west, game" onkeydown="if(event.key==='Enter'){event.preventDefault();}">
             <div id="editTagsPreview" class="tag-preview"></div>
             <div class="form-text">Comma-separated tags for constraints and filtering</div>
           </div>
