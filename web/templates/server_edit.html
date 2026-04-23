@@ -70,14 +70,11 @@
           </div>
           <div class="mb-3">
             <label class="form-label">Tags</label>
-            <div id="editTagsContainer" class="tag-input-container mb-1"></div>
-            <input type="hidden" id="editTagsHidden" name="tags" value="{{range $i, $t := .ServerTags}}{{if $i}},{{end}}{{$t}}{{end}}">
-            <div class="form-text">Type tag and press Enter, comma, or space</div>
+            <input type="text" class="form-control" id="editTags" name="tags" value="{{range $i, $t := .ServerTags}}{{if $i}}, {{end}}{{$t}}{{end}}" placeholder="production, eu-west, game">
+            <div id="editTagsPreview" class="tag-preview"></div>
+            <div class="form-text">Comma-separated tags for constraints and filtering</div>
           </div>
-          <script>document.addEventListener('DOMContentLoaded', function() {
-            const initialTags = document.getElementById('editTagsHidden').value.split(',').filter(t => t.trim());
-            initTagInput('editTagsContainer', 'editTagsHidden', initialTags);
-          });</script>
+          <script>document.addEventListener('DOMContentLoaded', function() { initTagPreview('editTags', 'editTagsPreview'); });</script>
           <div class="mb-3">
             <label class="form-label">Metadata</label>
             <div id="editMetadataContainer">
