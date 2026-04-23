@@ -132,7 +132,9 @@ function setButtonLoading(btn, loading) {
 
 function getCsrfToken() {
   const match = document.cookie.match(/hogs-csrf=([^;]+)/);
-  return match ? decodeURIComponent(match[1]) : '';
+  if (!match) return '';
+  const cookieValue = decodeURIComponent(match[1]);
+  return cookieValue.split('.')[0];
 }
 </script>
 {{end}}
