@@ -450,7 +450,8 @@
           if (!input || !preview) return;
 
           function parseTags() {
-            return input.value.split(',').map(t => t.trim()).filter(t => t.length > 0);
+            return input.value.split(/[,
+]+/).map(t => t.trim()).filter(t => t.length > 0);
           }
 
           function render() {
@@ -482,11 +483,6 @@
 
           input.addEventListener('input', render);
           input.addEventListener('change', render);
-          input.addEventListener('keydown', function(e) {
-            if (e.key === 'Enter') {
-              e.preventDefault();
-            }
-          });
           render();
         };
 
