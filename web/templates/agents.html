@@ -99,4 +99,78 @@
     </p>
   </div>
 </div>
+<div class="card mt-4">
+  <div class="card-header">Node Agent Provisioning Reference</div>
+  <div class="card-body">
+    <p class="text-muted small">Provision game servers outside HOGS with Ansible and systemd quadlets. The node agent should only manage servers and paths declared in its local config.</p>
+    <h6>Target Node Config</h6>
+    <pre class="small" style="background:var(--bg-input);padding:0.75rem;border-radius:4px;"><code>node: destiny
+servers:
+  cog:
+    unit: minecraft-cog.service
+    game_type: minecraft
+    data_dir: /srv/mc/cog
+    exclusive_group: destiny-games
+    console:
+      type: rcon
+      host: 127.0.0.1
+      port: 25575</code></pre>
+    <h6>Current Transitional Environment Variables</h6>
+    <table class="table table-sm">
+      <thead><tr><th>Variable</th><th>Description</th><th>Example</th></tr></thead>
+      <tbody>
+        <tr><td><code>HOGS_SERVER_URL</code></td><td>HOGS WebSocket endpoint URL</td><td><code>wss://hogs.example.com/agent/ws</code></td></tr>
+        <tr><td><code>HOGS_AGENT_TOKEN</code></td><td>Agent authentication token</td><td><code>hogs_xxxxxxxx</code></td></tr>
+        <tr><td><code>HOGS_AGENT_NODE</code></td><td>Node identifier</td><td><code>mc-server-01</code></td></tr>
+        <tr><td><code>HOGS_AGENT_SERVER_NAME</code></td><td>Current single-server name</td><td><code>cog</code></td></tr>
+        <tr><td><code>HOGS_AGENT_SERVICE_NAME</code></td><td>Current single-server systemd unit</td><td><code>minecraft-cog.service</code></td></tr>
+        <tr><td><code>HOGS_AGENT_DATA_DIR</code></td><td>Current single-server file root</td><td><code>/srv/mc/cog</code></td></tr>
+      </tbody>
+    </table>
+    <h6>Quick Start</h6>
+    <pre class="small" style="background:var(--bg-input);padding:0.75rem;border-radius:4px;"><code># 1. Download hogs-agent binary
+wget https://github.com/tionis/hogs/releases/latest/download/hogs-agent -O /usr/local/bin/hogs-agent
+chmod +x /usr/local/bin/hogs-agent
+
+# 2. Render the node config and systemd unit with Ansible (hogs_agent role)
+# 3. Start the agent
+systemctl enable --now hogs-agent
+
+# 4. Check status
+systemctl status hogs-agent
+journalctl -u hogs-agent -f</code></pre>
+  </div>
+</div>
+
+<script>
+async function regenerateToken(id) {
+  if (!confirm('Regenerate token for this agent? The old token will stop working immediately.')) return;
+  try {
+    const resp = await fetch('/api/agents/' + id + '/regenerate-token', {method: 'POST'});
+    if (!resp.ok) {
+      alert('Failed to regenerate token: ' + resp.statusText);
+      return;
+    }
+    const data = await resp.json();
+    prompt('New token (save this — it will not be shown again):', data.token);
+  } catch (err) {
+    alert('Error: ' + err.message);
+  }
+}
+
+function editAgent(id, name, nodeName) {
+  const newName = prompt('Agent name:', name);
+  if (!newName) return;
+  const newNode = prompt('Node name:', nodeName);
+  if (newNode === null) return;
+
+  const body = new URLSearchParams();
+  body.append('name', newName);
+  body.append('node_name', newNode);
+
+  fetch('/api/agents/' + id, {method: 'PUT', body: body})
+    .then(r => { if (r.ok) location.reload(); else alert('Failed to update agent'); })
+    .catch(err => alert('Error: ' + err.message));
+}
+</script>
 {{end}}

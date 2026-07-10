@@ -3,7 +3,11 @@
 A game-server management control plane for Minecraft, Satisfactory, Factorio,
 Valheim, and other dedicated servers. HOGS combines a declarative inventory API,
 node agents, policy-controlled operations, scheduling, backups, status, and an
-OIDC-protected operator UI.
+OIDC-protected operator UI. It sits on top of servers already deployed by
+Ansible and systemd quadlets and never becomes the provisioning system.
+
+See [docs/QUADLET_NATIVE_STRATEGY.md](docs/QUADLET_NATIVE_STRATEGY.md) for the
+current architecture direction.
 
 ## Features
 
@@ -14,7 +18,9 @@ OIDC-protected operator UI.
 *   **Structured Server Access:** OIDC users and groups receive explicit per-server capabilities, deployment policy limits what can be granted, and operational constraints remain a separate decision layer. See [server access control](docs/ACCESS_CONTROL.md).
 *   **Automatic Whitelists:** Verified game identities arrive from Authentik through SCIM; HOGS derives memberships from `server.join` access and preserves every external/manual whitelist entry.
 *   **Modular Game Types:** Common management works for every generic game type, while optional embedded drivers provide game-specific status, identity, whitelist, and console behavior. Embedded drivers can be disabled. See [game type drivers](docs/GAME_TYPES.md).
-*   **Pterodactyl Integration:** Link servers to a Pterodactyl panel for start/stop/restart and approved command execution — all configurable per-server via `allowed_actions`.
+*   **Quadlet-Native Agent Model:** HOGS manages already-deployed systemd/quadlet services through a narrow node agent, keeping Ansible as the source of truth for provisioning.
+*   **Pterodactyl Backend (optional):** Servers can alternatively link to a Pterodactyl panel for start/stop/restart and approved commands. Our deployments leave it unconfigured and use node agents for everything.
+*   **Runtime Policy Engine:** Start/stop/restart, console commands, cron jobs, whitelist changes, and user requests flow through ACLs, constraints, and audit logging.
 *   **Admin Dashboard:** Complete web-based management interface for adding, editing, and deleting servers without touching the database.
 *   **Background Images:** Customizable, theme-aware background images with hash-addressed caching for performance.
 *   **File Browser:** Automatically scans and serves mod files, modpacks, and documentation from a structured directory.
@@ -26,7 +32,7 @@ OIDC-protected operator UI.
     *   **Frontend:** Server-side rendered HTML (Go templates) with Bootstrap 5.
     *   **Config:** 12-factor app design using environment variables.
     *   **Auth:** OIDC via `go-oidc` with `gorilla/sessions`.
-    *   **Container:** Podman/Docker via Containerfile.
+    *   **Container:** Podman/Docker via Containerfile for HOGS itself; game servers are expected to be deployed separately.
 
 ## Getting Started
 
@@ -67,9 +73,6 @@ podman run -d --name hogs \
     -e OIDC_CLIENT_ID="" \
     -e OIDC_CLIENT_ID="" \
     -e OIDC_CLIENT_SECRET="" \
-    -e PTERODACTYL_URL="" \
-    -e PTERODACTYL_APP_KEY="" \
-    -e PTERODACTYL_CLIENT_KEY="" \
     ghcr.io/tionis/hogs:latest
 ```
 *Note: Refer to the [Configuration Reference](#configuration-reference) below for OIDC details required for admin access.*
@@ -99,10 +102,6 @@ export SESSION_SECRET=change-this-to-a-long-random-string
 export OIDC_ADMIN_GROUP=admins
 export OIDC_USER_GROUP=
 export OIDC_GROUPS_CLAIM=groups
-# Pterodactyl Integration (optional - start/stop/restart/commands from HOGS)
-export PTERODACTYL_URL=https://panel.example.com
-export PTERODACTYL_APP_KEY=ptla_xxxxxxxxxxxxxx
-export PTERODACTYL_CLIENT_KEY=ptlc_xxxxxxxxxxxxxx
     ```
 
 2.  **Run the binary:**
@@ -142,9 +141,9 @@ The repository includes helper scripts for development/testing:
 | `HOGS_GAME_IDENTITY_SETTINGS_URL` | *(Empty)* | External identity-provider page where users manage linked game accounts. |
 | `SCIM_ENABLED`         | `false`                         | Enable the Authentik-oriented SCIM 2.0 user, group, and game-identity endpoint. |
 | `SCIM_BEARER_TOKEN`    | *(Empty)*                       | Bearer token shared with the Authentik SCIM provider.                       |
-| `PTERODACTYL_URL`      | *(Empty)*                       | Pterodactyl panel URL (e.g. `https://panel.example.com`). **Both this and `PTERODACTYL_APP_KEY` must be set to enable Pterodactyl features.** |
-| `PTERODACTYL_APP_KEY`  | *(Empty)*                       | Pterodactyl **Application** API key (starts with `ptla_`). Get it from your panel's Admin > API section. |
-| `PTERODACTYL_CLIENT_KEY` | *(Empty)*                     | Pterodactyl **Client** API key (starts with `ptlc_`). Required for commands and whitelisting. Get it from your panel's Settings > API section. |
+| `PTERODACTYL_URL`      | *(Empty)*                       | Pterodactyl panel URL (e.g. `https://panel.example.com`). Leave unset to keep the Pterodactyl backend dormant. |
+| `PTERODACTYL_APP_KEY`  | *(Empty)*                       | Pterodactyl **Application** API key (starts with `ptla_`). |
+| `PTERODACTYL_CLIENT_KEY` | *(Empty)*                     | Pterodactyl **Client** API key (starts with `ptlc_`). Required for commands and whitelisting. |
 | `HOGS_MAP_CACHE_DIR` | `data/map-cache` | Directory for disposable map response cache data. |
 | `HOGS_MAP_CACHE_MAX_BYTES` | `2147483648` | Maximum aggregate cache size in bytes (2 GiB by default). |
 | `HOGS_MAP_CACHE_MAX_ITEM_BYTES` | `134217728` | Maximum size of one cached response in bytes (128 MiB by default). |
@@ -222,26 +221,43 @@ the configured map availability. The cache is bounded by total and per-object
 limits and does not cache private, `no-store`, ranged, cookie-setting, or
 varying responses.
 
-### 4. Pterodactyl Integration
+### 4. Quadlet-Native Agent Model
 
-HOGS can connect to a Pterodactyl panel to let authenticated users start/stop/restart servers, manage whitelists, and run approved commands — all controlled per-server by an admin.
+New HOGS deployments should manage servers through node agents. Game servers are
+deployed outside HOGS, typically as Podman quadlets managed by Ansible. HOGS then
+links a server record to the node that can operate it.
 
-1.  **Set environment variables:**
-    ```bash
-    export PTERODACTYL_URL=https://panel.example.com
-    export PTERODACTYL_APP_KEY=ptla_xxxxxxxxxxxxxx
-    ```
-    Both must be set. Without them, Pterodactyl features are completely hidden.
+The intended node-agent model is:
 
-    The app key must be an **Application API key** (found in Admin > API in your Pterodactyl panel), not a Client API key.
+1.  Ansible renders a local agent config listing allowed servers, systemd units,
+    data directories, and game-specific control endpoints.
+2.  The agent exposes a capability-authenticated HTTP API to HOGS (direct HTTPS
+    or a private tunneled transport).
+3.  HOGS sends runtime requests such as start, safe stop, console command, file
+    read/write, or backup creation.
+4.  The agent rejects any request for a server or path not in its allowlist.
+5.  Game modules handle safe console and identity operations, such as Minecraft
+    RCON whitelisting.
 
-2.  **Restart HOGS.** The Pterodactyl section appears in the Admin Dashboard.
+Example node config:
 
-3.  **Link servers:** For each HOGS server, enter the Pterodactyl server UUID (auto-completed from your panel) and check the actions users can perform (Start, Stop, Restart, Whitelist).
+```yaml
+node: destiny
+servers:
+  cog:
+    unit: minecraft-cog.service
+    game_type: minecraft
+    data_dir: /srv/mc/cog
+    exclusive_group: destiny-games
+    console:
+      type: rcon
+      host: 127.0.0.1
+      port: 25575
+```
 
-4.  **Add approved commands:** Optionally add commands (e.g. `seed` with display name "Random Seed") that users can trigger.
-
-5.  **User access:** Authenticated users see a "My Servers" page listing servers they have actions on, and the server detail page shows action buttons.
+The current agent implementation still has one-server configuration assumptions.
+See [docs/QUADLET_NATIVE_STRATEGY.md](docs/QUADLET_NATIVE_STRATEGY.md) for the
+planned migration.
 
 ### 5. Game-Specific Query Setup
 
@@ -268,13 +284,13 @@ its next restart.
 
 ## Architecture
 
-*   **`main.go`**: Entry point. Wires dependencies (Config, Store, Auth, Pterodactyl) and starts the server.
-*   **`api/`**: API handlers (`ServerHandler`, `PterodactylHandler`) for JSON endpoints, proxy logic, and Pterodactyl integration.
+*   **`main.go`**: Entry point. Wires dependencies (Config, Store, Auth, agent hub, policy engine) and starts the server.
+*   **`api/`**: API handlers for server status, runtime actions, files, backups, console, and admin operations.
 *   **`web/`**: `WebHandler` and embedded HTML `templates/`.
 *   **`auth/`**: OIDC authentication with role-based access control (admin/user from OIDC groups).
 *   **`database/`**: SQLite repository pattern and schema migrations (embedded).
 *   **`query/`**: Game querier interface with registry pattern (Minecraft, Satisfactory, Factorio, Valheim).
-*   **`pterodactyl/`**: Pterodactyl Application API client for server power actions and commands.
+*   **`agent/` and `cmd/hogs-agent/`**: WebSocket-based node agent path for managing already-deployed servers.
 *   **`modmanager/`**: Secure filesystem scanning for mod/game files.
 *   **`config/`**: Environment variable loading.
 
@@ -292,15 +308,15 @@ The application exposes several JSON endpoints:
 
 ### Authenticated (requires login)
 
-*   `POST /servers/{serverName}/action?start|stop|restart`: Trigger a Pterodactyl server power action (requires `allowed_actions` permission).
-*   `POST /servers/{serverName}/command`: Send an approved command to a Pterodactyl-linked server (requires `command:<name>` in `allowed_actions`).
+*   `POST /servers/{serverName}/action?start|stop|restart`: Request a server runtime action through the policy engine and node agent.
+*   `POST /servers/{serverName}/command`: Send an approved game-module command through the policy engine and node agent.
 
 ### Admin-only
 
-*   `POST /admin/pterodactyl/link`: Link a server to a Pterodactyl server UUID.
-*   `POST /admin/pterodactyl/unlink`: Remove Pterodactyl linkage.
-*   `POST /admin/pterodactyl/commands/add`: Add an approved command for a linked server.
-*   `POST /admin/pterodactyl/commands/delete`: Remove an approved command.
+*   `POST /api/agents`: Create a node agent token.
+*   `POST /api/agents/{id}/regenerate-token`: Rotate a node agent token.
+*   `POST /api/agents/{serverName}/files/*`: Manage files through the node agent allowlist.
+*   `POST /api/agents/{serverName}/backup/*`: Manage backups through the node agent allowlist.
 
 ## Development
 

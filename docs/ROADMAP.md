@@ -8,17 +8,19 @@ tags:
 # HOGS Roadmap
 
 > [!info] Current State
-> HOGS is a Go web application that serves as a landing page and management panel for game servers. It features OIDC auth with role-based access control, a capability-authenticated HTTP agent API, an automation engine, SCIM 2.0 provisioning, and an admin UI.
+> HOGS is a Go web application that serves as a landing page and management panel for game servers. It features OIDC auth with role-based access control, a capability-authenticated HTTP agent API, an automation engine, SCIM 2.0 provisioning, and an admin UI. The strategic direction is the quadlet-native node-agent model documented in `docs/QUADLET_NATIVE_STRATEGY.md`.
 
 ## Design Philosophy: Manage, Don't Provision
 
-HOGS is **not** a server provisioning platform like Pterodactyl. Server administrators deploy game servers themselves (via Ansible, manual setup, or other tooling) alongside the `hogs-agent`. HOGS then provides management: start/stop/restart, console access, file management, backups, constraints, and scheduling. This means:
+HOGS is **not** a server provisioning platform like Pterodactyl. Server administrators deploy game servers themselves, preferably via Ansible and systemd quadlets, alongside a node-level `hogs-agent`. HOGS then provides management: start/stop/restart, console access, file management, backups, constraints, and scheduling. This means:
 
 - No quadlet/container generation UI — admins deploy quadlets via their own tooling
 - No port allocation — ports are configured in the quadlet, not managed by HOGS
 - No game installer scripts — the server binary must already be in place
 - Console history comes from `journalctl` (systemd logs), not a custom ring buffer
+- Console input goes through game-specific modules such as RCON, not a generic host shell
 - Safe server deletion means unlinking from HOGS (stop managing), not wiping data directories
+- One agent should manage multiple explicitly declared servers on its node
 
 ---
 
@@ -37,7 +39,7 @@ The `GameQuerier` interface and `CONTRIBUTING.md` make adding games straightforw
 - Role-based UI: Admin link, server actions, admin panel all gated by role
 - **My Servers** page for users
 
-### Phase 3: Pterodactyl Integration ✅
+### Phase 3: Pterodactyl Integration ✅ (optional backend, unused here)
 
 - `pterodactyl/` client package (Application API + Client API)
 - `pterodactyl_servers` and `pterodactyl_commands` DB tables (migration 000011)
@@ -45,13 +47,18 @@ The `GameQuerier` interface and `CONTRIBUTING.md` make adding games straightforw
 - User-facing: server power actions, command sending, whitelisting
 - Pterodactyl identifier resolution (migration 000014)
 
+This phase is historical but retained: the Pterodactyl backend stays available
+for installations that use it. Our deployments never configure it and manage
+every server through node agents instead. The preferred hardening is gating
+its routes and handlers behind configuration, not deleting the code.
+
 ### Phase 4: Automation System ✅
 
 Design reference: see `docs/DESIGN_AUTOMATION.md` for the full data model, architecture, and implementation details.
 
 **What was implemented:**
 
-- **Expression engine** (`engine/`): ACL evaluation with legacy `allowed_actions` fallback, constraint evaluation (deny/queue/stop_oldest strategies), parameterized command schemas with typed validation, template rendering, audit logging
+- **Expression engine** (`engine/`): ACL evaluation, constraint evaluation (deny/queue/stop_oldest strategies), parameterized command schemas with typed validation, template rendering, audit logging
 - **Cron scheduler** (`cron/`): wraps `robfig/cron/v3`, jobs flow through engine pipeline as system user
 - **SCIM 2.0** (`scim/`): User and Group CRUD, PATCH, filtering, schema discovery, bearer token auth. Group membership changes trigger role recalculation and session invalidation.
 - **DB-backed sessions** (`auth/`): Sessions stored in SQLite, not cookies. Enables OIDC back-channel logout from Authentik.
@@ -61,11 +68,19 @@ Design reference: see `docs/DESIGN_AUTOMATION.md` for the full data model, archi
 
 ### Phase 5: Agent System ✅
 
-- **ServerBackend interface** (`backend/`): `PterodactylBackend` and `AgentBackend` implementations
+- **ServerBackend interface** (`backend/`): `AgentBackend` implementation (Pterodactyl backend removed)
 - **Agent manager** (`agent/`): direct and tunneled transport modes, scoped capabilities, health/status polling, and streamed operations
 - **hogs-agent binary** (`cmd/hogs-agent/`): connects outbound to HOGS, systemd/podman quadlet process management (start/stop/restart via systemctl, commands via podman exec), file operations (list/read/write/delete/mkdir with base64 over WS), restic backup integration (create/restore/list snapshots)
 - **Agent service** (`agent/`): AgentService with file and backup dispatch methods
 - **Admin API**: agent CRUD, file management, backup endpoints
+
+The implemented agent proves the transport and request/response model, but its
+runtime boundary is not yet the desired production boundary. It is still shaped
+around a single configured `HOGS_AGENT_SERVICE_NAME`/`HOGS_AGENT_DATA_DIR`, and
+console input currently uses generic `podman exec`. The next refactor should make
+the agent node-scoped, render an allowlisted server config from Ansible, require
+`serverName` on every operation, and route console/identity operations through
+game modules.
 
 **Migration**: 000019 (agents table)
 
@@ -89,7 +104,7 @@ All action paths (user-triggered, cron-triggered, API-triggered) go through the 
 │  1. Resolve Command  ──►  Validate Params             │
 │  2. Evaluate ACL     ──►  (deny? → 403)              │
 │  3. Evaluate Constraints ──► (block? → strategy)      │
-│  4. Execute Action   ──►  Backend (Pterodactyl/Agent)  │
+│  4. Execute Action   ──►  Node Agent                    │
 │  5. Audit Log                                         │
 └──────────────────────────────────────────────────────┘
 ```
@@ -116,7 +131,6 @@ All action paths (user-triggered, cron-triggered, API-triggered) go through the 
 | `agent/` | Private-network manager and agent HTTP client |
 | `backend/` | ServerBackend interface, PterodactylBackend, AgentBackend |
 | `scim/` | SCIM 2.0 user/group provisioning endpoints |
-| `pterodactyl/` | Pterodactyl Application/Client API client |
 | `auth/` | OIDC auth, DB sessions, back-channel logout |
 | `database/` | All DB models, CRUD, migrations |
 | `query/` | GameQuerier interface + implementations |
@@ -125,6 +139,42 @@ All action paths (user-triggered, cron-triggered, API-triggered) go through the 
 ---
 
 ## Roadmap: Remaining Improvements
+
+### Priority 0: Quadlet-Native Refactor (required before production replacement)
+
+#### 0.1 Node-Scoped Agent Config
+- Replace one-server agent environment variables with an Ansible-rendered YAML config.
+- Config entries declare `serverName`, systemd unit, game type, data directory, address, optional exclusive group, and game-specific control endpoints.
+- Reject every request for servers or paths outside the local allowlist.
+
+#### 0.1a Gate (Don't Delete) the Pterodactyl-Era Model
+- Keep the Pterodactyl client package, tables, handler, routes, and tests for
+  installations that use them.
+- Gate Pterodactyl routes and handlers behind configuration so deployments
+  without `PTERODACTYL_*` set carry no live Pterodactyl surface.
+- Our deployments manage every server through node agents; Pterodactyl stays
+  unconfigured.
+
+#### 0.2 Agent Protocol Carries Server Name
+- Include `serverName` in action, command, console, file, and backup envelopes.
+- Route each request to the selected server entry on the connected node.
+- Keep the central HOGS service free of host privilege; only node agents execute local operations.
+
+#### 0.3 Game-Specific Control Modules
+- Replace generic console input through `podman exec` with game modules.
+- Minecraft uses RCON for console and whitelist changes.
+- Factorio uses RCON when configured.
+- Games without a safe console protocol expose only process control and status until a module exists.
+
+#### 0.4 Per-Server User And Moderator Model
+- Model `viewer`, `player`, `moderator`, and `owner` permissions per server.
+- Let players set their own game identities and request start/stop.
+- Let moderators manage console, files, backups, and server runtime without SSH or Podman socket access.
+
+#### 0.5 Start/Stop Request Policies
+- Model start policies such as exclusive-group gating and queueing.
+- Model stop policies such as empty-only, moderator-force, unanimous-online, vote-threshold, and idle-timeout.
+- Keep policy decisions in the existing engine so they are auditable and testable.
 
 ### Priority 1: Critical Gaps (panel feels incomplete without these)
 
@@ -152,22 +202,22 @@ All action paths (user-triggered, cron-triggered, API-triggered) go through the 
 - Agent tails the container's systemd journal (`journalctl -u <unit> -f`) and streams lines as `console` messages
 - HOGS buffers recent lines per-server (last 500 lines) for replay on connect
 - Show console on server detail page with input field for commands
-- Console input is sent as `console_input` messages routed to `podman exec`
-- **Still needed**: For Pterodactyl-managed servers, proxy the existing Pterodactyl websocket console
+- Console input is sent as `console_input` messages
+- **Production change required**: route console input through game modules such as RCON. The current generic `podman exec` implementation is a development shortcut and must not be exposed to non-owner users.
 
 #### 1.6 Agent-Aware Server Edit ✅
-- PterodactylHandler.LinkServer now accepts `node` form field to assign agent-managed servers
-- Node field stored in PterodactylLink and used by resolveBackend() for routing
-- Node selector dropdown in server edit page UI with agent list
+- Server edit UI stores node assignment through the existing link structures,
+  with a node selector dropdown listing agents.
+- A future rename to a managed-server assignment could drop the
+  Pterodactyl-named structures once no installation depends on them.
 
-#### 1.7 Backend Routing for Actions/Commands ✅
-- PterodactylHandler now uses `resolveBackend()` to determine whether a server is agent-managed or Pterodactyl-managed
-- When a server has `node` matching an agent, start/stop/restart/whitelist route through `AgentBackend`
-- When `node` is empty or matches no agent, falls through to `PterodactylBackend` (existing behavior)
-- `PterodactylHandler` takes `AgentHub` parameter; `main.go` wires it up
+#### 1.7 Agent Routing For Actions/Commands ✅
+- Runtime operations route through node agents for agent-managed servers.
+- A future cleanup could remove the Pterodactyl fallback and rename handler
+  and store APIs around managed servers.
 
 #### 1.8 Agent Whitelist Support ✅
-- Whitelist operations route through the selected backend and embedded game driver
+- Whitelist operations route through the node agent and embedded game driver
 - Agent-managed Minecraft and Factorio servers use RCON while running and native
   whitelist files while stopped
 - Agent-managed Valheim servers use native `permittedlist.txt` management in
@@ -292,13 +342,10 @@ All action paths (user-triggered, cron-triggered, API-triggered) go through the 
 - HOGS can create and list backups without receiving repository credentials.
 - Restore remains an independently controlled server-policy capability.
 
-#### 3.4 Pterodactyl Migration Path
-- Document step-by-step migration guide: Pterodactyl → HOGS agent
-- Ansible playbook examples for deploying hogs-agent alongside game server containers
-- Quadlet template examples per game type (Minecraft, Valheim, etc.)
-- Import tool: read Pterodactyl allocation/server data → create HOGS servers + agents
-- Once all servers are agent-managed, Pterodactyl dependency can be fully removed
-- PterodactylBackend becomes optional; `PterodactylURL` can be empty
+#### 3.4 Ansible/Quadlet Integration
+- Add Ansible examples for rendering node-agent server allowlists.
+- Add quadlet examples per game type (Minecraft, Valheim, Factorio, Satisfactory).
+- Add an example `cog` configuration using `minecraft-cog.service` and `/srv/mc/cog`.
 
 #### 3.5 Server Templates ✅
 - Migration 000024 creates `server_templates` table (id, name, game_type, default_settings, default_commands, default_acl, default_tags, description)
@@ -344,8 +391,8 @@ All action paths (user-triggered, cron-triggered, API-triggered) go through the 
 #### 3.11 Test Coverage ✅ (partial)
 - **Unit tests for `engine/` package**: ACL evaluation, constraint evaluation, param validation, template rendering, helper functions (HasTag, CountRunning, FilterByTag, ParseWeekday), source detection in audit log, expression testing
 - **Unit tests for `cron/` package**: scheduler creation, job loading, AddJob/UpdateJob/RemoveJob, enable/disable, Start/Stop
-- **Unit tests for `agent/` package**: Hub creation, connection lookup, request ID allocation, pending request correlation, context cancellation, Envelope serialization, result type detection, ResolveBackend (no-link, Pterodactyl, agent), AgentService offline errors, ServeWS auth validation, AgentBackend.Name/Status, console buffer/broadcast/limit, client lifecycle, server name lookup, pending op DB persistence, recovery logic
-- **Unit tests for `web/` package**: Dashboard, Admin, Home, ServerDetail, ConstraintManager, server automation rendering; auth integration; 404 behavior for offline servers
+- **Unit tests for `agent/` package**: Hub creation, connection lookup, request ID allocation, pending request correlation, context cancellation, Envelope serialization, result type detection, AgentService offline errors, ServeWS auth validation, console buffer/broadcast/limit, client lifecycle, server name lookup, pending op DB persistence, recovery logic
+- **Unit tests for `web/` package**: Dashboard, Admin, Home, ServerDetail, ConstraintManager, CronManager rendering; auth integration; 404 behavior for offline servers
 - **Bug fix**: `database/` agent scan methods (`GetAgent`, `GetAgentByToken`, `GetAgentByNodeName`, `ListAgents`) now correctly handle `json.RawMessage` column by scanning into `[]byte` first
 - **Unit tests for `database/` package**: agent_pending_ops CRUD, resolve, cleanup
 - **Bug fix**: `config/` test defaults now properly unset env vars to avoid environment bleed
