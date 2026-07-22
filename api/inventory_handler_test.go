@@ -125,6 +125,42 @@ func TestInventoryApplyIsIdempotentAndNeverReturnsAgentToken(t *testing.T) {
 	}
 }
 
+func TestInventoryFirstAdoptionReportsLegacyDeletes(t *testing.T) {
+	handler, store := testInventoryHandler(t)
+	if _, err := store.DB.Exec(`INSERT INTO servers(name,address,state,game_type,show_motd,metadata) VALUES('legacy','legacy.test:1','online','minecraft',0,'{}')`); err != nil {
+		t.Fatal(err)
+	}
+	manifest := testManifest()
+	plan := httptest.NewRecorder()
+	handler.Plan(plan, requestInventory(t, http.MethodPost, "/api/v1/inventory/plan", manifest))
+	if plan.Code != http.StatusOK {
+		t.Fatalf("plan status=%d body=%s", plan.Code, plan.Body.String())
+	}
+	var response struct {
+		Destructive bool              `json:"destructive"`
+		Changes     []InventoryChange `json:"changes"`
+	}
+	decodeResponse(t, plan, &response)
+	if !response.Destructive {
+		t.Fatal("first-adoption plan did not flag a legacy delete")
+	}
+	found := false
+	for _, change := range response.Changes {
+		if change.Resource == "servers/legacy" && change.Action == "delete" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("legacy deletion absent from changes: %#v", response.Changes)
+	}
+
+	apply := httptest.NewRecorder()
+	handler.Apply(apply, requestInventory(t, http.MethodPut, "/api/v1/inventory", manifest))
+	if apply.Code != http.StatusConflict {
+		t.Fatalf("unconfirmed destructive adoption status=%d body=%s", apply.Code, apply.Body.String())
+	}
+}
+
 func TestInventoryStateRedactsSecrets(t *testing.T) {
 	handler, _ := testInventoryHandler(t)
 	manifest := testManifest()
