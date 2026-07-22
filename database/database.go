@@ -553,6 +553,52 @@ type PterodactylLink struct {
 	Node            string `json:"node"`
 }
 
+// ServerManagement is the reconciled management policy for a server. It is
+// intentionally separate from backend linkage: a connected agent does not by
+// itself grant an interactive user access to privileged capabilities.
+type ServerManagement struct {
+	ServerID       int
+	UnitName       string
+	DataPath       string
+	Operators      []string
+	ConsoleEnabled bool
+	RCONEnabled    bool
+	StartEnabled   bool
+	StopEnabled    bool
+	BackupEnabled  bool
+	RestoreEnabled bool
+	WritablePaths  []string
+}
+
+func (s *Store) GetServerManagement(serverID int) (*ServerManagement, error) {
+	row := s.DB.QueryRow(`SELECT server_id,unit_name,data_path,operators,console_enabled,rcon_enabled,start_enabled,stop_enabled,backup_enabled,restore_enabled,writable_paths
+		FROM server_management WHERE server_id = ?`, serverID)
+	var management ServerManagement
+	var operatorsJSON, writablePathsJSON string
+	var consoleEnabled, rconEnabled, startEnabled, stopEnabled, backupEnabled, restoreEnabled int
+	if err := row.Scan(&management.ServerID, &management.UnitName, &management.DataPath, &operatorsJSON,
+		&consoleEnabled, &rconEnabled, &startEnabled, &stopEnabled, &backupEnabled, &restoreEnabled,
+		&writablePathsJSON); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if err := json.Unmarshal([]byte(operatorsJSON), &management.Operators); err != nil {
+		return nil, fmt.Errorf("decode server operators: %w", err)
+	}
+	if err := json.Unmarshal([]byte(writablePathsJSON), &management.WritablePaths); err != nil {
+		return nil, fmt.Errorf("decode server writable paths: %w", err)
+	}
+	management.ConsoleEnabled = consoleEnabled != 0
+	management.RCONEnabled = rconEnabled != 0
+	management.StartEnabled = startEnabled != 0
+	management.StopEnabled = stopEnabled != 0
+	management.BackupEnabled = backupEnabled != 0
+	management.RestoreEnabled = restoreEnabled != 0
+	return &management, nil
+}
+
 type PterodactylCommand struct {
 	ID          int    `json:"id"`
 	ServerID    int    `json:"serverId"`

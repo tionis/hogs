@@ -9,16 +9,20 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/tionis/hogs/agent"
 	"github.com/tionis/hogs/auth"
+	"github.com/tionis/hogs/database"
+	"github.com/tionis/hogs/engine"
 )
 
 // ConsoleHandler handles browser WebSocket connections for console streaming.
 type ConsoleHandler struct {
 	AgentHub *agent.Hub
 	Auth     *auth.Authenticator
+	Store    *database.Store
+	Engine   *engine.Engine
 }
 
-func NewConsoleHandler(hub *agent.Hub, auth *auth.Authenticator) *ConsoleHandler {
-	return &ConsoleHandler{AgentHub: hub, Auth: auth}
+func NewConsoleHandler(hub *agent.Hub, auth *auth.Authenticator, store *database.Store, eng *engine.Engine) *ConsoleHandler {
+	return &ConsoleHandler{AgentHub: hub, Auth: auth, Store: store, Engine: eng}
 }
 
 var consoleUpgrader = websocket.Upgrader{
@@ -34,6 +38,10 @@ func (h *ConsoleHandler) ServeWS(w http.ResponseWriter, r *http.Request) {
 	// Require authentication
 	if h.Auth != nil && !h.Auth.IsAuthenticated(r) {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if _, _, status, err := authorizeManagedCapability(h.Store, h.Engine, h.Auth, r, serverName, managedConsole); err != nil {
+		http.Error(w, err.Error(), status)
 		return
 	}
 

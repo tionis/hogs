@@ -349,32 +349,7 @@ func (h *PterodactylHandler) resolveBackend(server *database.Server, link *datab
 }
 
 func (h *PterodactylHandler) getUserEnv(r *http.Request) *engine.UserEnv {
-	email := "anonymous"
-	role := "user"
-	if h.Auth != nil {
-		email = h.Auth.GetUserEmail(r)
-		role = h.Auth.GetUserRole(r)
-	}
-	if email == "" {
-		email = "anonymous"
-	}
-	if role == "" {
-		role = "user"
-	}
-
-	// Fetch user's SCIM groups
-	var groups []string
-	if email != "anonymous" && h.Store != nil {
-		user, _ := h.Store.GetUserByEmail(email)
-		if user != nil {
-			scimGroups, _ := h.Store.GetSCIMGroupsForUser(user.ID)
-			for _, g := range scimGroups {
-				groups = append(groups, g.DisplayName)
-			}
-		}
-	}
-
-	return &engine.UserEnv{Email: email, Role: role, Groups: groups}
+	return userEnvFromRequest(h.Store, h.Auth, r)
 }
 
 func (h *PterodactylHandler) evaluateACLEnabled(link *database.PterodactylLink, server *database.Server, action string, user *engine.UserEnv) bool {
