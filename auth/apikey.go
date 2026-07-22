@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -30,6 +31,36 @@ func GenerateAPIKey() (plain, hash, prefix string) {
 	hash = database.HashAPIKey(plain)
 	prefix = plain[:8]
 	return plain, hash, prefix
+}
+
+// BootstrapAdminAPIKey installs or rotates one named admin identity from a
+// deployment secret. The plaintext credential is never written to the DB.
+func BootstrapAdminAPIKey(store *database.Store, name, plain string) (bool, error) {
+	if plain == "" {
+		return false, nil
+	}
+	if name == "" || !strings.HasPrefix(plain, apiKeyPrefix) || len(plain) < 8 {
+		return false, fmt.Errorf("bootstrap API key requires a name and hogs_ credential")
+	}
+	hash := database.HashAPIKey(plain)
+	existing, err := store.GetAPIKeyByHash(hash)
+	if err != nil {
+		return false, err
+	}
+	if existing != nil && existing.Name == name && existing.Role == "admin" {
+		return false, nil
+	}
+	key := &database.APIKey{
+		Name:      name,
+		KeyHash:   hash,
+		KeyPrefix: plain[:8],
+		Role:      "admin",
+		CreatedAt: time.Now().UTC().Format(time.RFC3339),
+	}
+	if err := store.ReplaceAPIKeyByName(key); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func (a *APIKeyAuthenticator) Authenticate(r *http.Request) (*database.APIKey, error) {

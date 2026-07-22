@@ -1176,6 +1176,31 @@ func (s *Store) CreateAPIKey(key *APIKey) error {
 	return nil
 }
 
+// ReplaceAPIKeyByName makes a configured machine identity reproducible while
+// retaining only its keyed hash. API keys created interactively remain
+// untouched because replacement is scoped to the exact configured name.
+func (s *Store) ReplaceAPIKeyByName(key *APIKey) error {
+	tx, err := s.DB.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec("DELETE FROM api_keys WHERE name = ?", key.Name); err != nil {
+		return err
+	}
+	result, err := tx.Exec("INSERT INTO api_keys (name, key_hash, key_prefix, role, created_at, last_used, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+		key.Name, key.KeyHash, key.KeyPrefix, key.Role, key.CreatedAt, key.LastUsed, key.ExpiresAt)
+	if err != nil {
+		return err
+	}
+	id, err := result.LastInsertId()
+	if err != nil {
+		return err
+	}
+	key.ID = int(id)
+	return tx.Commit()
+}
+
 func (s *Store) GetAPIKeyByHash(keyHash string) (*APIKey, error) {
 	row := s.DB.QueryRow("SELECT id, name, key_hash, key_prefix, role, created_at, last_used, expires_at FROM api_keys WHERE key_hash = ?", keyHash)
 	var k APIKey

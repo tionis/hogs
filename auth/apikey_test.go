@@ -39,3 +39,35 @@ func TestRequireAPIKeyRole(t *testing.T) {
 		t.Fatalf("valid key status=%d body=%s", allowed.Code, allowed.Body.String())
 	}
 }
+
+func TestBootstrapAdminAPIKey(t *testing.T) {
+	database.APIKeyPepper = "bootstrap-test-pepper"
+	store, err := database.NewStore(t.TempDir() + "/test.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.DB.Close()
+
+	first := "hogs_0123456789abcdef"
+	changed, err := BootstrapAdminAPIKey(store, "gandalf", first)
+	if err != nil || !changed {
+		t.Fatalf("first bootstrap: changed=%v err=%v", changed, err)
+	}
+	changed, err = BootstrapAdminAPIKey(store, "gandalf", first)
+	if err != nil || changed {
+		t.Fatalf("idempotent bootstrap: changed=%v err=%v", changed, err)
+	}
+	second := "hogs_fedcba9876543210"
+	changed, err = BootstrapAdminAPIKey(store, "gandalf", second)
+	if err != nil || !changed {
+		t.Fatalf("rotation: changed=%v err=%v", changed, err)
+	}
+	old, err := store.GetAPIKeyByHash(database.HashAPIKey(first))
+	if err != nil || old != nil {
+		t.Fatalf("old key remains after rotation: key=%v err=%v", old, err)
+	}
+	current, err := store.GetAPIKeyByHash(database.HashAPIKey(second))
+	if err != nil || current == nil || current.Role != "admin" {
+		t.Fatalf("new key missing: key=%v err=%v", current, err)
+	}
+}
