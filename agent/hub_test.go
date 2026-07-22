@@ -99,12 +99,24 @@ func TestHubResolvePendingNotFound(t *testing.T) {
 	hub.resolvePending("nonexistent", result)
 }
 
+func TestPendingOperationDoesNotPersistPayload(t *testing.T) {
+	hub, store := testHub(t)
+	hub.registerPending("secret-op", 1, "backup_create", []byte(`{"password":"do-not-store"}`))
+	op, err := store.GetAgentPendingOp("secret-op")
+	if err != nil || op == nil {
+		t.Fatalf("pending op missing: %v", err)
+	}
+	if op.Payload != "{}" {
+		t.Fatalf("pending op persisted request payload: %q", op.Payload)
+	}
+}
+
 func TestSendEnvelopeWithResultOffline(t *testing.T) {
 	hub, _ := testHub(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 
-	_, err := hub.SendAction(ctx, 999, "start")
+	_, err := hub.SendAction(ctx, 999, "server1", "start")
 	if err == nil {
 		t.Error("expected error for offline agent")
 	}
@@ -115,7 +127,7 @@ func TestSendCommandOffline(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 
-	_, err := hub.SendCommand(ctx, 999, "test command")
+	_, err := hub.SendCommand(ctx, 999, "server1", "test command")
 	if err == nil {
 		t.Error("expected error for offline agent")
 	}
@@ -126,27 +138,27 @@ func TestSendFileOperationsOffline(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 
-	_, err := hub.SendFileList(ctx, 999, "/tmp")
+	_, err := hub.SendFileList(ctx, 999, "server1", "/tmp")
 	if err == nil {
 		t.Error("expected error for offline agent")
 	}
 
-	_, err = hub.SendFileRead(ctx, 999, "/tmp/file")
+	_, err = hub.SendFileRead(ctx, 999, "server1", "/tmp/file")
 	if err == nil {
 		t.Error("expected error for offline agent")
 	}
 
-	_, err = hub.SendFileWrite(ctx, 999, "/tmp/file", "content")
+	_, err = hub.SendFileWrite(ctx, 999, "server1", "/tmp/file", "content")
 	if err == nil {
 		t.Error("expected error for offline agent")
 	}
 
-	_, err = hub.SendFileDelete(ctx, 999, "/tmp/file")
+	_, err = hub.SendFileDelete(ctx, 999, "server1", "/tmp/file")
 	if err == nil {
 		t.Error("expected error for offline agent")
 	}
 
-	_, err = hub.SendMkdir(ctx, 999, "/tmp/dir")
+	_, err = hub.SendMkdir(ctx, 999, "server1", "/tmp/dir")
 	if err == nil {
 		t.Error("expected error for offline agent")
 	}
@@ -194,7 +206,6 @@ func TestResolveBackendAgent(t *testing.T) {
 	if err := store.CreateAgent(agent); err != nil {
 		t.Fatalf("CreateAgent error: %v", err)
 	}
-
 	found, err := store.GetAgentByNodeName("node1")
 	if err != nil {
 		t.Fatalf("GetAgentByNodeName error: %v", err)
@@ -417,9 +428,17 @@ func TestGetConnByServerName(t *testing.T) {
 	if err := store.CreateAgent(agent); err != nil {
 		t.Fatalf("failed to create agent: %v", err)
 	}
+	server := &database.Server{Name: "MyServer", GameType: "test", Metadata: map[string]string{}}
+	if err := store.CreateServer(server); err != nil {
+		t.Fatalf("failed to create server: %v", err)
+	}
+	server, _ = store.GetServerByName("MyServer")
+	if err := store.CreatePterodactylLink(&database.PterodactylLink{ServerID: server.ID, PteroServerID: "agent:MyServer", Node: "node1"}); err != nil {
+		t.Fatalf("failed to link server: %v", err)
+	}
 
-	// Manually add a connection with ServerName
-	ac := &AgentConn{AgentID: agent.ID, ServerName: "MyServer", NodeName: "node1", Hub: hub, Send: make(chan []byte, 10)}
+	// Manually add a connection with its server allowlist.
+	ac := &AgentConn{AgentID: agent.ID, ServerNames: []string{"MyServer"}, NodeName: "node1", Hub: hub, Send: make(chan []byte, 10)}
 	hub.mu.Lock()
 	hub.Conns[agent.ID] = ac
 	hub.mu.Unlock()
@@ -428,8 +447,8 @@ func TestGetConnByServerName(t *testing.T) {
 	if got == nil {
 		t.Fatal("expected to find connection by server name")
 	}
-	if got.ServerName != "MyServer" {
-		t.Errorf("expected ServerName MyServer, got %s", got.ServerName)
+	if len(got.ServerNames) != 1 || got.ServerNames[0] != "MyServer" {
+		t.Errorf("expected ServerNames [MyServer], got %v", got.ServerNames)
 	}
 
 	// Nonexistent server
@@ -443,7 +462,7 @@ func TestContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, err := hub.SendAction(ctx, 1, "start")
+	_, err := hub.SendAction(ctx, 1, "server1", "start")
 	if err == nil {
 		t.Error("expected error with cancelled context")
 	}
@@ -451,7 +470,7 @@ func TestContextCancellation(t *testing.T) {
 
 func TestAgentBackendName(t *testing.T) {
 	hub, _ := testHub(t)
-	ab := NewAgentBackend(1, "node1", hub)
+	ab := NewAgentBackend(1, "node1", "server1", hub)
 	if ab.Name() != "agent" {
 		t.Errorf("Name() = %q, want %q", ab.Name(), "agent")
 	}
@@ -459,7 +478,7 @@ func TestAgentBackendName(t *testing.T) {
 
 func TestAgentBackendStatusNotImplemented(t *testing.T) {
 	hub, _ := testHub(t)
-	ab := NewAgentBackend(1, "node1", hub)
+	ab := NewAgentBackend(1, "node1", "server1", hub)
 	ctx := context.Background()
 	_, err := ab.Status(ctx)
 	if err == nil {

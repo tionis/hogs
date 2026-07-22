@@ -69,7 +69,7 @@ example a Gandalf Git commit. HOGS also returns a canonical SHA-256 digest.
       "name": "destiny",
       "nodeName": "destiny",
       "labels": {"site": "netcup"},
-      "desiredCapabilities": ["action", "backup", "console", "files"],
+      "desiredCapabilities": ["backup", "command", "console", "file", "restart", "start", "status", "stop"],
       "tokenState": "active",
       "token": "hogs_<injected-from-vault>"
     }
@@ -116,6 +116,8 @@ example a Gandalf Git commit. HOGS also returns a canonical SHA-256 digest.
 An agent backend requires a known node plus `unit` and an absolute `dataPath`.
 Writable paths must be absolute descendants of that data path. Schedules use
 six-field cron expressions (`second minute hour day-of-month month day-of-week`).
+A node agent's local allowlist must contain matching server names, units, and
+data paths as documented in [the agent contract](AGENT.md).
 A Pterodactyl backend uses `type: "pterodactyl"` and requires `externalId`; a
 display-only server uses `type: "none"`.
 

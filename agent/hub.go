@@ -26,16 +26,17 @@ type Envelope struct {
 type RegisterData struct {
 	NodeName     string   `json:"nodeName"`
 	Capabilities []string `json:"capabilities"`
-	ServerName   string   `json:"serverName"`
-	GameType     string   `json:"gameType"`
+	Servers      []string `json:"servers"`
 }
 
 type CommandRequestData struct {
-	Command string `json:"command"`
+	ServerName string `json:"serverName"`
+	Command    string `json:"command"`
 }
 
 type ActionRequestData struct {
-	Action string `json:"action"`
+	ServerName string `json:"serverName"`
+	Action     string `json:"action"`
 }
 
 type ActionResultData struct {
@@ -44,6 +45,7 @@ type ActionResultData struct {
 }
 
 type StatusReportData struct {
+	ServerName string `json:"serverName"`
 	Online     bool   `json:"online"`
 	Players    int    `json:"players"`
 	MaxPlayers int    `json:"maxPlayers"`
@@ -56,48 +58,57 @@ type CommandResultData struct {
 }
 
 type ConsoleLineData struct {
-	Line      string `json:"line"`
-	Timestamp string `json:"timestamp"`
+	ServerName string `json:"serverName"`
+	Line       string `json:"line"`
+	Timestamp  string `json:"timestamp"`
 }
 
 type FileListRequestData struct {
-	Path string `json:"path"`
+	ServerName string `json:"serverName"`
+	Path       string `json:"path"`
 }
 
 type FileReadRequestData struct {
-	Path string `json:"path"`
+	ServerName string `json:"serverName"`
+	Path       string `json:"path"`
 }
 
 type FileWriteRequestData struct {
-	Path    string `json:"path"`
-	Content string `json:"content"`
+	ServerName string `json:"serverName"`
+	Path       string `json:"path"`
+	Content    string `json:"content"`
 }
 
 type FileDeleteRequestData struct {
-	Path string `json:"path"`
+	ServerName string `json:"serverName"`
+	Path       string `json:"path"`
 }
 
 type MkdirRequestData struct {
-	Path string `json:"path"`
+	ServerName string `json:"serverName"`
+	Path       string `json:"path"`
 }
 
 type BackupCreateRequestData struct {
-	Repo     string   `json:"repo"`
-	Password string   `json:"password"`
-	Paths    []string `json:"paths"`
-	Tags     []string `json:"tags"`
+	ServerName string   `json:"serverName"`
+	Repo       string   `json:"repo"`
+	Password   string   `json:"password"`
+	Paths      []string `json:"paths"`
+	Tags       []string `json:"tags"`
 }
 
 type BackupRestoreRequestData struct {
-	Repo     string `json:"repo"`
-	Password string `json:"password"`
-	Snapshot string `json:"snapshot"`
-	Target   string `json:"target"`
+	ServerName string `json:"serverName"`
+	Repo       string `json:"repo"`
+	Password   string `json:"password"`
+	Snapshot   string `json:"snapshot"`
+	Target     string `json:"target"`
 }
 
 type BackupListRequestData struct {
-	Repo     string `json:"repo"`
-	Password string `json:"password"`
+	ServerName string `json:"serverName"`
+	Repo       string `json:"repo"`
+	Password   string `json:"password"`
 }
 
 type GenericResultData struct {
@@ -144,7 +155,7 @@ type Hub struct {
 type AgentConn struct {
 	AgentID      int
 	NodeName     string
-	ServerName   string
+	ServerNames  []string
 	Hub          *Hub
 	Conn         *websocket.Conn
 	Send         chan []byte
@@ -195,7 +206,10 @@ func (h *Hub) registerPending(reqID string, agentID int, opType string, payload 
 			RequestID: reqID,
 			AgentID:   agentID,
 			OpType:    opType,
-			Payload:   string(payload),
+			// Pending operations are only recovered as failed after restart; their
+			// arguments are never replayed. Persist no commands, file contents, repo
+			// credentials, or other potentially sensitive request data.
+			Payload:   "{}",
 			CreatedAt: time.Now().UTC().Format(time.RFC3339),
 			ExpiresAt: time.Now().UTC().Add(5 * time.Minute).Format(time.RFC3339),
 			Resolved:  false,
@@ -339,14 +353,19 @@ func (h *Hub) GetConnByNode(nodeName string) *AgentConn {
 }
 
 func (h *Hub) GetConnByServerName(serverName string) *AgentConn {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	for _, ac := range h.Conns {
-		if ac.ServerName == serverName {
-			return ac
-		}
+	server, err := h.Store.GetServerByName(serverName)
+	if err != nil || server == nil {
+		return nil
 	}
-	return nil
+	link, err := h.Store.GetPterodactylLink(server.ID)
+	if err != nil || link == nil || link.Node == "" {
+		return nil
+	}
+	agent, err := h.Store.GetAgentByNodeName(link.Node)
+	if err != nil || agent == nil {
+		return nil
+	}
+	return h.GetConn(agent.ID)
 }
 
 func (h *Hub) AddConsoleClient(serverName string, conn *websocket.Conn) {
@@ -412,7 +431,7 @@ func (h *Hub) SendConsoleInput(serverName, input string) error {
 	if ac == nil {
 		return fmt.Errorf("agent for server %s is offline", serverName)
 	}
-	payload, _ := json.Marshal(map[string]string{"input": input})
+	payload, _ := json.Marshal(map[string]string{"serverName": serverName, "input": input})
 	env := Envelope{Type: "console_input", Data: payload}
 	msg, _ := json.Marshal(env)
 	select {
@@ -528,48 +547,48 @@ func (h *Hub) sendEnvelopeWithResult(ctx context.Context, agentID int, msgType s
 	}
 }
 
-func (h *Hub) SendCommand(ctx context.Context, agentID int, command string) (*GenericResultData, error) {
-	return h.sendEnvelopeWithResult(ctx, agentID, "command", CommandRequestData{Command: command})
+func (h *Hub) SendCommand(ctx context.Context, agentID int, serverName, command string) (*GenericResultData, error) {
+	return h.sendEnvelopeWithResult(ctx, agentID, "command", CommandRequestData{ServerName: serverName, Command: command})
 }
 
-func (h *Hub) SendAction(ctx context.Context, agentID int, action string) (*GenericResultData, error) {
-	return h.sendEnvelopeWithResult(ctx, agentID, "action", ActionRequestData{Action: action})
+func (h *Hub) SendAction(ctx context.Context, agentID int, serverName, action string) (*GenericResultData, error) {
+	return h.sendEnvelopeWithResult(ctx, agentID, "action", ActionRequestData{ServerName: serverName, Action: action})
 }
 
-func (h *Hub) SendFileList(ctx context.Context, agentID int, path string) (*GenericResultData, error) {
-	return h.sendEnvelopeWithResult(ctx, agentID, "file_list", FileListRequestData{Path: path})
+func (h *Hub) SendFileList(ctx context.Context, agentID int, serverName, path string) (*GenericResultData, error) {
+	return h.sendEnvelopeWithResult(ctx, agentID, "file_list", FileListRequestData{ServerName: serverName, Path: path})
 }
 
-func (h *Hub) SendFileRead(ctx context.Context, agentID int, path string) (*GenericResultData, error) {
-	return h.sendEnvelopeWithResult(ctx, agentID, "file_read", FileReadRequestData{Path: path})
+func (h *Hub) SendFileRead(ctx context.Context, agentID int, serverName, path string) (*GenericResultData, error) {
+	return h.sendEnvelopeWithResult(ctx, agentID, "file_read", FileReadRequestData{ServerName: serverName, Path: path})
 }
 
-func (h *Hub) SendFileWrite(ctx context.Context, agentID int, path, content string) (*GenericResultData, error) {
-	return h.sendEnvelopeWithResult(ctx, agentID, "file_write", FileWriteRequestData{Path: path, Content: content})
+func (h *Hub) SendFileWrite(ctx context.Context, agentID int, serverName, path, content string) (*GenericResultData, error) {
+	return h.sendEnvelopeWithResult(ctx, agentID, "file_write", FileWriteRequestData{ServerName: serverName, Path: path, Content: content})
 }
 
-func (h *Hub) SendFileDelete(ctx context.Context, agentID int, path string) (*GenericResultData, error) {
-	return h.sendEnvelopeWithResult(ctx, agentID, "file_delete", FileDeleteRequestData{Path: path})
+func (h *Hub) SendFileDelete(ctx context.Context, agentID int, serverName, path string) (*GenericResultData, error) {
+	return h.sendEnvelopeWithResult(ctx, agentID, "file_delete", FileDeleteRequestData{ServerName: serverName, Path: path})
 }
 
-func (h *Hub) SendMkdir(ctx context.Context, agentID int, path string) (*GenericResultData, error) {
-	return h.sendEnvelopeWithResult(ctx, agentID, "mkdir", MkdirRequestData{Path: path})
+func (h *Hub) SendMkdir(ctx context.Context, agentID int, serverName, path string) (*GenericResultData, error) {
+	return h.sendEnvelopeWithResult(ctx, agentID, "mkdir", MkdirRequestData{ServerName: serverName, Path: path})
 }
 
-func (h *Hub) SendBackupCreate(ctx context.Context, agentID int, repo, password string, paths, tags []string) (*GenericResultData, error) {
-	return h.sendEnvelopeWithResult(ctx, agentID, "backup_create", BackupCreateRequestData{Repo: repo, Password: password, Paths: paths, Tags: tags})
+func (h *Hub) SendBackupCreate(ctx context.Context, agentID int, serverName, repo, password string, paths, tags []string) (*GenericResultData, error) {
+	return h.sendEnvelopeWithResult(ctx, agentID, "backup_create", BackupCreateRequestData{ServerName: serverName, Repo: repo, Password: password, Paths: paths, Tags: tags})
 }
 
-func (h *Hub) SendBackupRestore(ctx context.Context, agentID int, repo, password, snapshot, target string) (*GenericResultData, error) {
-	return h.sendEnvelopeWithResult(ctx, agentID, "backup_restore", BackupRestoreRequestData{Repo: repo, Password: password, Snapshot: snapshot, Target: target})
+func (h *Hub) SendBackupRestore(ctx context.Context, agentID int, serverName, repo, password, snapshot, target string) (*GenericResultData, error) {
+	return h.sendEnvelopeWithResult(ctx, agentID, "backup_restore", BackupRestoreRequestData{ServerName: serverName, Repo: repo, Password: password, Snapshot: snapshot, Target: target})
 }
 
-func (h *Hub) SendBackupList(ctx context.Context, agentID int, repo, password string) (*GenericResultData, error) {
-	return h.sendEnvelopeWithResult(ctx, agentID, "backup_list", BackupListRequestData{Repo: repo, Password: password})
+func (h *Hub) SendBackupList(ctx context.Context, agentID int, serverName, repo, password string) (*GenericResultData, error) {
+	return h.sendEnvelopeWithResult(ctx, agentID, "backup_list", BackupListRequestData{ServerName: serverName, Repo: repo, Password: password})
 }
 
-func (h *Hub) SendBackupInit(ctx context.Context, agentID int, repo, password string) (*GenericResultData, error) {
-	return h.sendEnvelopeWithResult(ctx, agentID, "backup_init", BackupCreateRequestData{Repo: repo, Password: password})
+func (h *Hub) SendBackupInit(ctx context.Context, agentID int, serverName, repo, password string) (*GenericResultData, error) {
+	return h.sendEnvelopeWithResult(ctx, agentID, "backup_init", BackupCreateRequestData{ServerName: serverName, Repo: repo, Password: password})
 }
 
 var resultTypes = map[string]string{
@@ -635,12 +654,23 @@ func (ac *AgentConn) readPump() {
 				log.Printf("Agent %d invalid register data: %v", ac.AgentID, err)
 				continue
 			}
+			record, err := ac.Hub.Store.GetAgent(ac.AgentID)
+			if err != nil || record == nil || reg.NodeName != record.NodeName {
+				log.Printf("Agent %d registration node mismatch", ac.AgentID)
+				return
+			}
+			authorized := make([]string, 0, len(reg.Servers))
+			for _, name := range reg.Servers {
+				if ac.Hub.agentAssignedServer(ac.AgentID, name) {
+					authorized = append(authorized, name)
+				}
+			}
 			ac.NodeName = reg.NodeName
-			ac.ServerName = reg.ServerName
+			ac.ServerNames = authorized
 			ac.Capabilities = reg.Capabilities
 			caps, _ := json.Marshal(reg.Capabilities)
 			ac.Hub.Store.UpdateAgentCapabilities(ac.AgentID, caps)
-			log.Printf("Agent %d registered: node=%s server=%s caps=%v", ac.AgentID, reg.NodeName, reg.ServerName, reg.Capabilities)
+			log.Printf("Agent %d registered: node=%s servers=%v caps=%v", ac.AgentID, reg.NodeName, authorized, reg.Capabilities)
 
 		case "status":
 			var status StatusReportData
@@ -651,9 +681,10 @@ func (ac *AgentConn) readPump() {
 			// Agent reachability and game-process status are separate observations.
 			// A status report proves the agent is reachable even when the game is off.
 			ac.Hub.Store.UpdateAgentOnline(ac.AgentID, true)
-			metricName := ac.ServerName
-			if metricName == "" {
-				metricName = ac.NodeName
+			metricName := status.ServerName
+			if !ac.Hub.agentAssignedServer(ac.AgentID, metricName) {
+				log.Printf("Agent %d reported unauthorized server %q", ac.AgentID, metricName)
+				continue
 			}
 			if metricName != "" {
 				metric := &database.ServerMetric{
@@ -690,8 +721,8 @@ func (ac *AgentConn) readPump() {
 				continue
 			}
 			log.Printf("Agent %d console: %s", ac.AgentID, line.Line)
-			if ac.ServerName != "" {
-				ac.Hub.broadcastConsole(ac.ServerName, consoleLine{Line: line.Line, Timestamp: line.Timestamp})
+			if line.ServerName != "" {
+				ac.Hub.broadcastConsole(line.ServerName, consoleLine{Line: line.Line, Timestamp: line.Timestamp})
 			}
 
 		case "file_list_result":
@@ -751,6 +782,15 @@ func (ac *AgentConn) readPump() {
 			log.Printf("Agent %d backup list: success=%v", ac.AgentID, result.Success)
 		}
 	}
+}
+
+func (h *Hub) agentAssignedServer(agentID int, serverName string) bool {
+	var count int
+	err := h.Store.DB.QueryRow(`SELECT COUNT(*) FROM servers s
+		JOIN pterodactyl_servers p ON p.server_id=s.id
+		JOIN agents a ON a.node_name=p.node
+		WHERE a.id=? AND s.name=?`, agentID, serverName).Scan(&count)
+	return err == nil && count == 1
 }
 
 func (ac *AgentConn) writePump() {

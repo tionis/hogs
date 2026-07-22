@@ -29,7 +29,7 @@ func testManifest() InventoryManifest {
 		Generation: "git:abc123",
 		Nodes: []InventoryNode{{
 			Name: "destiny", NodeName: "destiny", Labels: map[string]string{"site": "cloud"},
-			DesiredCapabilities: []string{"action", "backup", "console", "files"}, TokenState: "active",
+			DesiredCapabilities: []string{"backup", "command", "console", "file", "restart", "start", "status", "stop"}, TokenState: "active",
 			Token: "hogs_0000000000000000000000000000000000000000000000000000000000000000",
 		}},
 		Servers: []InventoryServer{{

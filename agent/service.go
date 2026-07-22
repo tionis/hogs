@@ -10,17 +10,18 @@ import (
 )
 
 type AgentBackend struct {
-	AgentID  int
-	NodeName string
-	Hub      *Hub
+	AgentID    int
+	NodeName   string
+	ServerName string
+	Hub        *Hub
 }
 
-func NewAgentBackend(agentID int, nodeName string, hub *Hub) *AgentBackend {
-	return &AgentBackend{AgentID: agentID, NodeName: nodeName, Hub: hub}
+func NewAgentBackend(agentID int, nodeName, serverName string, hub *Hub) *AgentBackend {
+	return &AgentBackend{AgentID: agentID, NodeName: nodeName, ServerName: serverName, Hub: hub}
 }
 
 func (a *AgentBackend) Start(ctx context.Context) error {
-	_, err := a.Hub.SendAction(ctx, a.AgentID, "start")
+	_, err := a.Hub.SendAction(ctx, a.AgentID, a.ServerName, "start")
 	if err != nil {
 		return fmt.Errorf("failed to send start: %w", err)
 	}
@@ -28,7 +29,7 @@ func (a *AgentBackend) Start(ctx context.Context) error {
 }
 
 func (a *AgentBackend) Stop(ctx context.Context) error {
-	_, err := a.Hub.SendAction(ctx, a.AgentID, "stop")
+	_, err := a.Hub.SendAction(ctx, a.AgentID, a.ServerName, "stop")
 	if err != nil {
 		return fmt.Errorf("failed to send stop: %w", err)
 	}
@@ -36,7 +37,7 @@ func (a *AgentBackend) Stop(ctx context.Context) error {
 }
 
 func (a *AgentBackend) Restart(ctx context.Context) error {
-	_, err := a.Hub.SendAction(ctx, a.AgentID, "restart")
+	_, err := a.Hub.SendAction(ctx, a.AgentID, a.ServerName, "restart")
 	if err != nil {
 		return fmt.Errorf("failed to send restart: %w", err)
 	}
@@ -44,7 +45,7 @@ func (a *AgentBackend) Restart(ctx context.Context) error {
 }
 
 func (a *AgentBackend) SendCommand(ctx context.Context, command string) error {
-	_, err := a.Hub.SendCommand(ctx, a.AgentID, command)
+	_, err := a.Hub.SendCommand(ctx, a.AgentID, a.ServerName, command)
 	if err != nil {
 		return fmt.Errorf("failed to send command: %w", err)
 	}
@@ -98,7 +99,7 @@ func (s *AgentService) ExecuteAction(serverName, action string) error {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
-		ab := NewAgentBackend(agentID, "", s.Hub)
+		ab := NewAgentBackend(agentID, "", serverName, s.Hub)
 		switch action {
 		case "start":
 			return ab.Start(ctx)
@@ -121,7 +122,7 @@ func (s *AgentService) SendCommand(serverName, command string) error {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
-		ab := NewAgentBackend(agentID, "", s.Hub)
+		ab := NewAgentBackend(agentID, "", serverName, s.Hub)
 		return ab.SendCommand(ctx, command)
 	}
 
@@ -135,7 +136,7 @@ func (s *AgentService) FileList(serverName, path string) (*GenericResultData, er
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	return s.Hub.SendFileList(ctx, agentID, path)
+	return s.Hub.SendFileList(ctx, agentID, serverName, path)
 }
 
 func (s *AgentService) FileRead(serverName, path string) (*GenericResultData, error) {
@@ -145,7 +146,7 @@ func (s *AgentService) FileRead(serverName, path string) (*GenericResultData, er
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	return s.Hub.SendFileRead(ctx, agentID, path)
+	return s.Hub.SendFileRead(ctx, agentID, serverName, path)
 }
 
 func (s *AgentService) FileWrite(serverName, path, content string) (*GenericResultData, error) {
@@ -155,7 +156,7 @@ func (s *AgentService) FileWrite(serverName, path, content string) (*GenericResu
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	return s.Hub.SendFileWrite(ctx, agentID, path, content)
+	return s.Hub.SendFileWrite(ctx, agentID, serverName, path, content)
 }
 
 func (s *AgentService) FileDelete(serverName, path string) (*GenericResultData, error) {
@@ -165,7 +166,7 @@ func (s *AgentService) FileDelete(serverName, path string) (*GenericResultData, 
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	return s.Hub.SendFileDelete(ctx, agentID, path)
+	return s.Hub.SendFileDelete(ctx, agentID, serverName, path)
 }
 
 func (s *AgentService) Mkdir(serverName, path string) (*GenericResultData, error) {
@@ -175,7 +176,7 @@ func (s *AgentService) Mkdir(serverName, path string) (*GenericResultData, error
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	return s.Hub.SendMkdir(ctx, agentID, path)
+	return s.Hub.SendMkdir(ctx, agentID, serverName, path)
 }
 
 func (s *AgentService) BackupCreate(serverName, repo, password string, paths, tags []string) (*GenericResultData, error) {
@@ -185,7 +186,7 @@ func (s *AgentService) BackupCreate(serverName, repo, password string, paths, ta
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	return s.Hub.SendBackupCreate(ctx, agentID, repo, password, paths, tags)
+	return s.Hub.SendBackupCreate(ctx, agentID, serverName, repo, password, paths, tags)
 }
 
 func (s *AgentService) BackupRestore(serverName, repo, password, snapshot, target string) (*GenericResultData, error) {
@@ -195,7 +196,7 @@ func (s *AgentService) BackupRestore(serverName, repo, password, snapshot, targe
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	return s.Hub.SendBackupRestore(ctx, agentID, repo, password, snapshot, target)
+	return s.Hub.SendBackupRestore(ctx, agentID, serverName, repo, password, snapshot, target)
 }
 
 func (s *AgentService) BackupList(serverName, repo, password string) (*GenericResultData, error) {
@@ -205,7 +206,7 @@ func (s *AgentService) BackupList(serverName, repo, password string) (*GenericRe
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	return s.Hub.SendBackupList(ctx, agentID, repo, password)
+	return s.Hub.SendBackupList(ctx, agentID, serverName, repo, password)
 }
 
 func (s *AgentService) BackupInit(serverName, repo, password string) (*GenericResultData, error) {
@@ -215,5 +216,5 @@ func (s *AgentService) BackupInit(serverName, repo, password string) (*GenericRe
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	return s.Hub.SendBackupInit(ctx, agentID, repo, password)
+	return s.Hub.SendBackupInit(ctx, agentID, serverName, repo, password)
 }
