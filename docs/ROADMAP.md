@@ -283,11 +283,11 @@ All action paths (user-triggered, cron-triggered, API-triggered) go through the 
 - Quick start commands for binary download and systemd setup
 - **Still needed**: Downloadable agent binary page, agent health dashboard with heartbeat latency
 
-#### 3.3 Restic Repo Init from UI
-- Button in backup section to initialize a new restic repo
-- Pre-fill common repo types: local path, SFTP, S3, B2
-- Test connection button (runs `restic check`)
-- Store encrypted repo credentials in DB (or reference env vars)
+#### 3.3 Node-local Restic Profiles ✅
+- Repositories are initialized and credentialed by the node provisioner.
+- Each server references a root-readable restic environment file.
+- HOGS can create and list backups without receiving repository credentials.
+- Restore remains an independently controlled server-policy capability.
 
 #### 3.4 Pterodactyl Migration Path
 - Document step-by-step migration guide: Pterodactyl → HOGS agent
@@ -331,7 +331,7 @@ All action paths (user-triggered, cron-triggered, API-triggered) go through the 
 - `CreateAgent` auto-generates hash and prefix from plaintext token
 - API key authentication uses same `HashAPIKey` function for consistent hashing
 - Agent binary supports TLS client certificates: `HOGS_AGENT_TLS_CERT` and `HOGS_AGENT_TLS_KEY`
-- **Still needed**: Token rotation endpoint/admin UI, encrypt restic passwords at rest
+- **Still needed**: Token rotation endpoint/admin UI
 
 #### 3.10 Health Check Endpoints ✅
 - HOGS `/healthz` endpoint now reports database connectivity with structured JSON response

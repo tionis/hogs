@@ -18,6 +18,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -76,24 +77,18 @@ type MkdirRequestData struct {
 
 type BackupRequestData struct {
 	ServerName string   `json:"serverName"`
-	Repo       string   `json:"repo"`
-	Password   string   `json:"password"`
 	Paths      []string `json:"paths"`
 	Tags       []string `json:"tags"`
 }
 
 type BackupRestoreRequestData struct {
 	ServerName string `json:"serverName"`
-	Repo       string `json:"repo"`
-	Password   string `json:"password"`
 	Snapshot   string `json:"snapshot"`
 	Target     string `json:"target"`
 }
 
 type BackupListRequestData struct {
 	ServerName string `json:"serverName"`
-	Repo       string `json:"repo"`
-	Password   string `json:"password"`
 }
 
 type StatusReportData struct {
@@ -119,6 +114,7 @@ type ServerConfig struct {
 	Address        string        `yaml:"address"`
 	ExclusiveGroup string        `yaml:"exclusive_group"`
 	Console        ConsoleConfig `yaml:"console"`
+	Backup         BackupConfig  `yaml:"backup"`
 }
 
 type ConsoleConfig struct {
@@ -126,6 +122,10 @@ type ConsoleConfig struct {
 	Host         string `yaml:"host"`
 	Port         int    `yaml:"port"`
 	PasswordFile string `yaml:"password_file"`
+}
+
+type BackupConfig struct {
+	EnvironmentFile string `yaml:"environment_file"`
 }
 
 var agentConfig AgentConfig
@@ -203,6 +203,9 @@ func validateConfig(cfg AgentConfig) error {
 		if server.Console.Type == "rcon" && (server.Console.Host == "" || server.Console.Port <= 0 || !filepath.IsAbs(server.Console.PasswordFile)) {
 			return fmt.Errorf("server %q has incomplete RCON configuration", name)
 		}
+		if server.Backup.EnvironmentFile != "" && !filepath.IsAbs(server.Backup.EnvironmentFile) {
+			return fmt.Errorf("server %q backup environment_file must be absolute", name)
+		}
 	}
 	return nil
 }
@@ -214,6 +217,16 @@ func sortedServerNames() []string {
 	}
 	sort.Strings(names)
 	return names
+}
+
+func agentCapabilities() []string {
+	capabilities := []string{"start", "stop", "restart", "command", "console", "status", "file"}
+	for _, server := range agentConfig.Servers {
+		if server.Backup.EnvironmentFile != "" {
+			return append(capabilities, "backup")
+		}
+	}
+	return capabilities
 }
 
 func connectAndServe(interrupt chan os.Signal) error {
@@ -249,7 +262,7 @@ func connectAndServe(interrupt chan os.Signal) error {
 		Type: "register",
 		Data: mustMarshal(RegisterData{
 			NodeName:     agentConfig.Node,
-			Capabilities: []string{"start", "stop", "restart", "command", "console", "status", "file", "backup"},
+			Capabilities: agentCapabilities(),
 			Servers:      sortedServerNames(),
 		}),
 	}
@@ -396,7 +409,7 @@ func handleMessage(message []byte, c *websocket.Conn) {
 			sendResult(c, "backup_create_result", env.RequestID, map[string]interface{}{"success": false, "error": err.Error()})
 			return
 		}
-		result := backupCreate(server, data.Repo, data.Password, data.Paths, data.Tags)
+		result := backupCreate(server, data.Paths, data.Tags)
 		sendResult(c, "backup_create_result", env.RequestID, result)
 
 	case "backup_restore":
@@ -407,7 +420,7 @@ func handleMessage(message []byte, c *websocket.Conn) {
 			sendResult(c, "backup_restore_result", env.RequestID, map[string]interface{}{"success": false, "error": err.Error()})
 			return
 		}
-		result := backupRestore(server, data.Repo, data.Password, data.Snapshot, data.Target)
+		result := backupRestore(server, data.Snapshot, data.Target)
 		sendResult(c, "backup_restore_result", env.RequestID, result)
 
 	case "backup_list":
@@ -418,19 +431,8 @@ func handleMessage(message []byte, c *websocket.Conn) {
 			sendResult(c, "backup_list_result", env.RequestID, map[string]interface{}{"success": false, "error": err.Error()})
 			return
 		}
-		result := backupList(server, data.Repo, data.Password)
+		result := backupList(server)
 		sendResult(c, "backup_list_result", env.RequestID, result)
-
-	case "backup_init":
-		var data BackupRequestData
-		json.Unmarshal(env.Data, &data)
-		server, err := serverConfig(data.ServerName)
-		if err != nil {
-			sendResult(c, "backup_init_result", env.RequestID, map[string]interface{}{"success": false, "error": err.Error()})
-			return
-		}
-		result := backupInit(server, data.Repo, data.Password)
-		sendResult(c, "backup_init_result", env.RequestID, result)
 
 	case "console_subscribe":
 		var data struct {
@@ -846,14 +848,74 @@ func mkdir(server *ServerConfig, p string) map[string]interface{} {
 
 // ── Restic Backup Management ──
 
-func resticEnv(repo, password string) []string {
-	return []string{
-		"RESTIC_REPOSITORY=" + repo,
-		"RESTIC_PASSWORD=" + password,
+func resticEnv(server *ServerConfig) ([]string, error) {
+	path := server.Backup.EnvironmentFile
+	if path == "" {
+		return nil, fmt.Errorf("backup profile is not configured")
 	}
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("read backup profile: %w", err)
+	}
+	defer file.Close()
+
+	values := map[string]string{}
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		line = strings.TrimSpace(strings.TrimPrefix(line, "export "))
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 || !validEnvironmentKey(parts[0]) {
+			return nil, fmt.Errorf("invalid backup environment entry")
+		}
+		value := strings.TrimSpace(parts[1])
+		if len(value) >= 2 && ((value[0] == '"' && value[len(value)-1] == '"') || (value[0] == '\'' && value[len(value)-1] == '\'')) {
+			if value[0] == '"' {
+				decoded, decodeErr := strconv.Unquote(value)
+				if decodeErr != nil {
+					return nil, fmt.Errorf("invalid quoted backup environment value")
+				}
+				value = decoded
+			} else {
+				value = value[1 : len(value)-1]
+			}
+		}
+		values[parts[0]] = value
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("read backup profile: %w", err)
+	}
+	if values["RESTIC_REPOSITORY"] == "" || (values["RESTIC_PASSWORD"] == "" && values["RESTIC_PASSWORD_FILE"] == "") {
+		return nil, fmt.Errorf("backup profile requires RESTIC_REPOSITORY and a password source")
+	}
+	env := os.Environ()
+	for key, value := range values {
+		env = append(env, key+"="+value)
+	}
+	return env, nil
 }
 
-func backupCreate(server *ServerConfig, repo, password string, paths []string, tags []string) map[string]interface{} {
+func validEnvironmentKey(key string) bool {
+	if key == "" {
+		return false
+	}
+	for i, char := range key {
+		if (char >= 'A' && char <= 'Z') || char == '_' || (i > 0 && char >= '0' && char <= '9') {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func backupCreate(server *ServerConfig, paths []string, tags []string) map[string]interface{} {
+	env, err := resticEnv(server)
+	if err != nil {
+		return map[string]interface{}{"success": false, "error": err.Error()}
+	}
 	if len(paths) == 0 {
 		resolved, err := resolvePath(server, ".")
 		if err != nil {
@@ -875,7 +937,7 @@ func backupCreate(server *ServerConfig, repo, password string, paths []string, t
 	}
 
 	cmd := exec.Command(agentConfig.ResticBin, args...)
-	cmd.Env = append(os.Environ(), resticEnv(repo, password)...)
+	cmd.Env = env
 	output, err := cmd.CombinedOutput()
 
 	if err != nil {
@@ -902,8 +964,11 @@ func backupCreate(server *ServerConfig, repo, password string, paths []string, t
 	}
 }
 
-func backupRestore(server *ServerConfig, repo, password, snapshot, target string) map[string]interface{} {
-	var err error
+func backupRestore(server *ServerConfig, snapshot, target string) map[string]interface{} {
+	env, err := resticEnv(server)
+	if err != nil {
+		return map[string]interface{}{"success": false, "error": err.Error()}
+	}
 	if target == "" {
 		target, err = resolvePath(server, ".")
 		if err != nil {
@@ -918,7 +983,7 @@ func backupRestore(server *ServerConfig, repo, password, snapshot, target string
 
 	args := []string{"restore", snapshot, "--target", target}
 	cmd := exec.Command(agentConfig.ResticBin, args...)
-	cmd.Env = append(os.Environ(), resticEnv(repo, password)...)
+	cmd.Env = env
 	output, err := cmd.CombinedOutput()
 
 	if err != nil {
@@ -935,9 +1000,13 @@ func backupRestore(server *ServerConfig, repo, password, snapshot, target string
 	}
 }
 
-func backupList(_ *ServerConfig, repo, password string) map[string]interface{} {
+func backupList(server *ServerConfig) map[string]interface{} {
+	env, err := resticEnv(server)
+	if err != nil {
+		return map[string]interface{}{"success": false, "error": err.Error()}
+	}
 	cmd := exec.Command(agentConfig.ResticBin, "snapshots", "--json")
-	cmd.Env = append(os.Environ(), resticEnv(repo, password)...)
+	cmd.Env = env
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return map[string]interface{}{"success": false, "error": err.Error()}
@@ -995,16 +1064,6 @@ func backupList(_ *ServerConfig, repo, password string) map[string]interface{} {
 		"success":   true,
 		"snapshots": result,
 	}
-}
-
-func backupInit(_ *ServerConfig, repo, password string) map[string]interface{} {
-	cmd := exec.Command(agentConfig.ResticBin, "init", "--json")
-	cmd.Env = append(os.Environ(), resticEnv(repo, password)...)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return map[string]interface{}{"success": false, "error": string(output)}
-	}
-	return map[string]interface{}{"success": true, "message": "restic repository initialized"}
 }
 
 // ── Status Reporting ──

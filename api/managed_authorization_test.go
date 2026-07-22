@@ -113,3 +113,38 @@ func TestManagedConsoleStillAppliesServerACL(t *testing.T) {
 		t.Fatalf("ACL-denied operator status=%d err=%v, want forbidden", status, err)
 	}
 }
+
+func TestManagedFileAccessUsesReconciledWritablePaths(t *testing.T) {
+	store, authenticator, eng := managedAuthorizationFixture(t, []string{"game-moderators"}, `true`)
+	server, _ := store.GetServerByName("managed-test")
+	if _, err := store.DB.Exec(`UPDATE server_management SET writable_paths='["/srv/managed-test/config"]' WHERE server_id=?`, server.ID); err != nil {
+		t.Fatal(err)
+	}
+	req := managedTestRequest(t, store, authenticator, "moderator@example.test", "user", "game-moderators")
+
+	if status, err := authorizeManagedPath(store, eng, authenticator, req, "managed-test", "config/settings.json"); err != nil || status != http.StatusOK {
+		t.Fatalf("allowlisted path status=%d err=%v", status, err)
+	}
+	if status, err := authorizeManagedPath(store, eng, authenticator, req, "managed-test", "world/level.dat"); err == nil || status != http.StatusForbidden {
+		t.Fatalf("unlisted path status=%d err=%v, want forbidden", status, err)
+	}
+	if status, err := authorizeManagedPath(store, eng, authenticator, req, "managed-test", "/srv/managed-test/config/settings.json"); err == nil || status != http.StatusBadRequest {
+		t.Fatalf("absolute path status=%d err=%v, want bad request", status, err)
+	}
+}
+
+func TestManagedBackupAllowsOperatorWithoutGrantingRestore(t *testing.T) {
+	store, authenticator, eng := managedAuthorizationFixture(t, []string{"game-moderators"}, `true`)
+	server, _ := store.GetServerByName("managed-test")
+	if _, err := store.DB.Exec(`UPDATE server_management SET backup_enabled=1,restore_enabled=0 WHERE server_id=?`, server.ID); err != nil {
+		t.Fatal(err)
+	}
+	req := managedTestRequest(t, store, authenticator, "moderator@example.test", "user", "game-moderators")
+
+	if _, _, status, err := authorizeManagedCapability(store, eng, authenticator, req, "managed-test", managedBackup); err != nil || status != http.StatusOK {
+		t.Fatalf("backup authorization status=%d err=%v", status, err)
+	}
+	if _, _, status, err := authorizeManagedCapability(store, eng, authenticator, req, "managed-test", managedRestore); err == nil || status != http.StatusForbidden {
+		t.Fatalf("restore authorization status=%d err=%v, want forbidden", status, err)
+	}
+}
