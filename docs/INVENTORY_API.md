@@ -58,6 +58,10 @@ identical manifest is safe and produces no resource changes.
 The database update is one transaction. Enabled schedules are reloaded after
 commit without restarting HOGS.
 
+On first adoption, the plan also inventories resources created by older
+interactive HOGS versions. Any such resource omitted from the first manifest
+is reported as a delete and requires the same explicit prune confirmation.
+
 Every resource uses its manifest `name` as its stable reconciliation key. The
 top-level `generation` should identify the source inventory revision, for
 example a Gandalf Git commit. HOGS also returns a canonical SHA-256 digest.

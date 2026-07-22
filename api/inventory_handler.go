@@ -219,6 +219,12 @@ func (h *InventoryHandler) Plan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	changes := diffInventory(current, manifest)
+	legacyDeletes, err := h.firstAdoptionDeletes(currentDigest, manifest)
+	if err != nil {
+		http.Error(w, "Failed to inspect pre-existing inventory", http.StatusInternalServerError)
+		return
+	}
+	changes = append(changes, legacyDeletes...)
 	for name := range rotations {
 		changes = append(changes, InventoryChange{Resource: "nodes/" + name + "/token", Action: "rotate"})
 	}
@@ -252,6 +258,12 @@ func (h *InventoryHandler) Apply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	changes := diffInventory(current, manifest)
+	legacyDeletes, err := h.firstAdoptionDeletes(currentDigest, manifest)
+	if err != nil {
+		http.Error(w, "Failed to inspect pre-existing inventory", http.StatusInternalServerError)
+		return
+	}
+	changes = append(changes, legacyDeletes...)
 	for name := range rotations {
 		changes = append(changes, InventoryChange{Resource: "nodes/" + name + "/token", Action: "rotate"})
 	}
@@ -626,6 +638,53 @@ func diffInventory(old, desired InventoryManifest) []InventoryChange {
 	}
 	sortChanges(changes)
 	return changes
+}
+
+// firstAdoptionDeletes makes the first declarative plan account for resources
+// created by older interactive HOGS versions. applyManifest is authoritative
+// over these tables, so omitting this discovery would make the apply remove
+// rows that were invisible in the plan.
+func (h *InventoryHandler) firstAdoptionDeletes(currentDigest string, desired InventoryManifest) ([]InventoryChange, error) {
+	if currentDigest != "" {
+		return nil, nil
+	}
+	desiredResources := inventoryResources(desired)
+	tables := []struct {
+		resource string
+		table    string
+	}{
+		{"nodes", "agents"},
+		{"servers", "servers"},
+		{"constraints", "constraints"},
+		{"schedules", "cron_jobs"},
+		{"templates", "server_templates"},
+		{"webhooks", "webhooks"},
+		{"notifications", "notification_channels"},
+	}
+	changes := []InventoryChange{}
+	for _, item := range tables {
+		rows, err := h.Store.DB.Query("SELECT name FROM " + item.table)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var name string
+			if err := rows.Scan(&name); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			resource := item.resource + "/" + name
+			if _, retained := desiredResources[resource]; !retained {
+				changes = append(changes, InventoryChange{Resource: resource, Action: "delete"})
+			}
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		rows.Close()
+	}
+	return changes, nil
 }
 
 func inventoryResources(m InventoryManifest) map[string]string {
