@@ -365,6 +365,27 @@ func TestGenericResultDataSerialization(t *testing.T) {
 	}
 }
 
+func TestGenericResultDataUnmarshalsLegacyAgentPayload(t *testing.T) {
+	var result GenericResultData
+	if err := json.Unmarshal([]byte(`{"success":true,"path":"mods","entries":[{"name":"example.jar"}]}`), &result); err != nil {
+		t.Fatalf("unmarshal legacy result: %v", err)
+	}
+	if !result.Success {
+		t.Fatal("expected successful result")
+	}
+	data, ok := result.Data.(map[string]interface{})
+	if !ok {
+		t.Fatalf("data type = %T, want map", result.Data)
+	}
+	if data["path"] != "mods" {
+		t.Fatalf("path = %v, want mods", data["path"])
+	}
+	entries, ok := data["entries"].([]interface{})
+	if !ok || len(entries) != 1 {
+		t.Fatalf("entries = %#v, want one entry", data["entries"])
+	}
+}
+
 func TestConsoleBufferAndBroadcast(t *testing.T) {
 	hub, _ := testHub(t)
 

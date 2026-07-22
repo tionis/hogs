@@ -113,14 +113,24 @@
     </div>
     {{end}}
 
+    {{if and .Authenticated .HasAgent}}
     <div class="card mb-4" id="file-browser-card">
-      <div class="card-header">
-        File Browser
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span>Managed Files</span>
+        <select id="file-root" class="form-select form-select-sm w-auto" aria-label="Writable root"></select>
       </div>
       <div class="card-body">
+        <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
+          <button type="button" id="file-up" class="btn btn-sm btn-outline-secondary">Up</button>
+          <code id="file-path" class="flex-grow-1"></code>
+          <label class="btn btn-sm btn-outline-primary mb-0">Upload<input id="file-upload" type="file" hidden></label>
+          <button type="button" id="file-mkdir" class="btn btn-sm btn-outline-secondary">New folder</button>
+        </div>
+        <div id="file-feedback" class="small mb-2" role="status"></div>
         <div id="file-browser">Loading files...</div>
       </div>
     </div>
+    {{end}}
   </div>
 
   <div class="col-md-4">
@@ -151,16 +161,17 @@
        </ul>
      </div>
 
-     {{if and .PteroConfigured .PteroLink}}
+     {{if .PteroLink}}
      <div class="card mb-4">
        <div class="card-header">Server Actions</div>
        <div class="card-body">
          {{if .Authenticated}}
          <div class="d-flex flex-wrap gap-2 mb-3">
-           {{if inList "start" .AllowedActions}}<form action="/servers/{{.Server.Name}}/action" method="POST" class="d-inline"><input type="hidden" name="action" value="start"><button type="submit" class="btn btn-success btn-sm">Start</button></form>{{end}}
-           {{if inList "stop" .AllowedActions}}<form action="/servers/{{.Server.Name}}/action" method="POST" class="d-inline"><input type="hidden" name="action" value="stop"><button type="submit" class="btn btn-danger btn-sm">Stop</button></form>{{end}}
-           {{if inList "restart" .AllowedActions}}<form action="/servers/{{.Server.Name}}/action" method="POST" class="d-inline"><input type="hidden" name="action" value="restart"><button type="submit" class="btn btn-warning btn-sm">Restart</button></form>{{end}}
+           {{if inList "start" .AllowedActions}}<button type="button" class="btn btn-success btn-sm" onclick="runServerAction('start', this)">Start</button>{{end}}
+           {{if inList "stop" .AllowedActions}}<button type="button" class="btn btn-danger btn-sm" onclick="runServerAction('stop', this)">Stop</button>{{end}}
+           {{if inList "restart" .AllowedActions}}<button type="button" class="btn btn-warning btn-sm" onclick="runServerAction('restart', this)">Restart</button>{{end}}
          </div>
+         <div id="server-action-feedback" class="small mb-3" role="status"></div>
          {{if inList "whitelist" .AllowedActions}}
          <h6 class="mt-3">Whitelist</h6>
          <div id="whitelist-status" class="small mb-2" style="color: var(--text-secondary);"></div>
@@ -188,9 +199,56 @@
      </div>
      {{end}}
    </div>
- </div>
+</div>
+
+<div class="modal fade" id="fileEditorModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Edit <code id="file-editor-path"></code></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <textarea id="file-editor-content" class="form-control font-monospace" rows="24" spellcheck="false"></textarea>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" id="file-editor-save" class="btn btn-primary">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
 
 <script>
+async function runServerAction(action, button) {
+    const feedback = document.getElementById('server-action-feedback');
+    const original = button.textContent;
+    button.disabled = true;
+    button.textContent = 'Working…';
+    try {
+        const response = await fetch('/servers/{{.Server.Name}}/action', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': getCsrfToken()},
+            body: 'action=' + encodeURIComponent(action)
+        });
+        const body = await response.text();
+        if (!response.ok) throw new Error(body.trim() || response.statusText);
+        feedback.className = 'small mb-3 text-success';
+        feedback.textContent = action.charAt(0).toUpperCase() + action.slice(1) + ' request completed.';
+    } catch (error) {
+        feedback.className = 'small mb-3 text-danger';
+        feedback.textContent = error.message;
+    } finally {
+        button.disabled = false;
+        button.textContent = original;
+    }
+}
+
+function getCsrfToken() {
+    const match = document.cookie.match(/hogs-csrf=([^;]+)/);
+    return match ? decodeURIComponent(match[1]).split('.')[0] : '';
+}
+
 window.onServerStatusUpdate = function(serverName, data) {
     const gameType = "{{.Server.GameType}}";
 
@@ -308,22 +366,7 @@ document.addEventListener("DOMContentLoaded", function() {
     connectConsole();
     {{end}}
 
-    const fileBrowserCard = document.getElementById('file-browser-card');
-    fetch(`/api/servers/${serverName}/mods`)
-    .then(r => {
-        if (!r.ok) throw new Error("No files found or server error");
-        return r.json();
-    })
-    .then(data => {
-      if (!data.children || data.children.length === 0) {
-        if (fileBrowserCard) fileBrowserCard.style.display = 'none';
-        return;
-      }
-      container.innerHTML = renderFileTree(data, serverName);
-    })
-    .catch(e => {
-      if (fileBrowserCard) fileBrowserCard.style.display = 'none';
-    });
+    if (container) initManagedFiles(serverName);
 
     if (userEmail) {
       fetch(`/servers/${serverName}/whitelist?user_email=${encodeURIComponent(userEmail)}`)
@@ -342,41 +385,188 @@ document.addEventListener("DOMContentLoaded", function() {
     }
 });
 
-function renderFileTree(item, serverName) {
-  if (item.path === "") {
-     if (!item.children || item.children.length === 0) return "No files found.";
-     return renderChildren(item.children, serverName);
-  }
-  return "Error: Root expected";
-}
+async function initManagedFiles(serverName) {
+    const browser = document.getElementById('file-browser');
+    const rootSelect = document.getElementById('file-root');
+    const pathLabel = document.getElementById('file-path');
+    const feedback = document.getElementById('file-feedback');
+    let root = '';
+    let currentPath = '';
+    let editingPath = '';
 
-function renderChildren(children, serverName) {
-    let html = '<ul class="list-group">';
-    children.forEach(child => {
-        let icon = child.type === 'directory' ? '\uD83D\uDCC1' : '\uD83D\uDCC4';
-        if (child.type === 'url') icon = '\uD83D\uDD17';
-        
-        let content = '';
-        if (child.type === 'directory') {
-            content = `
-            <details>
-                <summary class="list-group-item list-group-item-action">
-                    ${icon} ${child.name}
-                </summary>
-                <div class="ms-4">
-                    ${child.children ? renderChildren(child.children, serverName) : ''}
-                </div>
-            </details>`;
-        } else if (child.type === 'url') {
-            content = `<a href="${child.url}" target="_blank" class="list-group-item list-group-item-action">${icon} ${child.name}</a>`;
-        } else {
-             const downloadPath = `/files/${serverName}/mods/${child.path}`;
-             content = `<a href="${downloadPath}" target="_blank" class="list-group-item list-group-item-action">${icon} ${child.name} <span class="badge float-end" style="background: var(--badge-bg); color: var(--badge-text);">${formatBytes(child.size)}</span></a>`;
+    const endpoint = suffix => `/api/agents/${encodeURIComponent(serverName)}/files${suffix}`;
+    const joinPath = (parent, name) => parent ? `${parent}/${name}` : name;
+    const parentPath = path => path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : path;
+    const showFeedback = (message, error = false) => {
+        feedback.className = `small mb-2 ${error ? 'text-danger' : 'text-success'}`;
+        feedback.textContent = message;
+    };
+    const request = async (url, options) => {
+        const response = await fetch(url, options);
+        const text = await response.text();
+        if (!response.ok) throw new Error(text.trim() || response.statusText);
+        const result = text ? JSON.parse(text) : {};
+        if (result.success === false) throw new Error(result.error || 'Agent operation failed');
+        return result.data || {};
+    };
+    const bytesToBase64 = bytes => {
+        let binary = '';
+        for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+            binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
         }
-        html += content;
+        return btoa(binary);
+    };
+    const base64ToBytes = value => Uint8Array.from(atob(value), character => character.charCodeAt(0));
+
+    async function loadFiles(path) {
+        browser.textContent = 'Loading files…';
+        feedback.textContent = '';
+        try {
+            const data = await request(endpoint(`?path=${encodeURIComponent(path)}`));
+            currentPath = path;
+            pathLabel.textContent = '/' + currentPath;
+            document.getElementById('file-up').disabled = currentPath === root;
+            browser.replaceChildren();
+            const entries = data.entries || [];
+            if (!entries.length) {
+                browser.textContent = 'This directory is empty.';
+                return;
+            }
+            const list = document.createElement('div');
+            list.className = 'list-group';
+            entries.sort((a, b) => Number(b.isDir) - Number(a.isDir) || a.name.localeCompare(b.name));
+            for (const entry of entries) {
+                const row = document.createElement('div');
+                row.className = 'list-group-item d-flex align-items-center gap-2';
+                const name = document.createElement(entry.isDir ? 'button' : 'span');
+                name.className = entry.isDir ? 'btn btn-link text-start p-0 flex-grow-1' : 'flex-grow-1';
+                name.textContent = `${entry.isDir ? '📁' : '📄'} ${entry.name}`;
+                const entryPath = joinPath(currentPath, entry.name);
+                if (entry.isDir) name.addEventListener('click', () => loadFiles(entryPath));
+                row.appendChild(name);
+                if (!entry.isDir) {
+                    const size = document.createElement('span');
+                    size.className = 'text-muted small';
+                    size.textContent = formatBytes(entry.size);
+                    row.appendChild(size);
+                    for (const [label, handler, style] of [
+                        ['Edit', () => editFile(entryPath), 'outline-secondary'],
+                        ['Download', () => downloadFile(entryPath, entry.name), 'outline-primary'],
+                        ['Delete', () => deleteFile(entryPath), 'outline-danger']
+                    ]) {
+                        const button = document.createElement('button');
+                        button.type = 'button';
+                        button.className = `btn btn-sm btn-${style}`;
+                        button.textContent = label;
+                        button.addEventListener('click', handler);
+                        row.appendChild(button);
+                    }
+                }
+                list.appendChild(row);
+            }
+            browser.appendChild(list);
+        } catch (error) {
+            browser.textContent = '';
+            showFeedback(error.message, true);
+        }
+    }
+
+    async function readFile(path) {
+        return request(endpoint(`/read?path=${encodeURIComponent(path)}`));
+    }
+    async function editFile(path) {
+        try {
+            const data = await readFile(path);
+            const bytes = base64ToBytes(data.contentBase64 || '');
+            const content = new TextDecoder('utf-8', {fatal: true}).decode(bytes);
+            editingPath = path;
+            document.getElementById('file-editor-path').textContent = path;
+            document.getElementById('file-editor-content').value = content;
+            new bootstrap.Modal(document.getElementById('fileEditorModal')).show();
+        } catch (error) {
+            showFeedback(`Cannot edit this file: ${error.message}`, true);
+        }
+    }
+    async function downloadFile(path, name) {
+        try {
+            const data = await readFile(path);
+            const url = URL.createObjectURL(new Blob([base64ToBytes(data.contentBase64 || '')]));
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = name;
+            link.click();
+            URL.revokeObjectURL(url);
+        } catch (error) {
+            showFeedback(error.message, true);
+        }
+    }
+    async function deleteFile(path) {
+        if (!confirm(`Delete ${path}?`)) return;
+        try {
+            await request(endpoint(`/delete?path=${encodeURIComponent(path)}`), {method: 'POST'});
+            showFeedback('File deleted.');
+            await loadFiles(currentPath);
+        } catch (error) {
+            showFeedback(error.message, true);
+        }
+    }
+
+    document.getElementById('file-up').addEventListener('click', () => loadFiles(parentPath(currentPath)));
+    rootSelect.addEventListener('change', () => { root = rootSelect.value; loadFiles(root); });
+    document.getElementById('file-mkdir').addEventListener('click', async () => {
+        const name = prompt('New folder name');
+        if (!name || name.includes('/') || name === '.' || name === '..') return;
+        try {
+            await request(endpoint(`/mkdir?path=${encodeURIComponent(joinPath(currentPath, name))}`), {method: 'POST'});
+            showFeedback('Folder created.');
+            await loadFiles(currentPath);
+        } catch (error) { showFeedback(error.message, true); }
     });
-    html += '</ul>';
-    return html;
+    document.getElementById('file-upload').addEventListener('change', async event => {
+        const file = event.target.files[0];
+        if (!file) return;
+        try {
+            const contentBase64 = bytesToBase64(new Uint8Array(await file.arrayBuffer()));
+            await request(endpoint('/write'), {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({path: joinPath(currentPath, file.name), contentBase64})
+            });
+            showFeedback('File uploaded.');
+            await loadFiles(currentPath);
+        } catch (error) { showFeedback(error.message, true); }
+        event.target.value = '';
+    });
+    document.getElementById('file-editor-save').addEventListener('click', async () => {
+        try {
+            const content = document.getElementById('file-editor-content').value;
+            const contentBase64 = bytesToBase64(new TextEncoder().encode(content));
+            await request(endpoint('/write'), {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({path: editingPath, contentBase64})
+            });
+            bootstrap.Modal.getInstance(document.getElementById('fileEditorModal')).hide();
+            showFeedback('File saved.');
+            await loadFiles(currentPath);
+        } catch (error) { showFeedback(error.message, true); }
+    });
+
+    try {
+        const data = await request(endpoint('/roots'));
+        if (!data.roots || !data.roots.length) throw new Error('No writable paths are configured.');
+        for (const value of data.roots) {
+            const option = document.createElement('option');
+            option.value = value;
+            option.textContent = '/' + value;
+            rootSelect.appendChild(option);
+        }
+        root = data.roots[0];
+        await loadFiles(root);
+    } catch (error) {
+        browser.textContent = '';
+        showFeedback(error.message, true);
+    }
 }
 
 function formatBytes(bytes, decimals = 2) {

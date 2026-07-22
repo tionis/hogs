@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -282,6 +283,36 @@ func (h *AgentHandler) AgentFileList(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(result)
 }
 
+func (h *AgentHandler) AgentFileRoots(w http.ResponseWriter, r *http.Request) {
+	serverName := mux.Vars(r)["serverName"]
+	server, _, status, err := authorizeManagedCapability(h.Store, h.Engine, h.Auth, r, serverName, managedFile)
+	if err != nil {
+		http.Error(w, err.Error(), status)
+		return
+	}
+	management, err := h.Store.GetServerManagement(server.ID)
+	if err != nil || management == nil {
+		http.Error(w, "load server management policy", http.StatusInternalServerError)
+		return
+	}
+
+	roots := make([]string, 0, len(management.WritablePaths))
+	for _, allowedPath := range management.WritablePaths {
+		relative, relErr := filepath.Rel(filepath.Clean(management.DataPath), filepath.Clean(allowedPath))
+		if relErr != nil || relative == "." || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+			continue
+		}
+		roots = append(roots, filepath.ToSlash(relative))
+	}
+	sort.Strings(roots)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"data":    map[string]interface{}{"roots": roots},
+	})
+}
+
 func (h *AgentHandler) AgentFileRead(w http.ResponseWriter, r *http.Request) {
 	serverName := mux.Vars(r)["serverName"]
 	path := r.URL.Query().Get("path")
@@ -314,15 +345,15 @@ func (h *AgentHandler) AgentFileWrite(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 10<<20) // 10 MB limit
 
 	var req struct {
-		Path       string `json:"path"`
-		ContentB64 string `json:"contentBase64"`
+		Path       string  `json:"path"`
+		ContentB64 *string `json:"contentBase64"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
 
-	if req.Path == "" || req.ContentB64 == "" {
+	if req.Path == "" || req.ContentB64 == nil {
 		http.Error(w, "path and contentBase64 are required", http.StatusBadRequest)
 		return
 	}
@@ -335,7 +366,7 @@ func (h *AgentHandler) AgentFileWrite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := h.Service.FileWrite(serverName, req.Path, req.ContentB64)
+	result, err := h.Service.FileWrite(serverName, req.Path, *req.ContentB64)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return

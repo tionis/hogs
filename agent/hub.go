@@ -113,6 +113,48 @@ type GenericResultData struct {
 	Error   string      `json:"error,omitempty"`
 }
 
+// UnmarshalJSON accepts both the canonical {success,data,error} response and
+// the original agent response shape, where operation-specific fields such as
+// entries or contentBase64 lived beside success. Keeping this compatibility in
+// the control plane lets older enrolled agents return useful payloads while
+// they are upgraded independently.
+func (r *GenericResultData) UnmarshalJSON(payload []byte) error {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(payload, &fields); err != nil {
+		return err
+	}
+	if raw, ok := fields["success"]; ok {
+		if err := json.Unmarshal(raw, &r.Success); err != nil {
+			return err
+		}
+		delete(fields, "success")
+	}
+	if raw, ok := fields["error"]; ok {
+		if err := json.Unmarshal(raw, &r.Error); err != nil {
+			return err
+		}
+		delete(fields, "error")
+	}
+	if raw, ok := fields["data"]; ok {
+		if err := json.Unmarshal(raw, &r.Data); err != nil {
+			return err
+		}
+		return nil
+	}
+	if len(fields) > 0 {
+		var data map[string]interface{}
+		encoded, err := json.Marshal(fields)
+		if err != nil {
+			return err
+		}
+		if err := json.Unmarshal(encoded, &data); err != nil {
+			return err
+		}
+		r.Data = data
+	}
+	return nil
+}
+
 type pendingRequest struct {
 	ch      chan *GenericResultData
 	agentID int

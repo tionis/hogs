@@ -10,13 +10,9 @@ import (
 	"github.com/tionis/hogs/config"
 	"github.com/tionis/hogs/database"
 	"github.com/tionis/hogs/engine"
-	"github.com/tionis/hogs/modmanager"
 	"html/template"
-	"io"
 	"log"
 	"net/http"
-	"os"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -146,189 +142,16 @@ func (h *WebHandler) siteName() string {
 
 // ... (Home, ServerDetail, Admin handlers remain unchanged) ...
 
-// FileManager renders the file manager for a specific server.
+// FileManager preserves old bookmarks while routing operators to the managed
+// agent-backed file browser on the server page.
 func (h *WebHandler) FileManager(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	serverName := vars["serverName"]
-
-	server, err := h.Store.GetServerByName(serverName)
-	if err != nil || server == nil {
-		http.Error(w, "Server not found", http.StatusNotFound)
-		return
-	}
-
-	modTree, err := modmanager.ScanModDirectory(h.Config.GameDataPath, serverName)
-	// If dir not found, maybe just empty tree or create it?
-	// Create if not exists to allow uploading
-	if err != nil && strings.Contains(err.Error(), "not found") {
-		os.MkdirAll(filepath.Join(h.Config.GameDataPath, serverName), 0755)
-		modTree = &modmanager.ModItem{Name: serverName, Type: modmanager.TypeDir, Path: ""}
-	} else if err != nil {
-		http.Error(w, "Error scanning files: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	data := struct {
-		Server         *database.Server
-		Authenticated  bool
-		UserRole       string
-		SiteName       string
-		UserEmail      string
-		Files          *modmanager.ModItem
-		BackgroundURLs BackgroundURLs
-	}{
-		Server:         server,
-		Authenticated:  true,
-		UserRole:       "admin",
-		SiteName:       h.siteName(),
-		UserEmail:      h.Auth.GetUserEmail(r),
-		Files:          modTree,
-		BackgroundURLs: h.pickBackgrounds([]string{"home"}),
-	}
-
-	tmpl, err := template.New("base.html").Funcs(sharedFuncMap()).ParseFS(templateFS, "templates/base.html", "templates/filemanager.html")
-	if err != nil {
-		http.Error(w, "Template error: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, data); err != nil {
-		http.Error(w, "Render error: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-	buf.WriteTo(w)
-}
-
-// HandleFileUpload handles uploading files.
-func (h *WebHandler) HandleFileUpload(w http.ResponseWriter, r *http.Request) {
-	// Limit 1GB (adjust as needed)
-	r.ParseMultipartForm(1024 << 20)
-
-	serverName := r.FormValue("serverName")
-	relPath := r.FormValue("path")
-
-	file, header, err := r.FormFile("file")
-	if err != nil {
-		http.Error(w, "Error retrieving file", http.StatusBadRequest)
-		return
-	}
-	defer file.Close()
-
-	if isDangerousFile(header.Filename) {
-		http.Error(w, "File type not allowed", http.StatusBadRequest)
-		return
-	}
-
-	if !isValidPath(serverName, relPath) {
-		http.Error(w, "Invalid path", http.StatusBadRequest)
-		return
-	}
-
-	targetDir := filepath.Join(h.Config.GameDataPath, serverName, relPath)
-	if err := os.MkdirAll(targetDir, 0755); err != nil {
-		http.Error(w, "Error creating directory", http.StatusInternalServerError)
-		return
-	}
-
-	targetPath := filepath.Join(targetDir, filepath.Base(header.Filename))
-	out, err := os.Create(targetPath)
-	if err != nil {
-		http.Error(w, "Error saving file", http.StatusInternalServerError)
-		return
-	}
-	defer out.Close()
-
-	if _, err := io.Copy(out, file); err != nil {
-		http.Error(w, "Error writing file", http.StatusInternalServerError)
-		return
-	}
-
-	http.Redirect(w, r, "/admin/files/"+serverName, http.StatusFound)
-}
-
-// HandleFileDelete handles deleting files or directories.
-func (h *WebHandler) HandleFileDelete(w http.ResponseWriter, r *http.Request) {
-	serverName := r.FormValue("serverName")
-	relPath := r.FormValue("path") // full relative path including filename
-
-	if !isValidPath(serverName, relPath) {
-		http.Error(w, "Invalid path", http.StatusBadRequest)
-		return
-	}
-
-	targetPath := filepath.Join(h.Config.GameDataPath, serverName, relPath)
-	info, err := os.Stat(targetPath)
-	if err != nil {
-		http.Error(w, "File not found", http.StatusNotFound)
-		return
-	}
-	if info.IsDir() {
-		http.Error(w, "Cannot delete directories", http.StatusBadRequest)
-		return
-	}
-	if err := os.Remove(targetPath); err != nil {
-		http.Error(w, "Error deleting file", http.StatusInternalServerError)
-		return
-	}
-
-	http.Redirect(w, r, "/admin/files/"+serverName, http.StatusFound)
-}
-
-// HandleMkdir handles creating directories.
-func (h *WebHandler) HandleMkdir(w http.ResponseWriter, r *http.Request) {
-	serverName := r.FormValue("serverName")
-	relPath := r.FormValue("path") // parent dir
-	dirName := r.FormValue("dirname")
-
-	if !isValidPath(serverName, relPath) || !isValidPath(serverName, dirName) {
-		http.Error(w, "Invalid path", http.StatusBadRequest)
-		return
-	}
-
-	targetPath := filepath.Join(h.Config.GameDataPath, serverName, relPath, dirName)
-	if err := os.MkdirAll(targetPath, 0755); err != nil {
-		http.Error(w, "Error creating directory", http.StatusInternalServerError)
-		return
-	}
-
-	http.Redirect(w, r, "/admin/files/"+serverName, http.StatusFound)
+	serverName := mux.Vars(r)["serverName"]
+	http.Redirect(w, r, "/"+serverName+"#file-browser-card", http.StatusFound)
 }
 
 // ServeAssets serves static assets embedded in the binary.
 func (h *WebHandler) ServeAssets(w http.ResponseWriter, r *http.Request) {
 	http.FileServer(http.FS(templateFS)).ServeHTTP(w, r)
-}
-
-func isValidPath(serverName, path string) bool {
-	if strings.Contains(serverName, "..") {
-		return false
-	}
-	for _, r := range serverName {
-		if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_') {
-			return false
-		}
-	}
-	if filepath.IsAbs(path) {
-		return false
-	}
-	clean := filepath.Clean(path)
-	return clean != ".." && !strings.HasPrefix(clean, "..")
-}
-
-var dangerousExtensions = map[string]bool{
-	".exe": true, ".dll": true, ".sh": true, ".bat": true,
-	".cmd": true, ".php": true, ".jsp": true, ".asp": true,
-	".aspx": true, ".py": true, ".rb": true, ".pl": true,
-	".cgi": true, ".com": true, ".app": true,
-	".jar": true, ".msi": true, ".ps1": true, ".vbs": true,
-	".scr": true, ".pif": true, ".hta": true, ".cpl": true,
-	".msc": true,
-}
-
-func isDangerousFile(name string) bool {
-	ext := strings.ToLower(filepath.Ext(name))
-	return dangerousExtensions[ext]
 }
 
 // ... (existing Create/Update/Delete handlers) ...
@@ -462,15 +285,13 @@ func (h *WebHandler) ServerDetail(w http.ResponseWriter, r *http.Request) {
 		PteroCommands:   nil,
 		AllowedActions:  nil,
 		HasAgent:        hasAgent,
-		ShowConsole:     isAuthenticated && userRole == "admin" && hasAgent,
+		ShowConsole:     isAuthenticated && hasAgent,
 	}
 
-	if h.Config.PterodactylURL != "" {
-		data.PteroLink = link
-		if link != nil {
-			commands, _ := h.Store.ListPterodactylCommands(server.ID)
-			data.PteroCommands = commands
-		}
+	data.PteroLink = link
+	if link != nil {
+		commands, _ := h.Store.ListPterodactylCommands(server.ID)
+		data.PteroCommands = commands
 	}
 
 	var allowedActions []string
