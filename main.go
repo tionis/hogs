@@ -31,15 +31,34 @@ import (
 func securityHeadersMiddleware(cfg *config.Config) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			scriptPolicy := "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net;"
+			if isMapProxyPath(r.URL.Path) {
+				// BlueMap's bundled vue-i18n runtime compiles locale messages in the
+				// browser. Keep unsafe-eval scoped to proxied map documents only.
+				scriptPolicy = "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net;"
+			}
 			w.Header().Set("X-Content-Type-Options", "nosniff")
 			w.Header().Set("X-Frame-Options", "SAMEORIGIN")
-			w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://cdn.jsdelivr.net; frame-ancestors 'self';")
+			w.Header().Set("Content-Security-Policy", "default-src 'self'; "+scriptPolicy+" style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://cdn.jsdelivr.net; frame-ancestors 'self';")
 			w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
 			if cfg.TLSCert != "" && cfg.TLSKey != "" {
 				w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
 			}
 			next.ServeHTTP(w, r)
 		})
+	}
+}
+
+func isMapProxyPath(path string) bool {
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	if len(parts) < 2 || parts[0] == "" || parts[1] != "map" {
+		return false
+	}
+	switch parts[0] {
+	case "admin", "agent", "api", "assets", "auth", "backgrounds", "files", "healthz", "help", "login", "logout", "my-servers", "scim", "servers":
+		return false
+	default:
+		return true
 	}
 }
 

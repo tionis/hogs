@@ -569,8 +569,11 @@ func startConsoleStreaming(c *websocket.Conn, serverName string, server *ServerC
 }
 
 func isRoutineRCONConnectionLine(line string) bool {
-	return strings.Contains(line, "Thread RCON Client /") &&
+	minecraftConnection := strings.Contains(line, "Thread RCON Client /") &&
 		(strings.Contains(line, " started") || strings.Contains(line, " shutting down"))
+	factorioConnection := strings.Contains(line, "RemoteCommandProcessor.cpp:") &&
+		strings.Contains(line, "New RCON connection from IP ADDR:")
+	return minecraftConnection || factorioConnection
 }
 
 func sendConsoleLine(c *websocket.Conn, serverName, line string) error {

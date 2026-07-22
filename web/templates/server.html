@@ -28,8 +28,11 @@
         {{end}}
 
         {{if .Server.MapURL}}
-        <h4 class="mt-4">Live Map</h4>
-        <div class="ratio ratio-16x9 border rounded" style="border-color: var(--border-color) !important;">
+        <div class="d-flex justify-content-between align-items-center mt-4 mb-2">
+          <h4 class="mb-0">Live Map</h4>
+          <button type="button" class="btn btn-sm btn-outline-primary" id="map-fullscreen">Fullscreen</button>
+        </div>
+        <div class="ratio ratio-16x9 border rounded" id="map-container" style="border-color: var(--border-color) !important; background: var(--bg-card);">
           <iframe src="/{{.Server.Name}}/map/" title="Server Map" allowfullscreen></iframe>
         </div>
         {{end}}
@@ -300,6 +303,20 @@ document.addEventListener("DOMContentLoaded", function() {
     const serverName = "{{.Server.Name}}";
     const userEmail = "{{.UserEmail}}";
     const container = document.getElementById('file-browser');
+
+    {{if .Server.MapURL}}
+    const mapFullscreen = document.getElementById('map-fullscreen');
+    const mapFrame = document.querySelector('#map-container iframe');
+    if (mapFullscreen && mapFrame) {
+        mapFullscreen.addEventListener('click', async function() {
+            try {
+                await mapFrame.requestFullscreen();
+            } catch (error) {
+                window.open(mapFrame.src, '_blank', 'noopener');
+            }
+        });
+    }
+    {{end}}
 
     // Console WebSocket
     {{if .ShowConsole}}
