@@ -500,7 +500,9 @@ func (h *AgentHandler) AgentBackupList(w http.ResponseWriter, r *http.Request) {
 
 	result, err := h.Service.BackupList(serverName)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": err.Error()})
 		return
 	}
 

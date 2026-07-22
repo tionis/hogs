@@ -22,10 +22,10 @@
         <td><strong>{{.Name}}</strong></td>
         <td><code>{{.NodeName}}</code></td>
         <td>
-          {{if .Online}}{{if .Connected}}<span class="badge bg-success">Connected</span>{{else}}<span class="badge bg-warning">Online</span>{{end}}{{else}}<span class="badge bg-secondary">Offline</span>{{end}}
+          {{if .Connected}}<span class="badge bg-success">Connected</span>{{else if .Online}}<span class="badge bg-warning">Online</span>{{else}}<span class="badge bg-secondary">Offline</span>{{end}}
         </td>
         <td class="text-muted small">{{if .LastSeen}}{{.LastSeen}}{{else}}never{{end}}</td>
-        <td><code>{{.KeyPrefix}}</code></td>
+        <td><code>{{.TokenPrefix}}</code></td>
         <td>
           <button class="btn btn-sm btn-outline-primary" onclick="editAgent({{.ID}}, '{{.Name}}', '{{.NodeName}}')">Edit</button>
           <button class="btn btn-sm btn-outline-warning" onclick="regenerateToken({{.ID}})">Regenerate Token</button>
