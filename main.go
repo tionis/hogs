@@ -132,7 +132,7 @@ func main() {
 		agentHub.StartPendingOpsCleanup()
 		agentService = agent.NewAgentService(store, agentHub)
 		agentHandler = api.NewAgentHandler(store, agentService, agentHub)
-		consoleHandler = api.NewConsoleHandler(agentHub, authenticator)
+		consoleHandler = api.NewConsoleHandler(agentHub, authenticator, store, eng)
 		log.Println("Agent WebSocket endpoint enabled at /agent/ws")
 	}
 
