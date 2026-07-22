@@ -21,6 +21,9 @@ const (
 )
 
 func userEnvFromRequest(store *database.Store, authenticator *auth.Authenticator, r *http.Request) *engine.UserEnv {
+	if key := auth.GetAPIKeyFromContext(r); key != nil {
+		return &engine.UserEnv{Email: "api-key:" + key.Name, Role: key.Role, Groups: []string{}}
+	}
 	email := "anonymous"
 	role := "user"
 	if authenticator != nil {

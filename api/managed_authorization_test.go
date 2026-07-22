@@ -1,11 +1,13 @@
 package api
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
+	"github.com/gorilla/mux"
 	"github.com/tionis/hogs/auth"
 	"github.com/tionis/hogs/config"
 	"github.com/tionis/hogs/database"
@@ -40,6 +42,28 @@ func managedAuthorizationFixture(t *testing.T, operators []string, acl string) (
 	authenticator := auth.NewTestAuthenticator(store, "managed-authorization-test-secret")
 	eng := engine.NewEngine(store, &config.Config{}, query.NewServerStatusCache())
 	return store, authenticator, eng
+}
+
+func TestAPIKeyPrincipalPreservesMachineIdentityAndRole(t *testing.T) {
+	_, store := testInventoryHandler(t)
+	plain := "hogs_1111111111111111111111111111111111111111111111111111111111111111"
+	key := &database.APIKey{
+		Name: "acceptance-moderator", KeyHash: database.HashAPIKey(plain), KeyPrefix: plain[:8], Role: "user",
+		CreatedAt: time.Now().UTC().Format(time.RFC3339),
+	}
+	if err := store.CreateAPIKey(key); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/api/test", nil)
+	req.Header.Set("Authorization", "Bearer "+plain)
+	recorder := httptest.NewRecorder()
+	var principal *engine.UserEnv
+	auth.APIKeyMiddleware(store, http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		principal = userEnvFromRequest(store, nil, r)
+	})).ServeHTTP(recorder, req)
+	if principal == nil || principal.Email != "api-key:acceptance-moderator" || principal.Role != "user" {
+		t.Fatalf("wrong API-key principal: %#v", principal)
+	}
 }
 
 func managedTestRequest(t *testing.T, store *database.Store, authenticator *auth.Authenticator, email, role string, groups ...string) *http.Request {
@@ -146,5 +170,32 @@ func TestManagedBackupAllowsOperatorWithoutGrantingRestore(t *testing.T) {
 	}
 	if _, _, status, err := authorizeManagedCapability(store, eng, authenticator, req, "managed-test", managedRestore); err == nil || status != http.StatusForbidden {
 		t.Fatalf("restore authorization status=%d err=%v, want forbidden", status, err)
+	}
+}
+
+func TestWhitelistStatusIgnoresCallerSuppliedIdentity(t *testing.T) {
+	store, authenticator, eng := managedAuthorizationFixture(t, nil, `true`)
+	server, _ := store.GetServerByName("managed-test")
+	if err := store.SetUserWhitelist("player@example.test", server.ID, "RightfulPlayer"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetUserWhitelist("victim@example.test", server.ID, "VictimPlayer"); err != nil {
+		t.Fatal(err)
+	}
+	req := managedTestRequest(t, store, authenticator, "player@example.test", "user")
+	req.URL.RawQuery = "user_email=victim%40example.test"
+	req = mux.SetURLVars(req, map[string]string{"serverName": "managed-test"})
+	recorder := httptest.NewRecorder()
+	handler := NewPterodactylHandler(store, &config.Config{}, eng, nil, authenticator)
+	handler.WhitelistStatus(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	var response map[string]string
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response["username"] != "RightfulPlayer" {
+		t.Fatalf("caller selected another identity: %#v", response)
 	}
 }

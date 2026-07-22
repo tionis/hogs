@@ -450,8 +450,8 @@ func (h *PterodactylHandler) WhitelistSet(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	user := h.getUserEnv(r)
 	if !isActionAllowed(link.AllowedActions, "whitelist") {
-		user := h.getUserEnv(r)
 		if h.Engine == nil || !h.evaluateACLEnabled(link, server, "whitelist", user) {
 			http.Error(w, "Whitelist action not permitted for this server", http.StatusForbidden)
 			return
@@ -464,7 +464,11 @@ func (h *PterodactylHandler) WhitelistSet(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	userEmail := r.FormValue("user_email")
+	userEmail := user.Email
+	if userEmail == "" || userEmail == "anonymous" {
+		http.Error(w, "Authenticated identity is required", http.StatusUnauthorized)
+		return
+	}
 
 	existing, _ := h.Store.GetUserWhitelist(userEmail, server.ID)
 	if existing != nil && existing.Username == username {
@@ -524,9 +528,11 @@ func (h *PterodactylHandler) WhitelistStatus(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	userEmail := r.URL.Query().Get("user_email")
-	if userEmail == "" {
-		userEmail = r.FormValue("user_email")
+	user := h.getUserEnv(r)
+	userEmail := user.Email
+	if userEmail == "" || userEmail == "anonymous" {
+		http.Error(w, "Authenticated identity is required", http.StatusUnauthorized)
+		return
 	}
 
 	existing, _ := h.Store.GetUserWhitelist(userEmail, server.ID)
