@@ -414,6 +414,7 @@ func (h *AutomationHandler) GetAuditLog(w http.ResponseWriter, r *http.Request) 
 
 	entries, err := h.Store.ListAuditLog(limit, offset)
 	if err != nil {
+		log.Printf("Failed to fetch audit log: %v", err)
 		http.Error(w, "Failed to fetch audit log", http.StatusInternalServerError)
 		return
 	}
@@ -439,6 +440,7 @@ func (h *AutomationHandler) ExportAuditLog(w http.ResponseWriter, r *http.Reques
 	const maxExportLimit = 5000
 	entries, err := h.Store.ListAuditLog(maxExportLimit, 0)
 	if err != nil {
+		log.Printf("Failed to export audit log: %v", err)
 		http.Error(w, "Failed to fetch audit log", http.StatusInternalServerError)
 		return
 	}

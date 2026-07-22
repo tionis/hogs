@@ -1,6 +1,7 @@
 package database
 
 import (
+	"encoding/json"
 	"os"
 	"testing"
 )
@@ -450,5 +451,33 @@ func TestAgentPendingOpCleanup(t *testing.T) {
 	got, _ := store.GetAgentPendingOp("req-old")
 	if got != nil {
 		t.Error("expected expired op to be cleaned up")
+	}
+}
+
+func TestListAuditLogScansJSONText(t *testing.T) {
+	store := testStore(t)
+	entry := &AuditLogEntry{
+		Timestamp:  "2026-01-02T03:04:05Z",
+		UserEmail:  "operator@example.test",
+		ServerName: "synthetic-server",
+		Action:     "start",
+		Params:     json.RawMessage(`{"reason":"test"}`),
+		Result:     "allowed",
+		Reason:     "test entry",
+		Source:     "test",
+	}
+	if err := store.CreateAuditLog(entry); err != nil {
+		t.Fatalf("CreateAuditLog failed: %v", err)
+	}
+
+	entries, err := store.ListAuditLog(10, 0)
+	if err != nil {
+		t.Fatalf("ListAuditLog failed: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("len(entries) = %d, want 1", len(entries))
+	}
+	if string(entries[0].Params) != `{"reason":"test"}` {
+		t.Fatalf("params = %s", entries[0].Params)
 	}
 }

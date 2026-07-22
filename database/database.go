@@ -1105,12 +1105,14 @@ func (s *Store) ListAuditLog(limit, offset int) ([]AuditLogEntry, error) {
 	var entries []AuditLogEntry
 	for rows.Next() {
 		var e AuditLogEntry
-		if err := rows.Scan(&e.ID, &e.Timestamp, &e.UserEmail, &e.ServerName, &e.Action, &e.Params, &e.Result, &e.Reason, &e.Source); err != nil {
+		var params []byte
+		if err := rows.Scan(&e.ID, &e.Timestamp, &e.UserEmail, &e.ServerName, &e.Action, &params, &e.Result, &e.Reason, &e.Source); err != nil {
 			return nil, err
 		}
+		e.Params = json.RawMessage(params)
 		entries = append(entries, e)
 	}
-	return entries, nil
+	return entries, rows.Err()
 }
 
 func (s *Store) CleanupAuditLog(retentionDays int) error {

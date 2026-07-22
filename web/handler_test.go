@@ -233,6 +233,29 @@ func TestBackupsRenders(t *testing.T) {
 	if !contains(w.Body.String(), "BackupSrv") {
 		t.Error("expected backups page to contain server name")
 	}
+	if !contains(w.Body.String(), "content-type") || !contains(w.Body.String(), "await resp.text()") {
+		t.Error("expected backups page to handle JSON and plain-text failures")
+	}
+}
+
+func TestAgentsRendersConnectionState(t *testing.T) {
+	handler, store, _ := testWebHandler(t)
+	agent := &database.Agent{Name: "node-agent", Token: "hogs_0123456789", NodeName: "node-a"}
+	if err := store.CreateAgent(agent); err != nil {
+		t.Fatalf("create agent: %v", err)
+	}
+	handler.AgentConnected = func(id int) bool { return id == agent.ID }
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/agents", nil)
+	w := httptest.NewRecorder()
+	handler.Agents(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if !contains(w.Body.String(), "node-agent") || !contains(w.Body.String(), "Connected") {
+		t.Error("expected agent page to render the live connection state")
+	}
 }
 
 func contains(s, substr string) bool {

@@ -47,7 +47,13 @@ async function backupAction(serverName, action, btn) {
       method: 'POST',
       headers: {'X-CSRF-Token': getCsrfToken()}
     });
-    const data = await resp.json();
+    const contentType = resp.headers.get('content-type') || '';
+    const data = contentType.includes('application/json')
+      ? await resp.json()
+      : {success: false, error: (await resp.text()).trim() || ('HTTP ' + resp.status)};
+    if (!resp.ok || data.success === false) {
+      throw new Error(data.error || ('HTTP ' + resp.status));
+    }
     outputPre.textContent = JSON.stringify(data, null, 2);
     resultDiv.style.display = 'block';
   } catch (err) {

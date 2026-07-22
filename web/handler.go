@@ -25,10 +25,11 @@ var templateFS embed.FS
 
 // WebHandler handles frontend requests.
 type WebHandler struct {
-	Store  *database.Store
-	Config *config.Config
-	Auth   *auth.Authenticator
-	Engine *engine.Engine
+	Store          *database.Store
+	Config         *config.Config
+	Auth           *auth.Authenticator
+	Engine         *engine.Engine
+	AgentConnected func(int) bool
 }
 
 // NewWebHandler creates a new WebHandler.
@@ -1057,14 +1058,27 @@ func (h *WebHandler) Agents(w http.ResponseWriter, r *http.Request) {
 		agents = []database.Agent{}
 	}
 
+	type agentView struct {
+		database.Agent
+		Connected bool
+	}
+	views := make([]agentView, 0, len(agents))
+	for _, current := range agents {
+		connected := false
+		if h.AgentConnected != nil {
+			connected = h.AgentConnected(current.ID)
+		}
+		views = append(views, agentView{Agent: current, Connected: connected})
+	}
+
 	data := struct {
-		Agents         []database.Agent
+		Agents         []agentView
 		Authenticated  bool
 		UserRole       string
 		SiteName       string
 		BackgroundURLs BackgroundURLs
 	}{
-		Agents:         agents,
+		Agents:         views,
 		Authenticated:  true,
 		UserRole:       "admin",
 		SiteName:       h.siteName(),

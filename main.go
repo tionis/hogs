@@ -146,6 +146,7 @@ func main() {
 	var consoleHandler *api.ConsoleHandler
 	if cfg.AgentEnabled {
 		agentHub = agent.NewHub(store, cfg)
+		webHandler.AgentConnected = func(id int) bool { return agentHub.GetConn(id) != nil }
 		agentHub.SetNotifier(notifyService)
 		agentHub.SetStatusCache(cache)
 		agentHub.LoadAndRecoverPendingOps()
