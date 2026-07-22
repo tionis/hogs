@@ -206,6 +206,18 @@ func TestAgentObservationPreservesProtocolDetails(t *testing.T) {
 	}
 }
 
+func TestAgentObservationSuppliesVersionWhenAvailable(t *testing.T) {
+	cache := NewServerStatusCache()
+	cache.Set("srv", &ServerStatus{Online: true, PlayersKnown: true})
+	cache.SetAgentObservation("srv", &ServerStatus{
+		Online: true, PlayersKnown: true, Version: "Version: 2.0.72",
+	})
+	status, found := cache.Get("srv")
+	if !found || status.Version != "Version: 2.0.72" {
+		t.Fatalf("agent version was not applied: %#v", status)
+	}
+}
+
 func TestOfflineAgentObservationClearsStaleProtocolDetails(t *testing.T) {
 	cache := NewServerStatusCache()
 	cache.Set("srv", &ServerStatus{Online: true, Version: "1.20.1", ServerMessage: "MOTD"})

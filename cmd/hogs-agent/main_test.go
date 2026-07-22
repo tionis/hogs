@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -73,6 +74,26 @@ func TestRCONPacketRoundTrip(t *testing.T) {
 	id, packetType, body, err := readRCONPacket(&packet)
 	if err != nil || id != 7 || packetType != 2 || body != "list" {
 		t.Fatalf("id=%d type=%d body=%q err=%v", id, packetType, body, err)
+	}
+}
+
+func TestRCONResponseCombinesPackets(t *testing.T) {
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+
+	go func() {
+		_ = writeRCONPacket(server, 2, 0, "Available commands:\n/help ")
+		_ = writeRCONPacket(server, 2, 0, "<command>\n/players")
+	}()
+
+	response, err := readRCONResponse(client, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "Available commands:\n/help <command>\n/players"
+	if response != want {
+		t.Fatalf("response = %q, want %q", response, want)
 	}
 }
 

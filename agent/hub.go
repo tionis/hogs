@@ -729,7 +729,7 @@ func (ac *AgentConn) readPump() {
 				if ac.Hub.StatusCache != nil {
 					ac.Hub.StatusCache.SetAgentObservation(metricName, &query.ServerStatus{
 						Online: status.Online, Players: status.Players, MaxPlayers: status.MaxPlayers,
-						PlayersKnown: status.PlayersKnown, LastUpdated: time.Now(),
+						PlayersKnown: status.PlayersKnown, Version: status.Version, LastUpdated: time.Now(),
 					})
 				}
 				metric := &database.ServerMetric{

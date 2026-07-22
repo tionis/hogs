@@ -84,6 +84,9 @@ func (c *ServerStatusCache) SetAgentObservation(serverName string, observation *
 		merged.Players = observation.Players
 		merged.MaxPlayers = observation.MaxPlayers
 		merged.PlayersKnown = observation.PlayersKnown
+		if observation.Version != "" {
+			merged.Version = observation.Version
+		}
 		merged.LastUpdated = observation.LastUpdated
 		merged.Error = observation.Error
 		status = &merged
