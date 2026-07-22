@@ -18,10 +18,14 @@ Authorization: Bearer hogs_...
 Content-Type: application/json
 ```
 
-Create the bootstrap key in the API-key administration UI and place it in the
-reconciler's secret store. HOGS stores only its hash. Do not put the key or an
-agent credential in inventory source, logs, or command-line arguments. Render
-agent tokens into the request body from a vault only for the duration of apply.
+For a manually managed installation, create the bootstrap key in the API-key
+administration UI and place it in the reconciler's secret store. A declarative
+deployment may instead supply the same vaulted credential through
+`BOOTSTRAP_ADMIN_API_KEY` and optionally set `BOOTSTRAP_ADMIN_API_KEY_NAME`
+(default `gandalf`). HOGS creates or rotates only that named identity at startup
+and stores only its hash. Do not put the key or an agent credential in inventory
+source, logs, or command-line arguments. Render agent tokens into the request
+body from a vault only for the duration of apply.
 
 ## Endpoints
 

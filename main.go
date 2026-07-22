@@ -69,6 +69,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("could not initialize database: %s\n", err)
 	}
+	if changed, err := auth.BootstrapAdminAPIKey(store, cfg.BootstrapAdminAPIKeyName, cfg.BootstrapAdminAPIKey); err != nil {
+		log.Fatalf("could not bootstrap admin API key: %s\n", err)
+	} else if changed {
+		log.Printf("Bootstrapped admin API key %q.", cfg.BootstrapAdminAPIKeyName)
+	}
 
 	bgDir := filepath.Join(cfg.GameDataPath, "backgrounds")
 	if err := store.ComputeMissingHashes(bgDir); err != nil {
