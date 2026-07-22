@@ -26,13 +26,18 @@ servers:
       host: 127.0.0.1
       port: 25575
       password_file: /etc/hogs-agent/cog-rcon-password
+    backup:
+      environment_file: /etc/restic/restic.env
 ```
 
 Every operation carries a server name. Unknown names are rejected locally.
 Systemd actions use only the configured unit, and file and restore targets are
-confined to the selected server's `data_dir`. RCON credentials are read from
-the configured file and are never sent to HOGS. Pending-operation persistence
-stores no command, file, or backup request payloads.
+confined to the selected server's `data_dir`. RCON and restic credentials are
+read from node-local files and are never sent to HOGS or the browser. The
+backup environment parser accepts literal `export KEY=value` entries without
+executing shell syntax and requires a repository plus password source.
+Pending-operation persistence stores no command, file, or backup request
+payloads.
 
 The agent registers its node, full server-name allowlist, and observed
 capabilities. It sends an independent status report per server, so agent

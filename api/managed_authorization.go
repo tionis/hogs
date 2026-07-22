@@ -3,6 +3,8 @@ package api
 import (
 	"fmt"
 	"net/http"
+	"path/filepath"
+	"strings"
 
 	"github.com/tionis/hogs/auth"
 	"github.com/tionis/hogs/database"
@@ -13,6 +15,9 @@ type managedCapability string
 
 const (
 	managedConsole managedCapability = "console"
+	managedFile    managedCapability = "file"
+	managedBackup  managedCapability = "backup"
+	managedRestore managedCapability = "restore"
 )
 
 func userEnvFromRequest(store *database.Store, authenticator *auth.Authenticator, r *http.Request) *engine.UserEnv {
@@ -57,8 +62,23 @@ func authorizeManagedCapability(store *database.Store, eng *engine.Engine, authe
 	if management == nil {
 		return nil, nil, http.StatusForbidden, fmt.Errorf("server is not managed")
 	}
-	if capability == managedConsole && !management.ConsoleEnabled {
-		return nil, nil, http.StatusForbidden, fmt.Errorf("console is disabled")
+	switch capability {
+	case managedConsole:
+		if !management.ConsoleEnabled {
+			return nil, nil, http.StatusForbidden, fmt.Errorf("console is disabled")
+		}
+	case managedFile:
+		if len(management.WritablePaths) == 0 {
+			return nil, nil, http.StatusForbidden, fmt.Errorf("file access is disabled")
+		}
+	case managedBackup:
+		if !management.BackupEnabled {
+			return nil, nil, http.StatusForbidden, fmt.Errorf("backup access is disabled")
+		}
+	case managedRestore:
+		if !management.RestoreEnabled {
+			return nil, nil, http.StatusForbidden, fmt.Errorf("restore access is disabled")
+		}
 	}
 
 	user := userEnvFromRequest(store, authenticator, r)
@@ -76,6 +96,29 @@ func authorizeManagedCapability(store *database.Store, eng *engine.Engine, authe
 		}
 	}
 	return server, user, http.StatusOK, nil
+}
+
+func authorizeManagedPath(store *database.Store, eng *engine.Engine, authenticator *auth.Authenticator, r *http.Request, serverName, requestedPath string) (int, error) {
+	server, _, status, err := authorizeManagedCapability(store, eng, authenticator, r, serverName, managedFile)
+	if err != nil {
+		return status, err
+	}
+	management, err := store.GetServerManagement(server.ID)
+	if err != nil || management == nil {
+		return http.StatusInternalServerError, fmt.Errorf("load server management policy")
+	}
+	if filepath.IsAbs(requestedPath) {
+		return http.StatusBadRequest, fmt.Errorf("absolute paths are not allowed")
+	}
+	target := filepath.Clean(filepath.Join(management.DataPath, requestedPath))
+	for _, allowedPath := range management.WritablePaths {
+		allowed := filepath.Clean(allowedPath)
+		relative, relErr := filepath.Rel(allowed, target)
+		if relErr == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+			return http.StatusOK, nil
+		}
+	}
+	return http.StatusForbidden, fmt.Errorf("path is outside the managed file allowlist")
 }
 
 func isManagedOperator(operators []string, user *engine.UserEnv) bool {

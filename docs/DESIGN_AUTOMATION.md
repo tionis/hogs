@@ -220,14 +220,14 @@ Constraints are evaluated in priority order (highest first). The first constrain
 | `/agent/ws` | GET (WS) | Token | Agent WebSocket connection |
 | `/api/agents` | GET/POST | Admin | List/Create agents |
 | `/api/agents/delete` | POST | Admin | Delete agent |
-| `/api/agents/{serverName}/files` | GET | Admin | List files |
-| `/api/agents/{serverName}/files/read` | GET | Admin | Read file |
-| `/api/agents/{serverName}/files/write` | POST | Admin | Write file |
-| `/api/agents/{serverName}/files/delete` | POST | Admin | Delete file |
-| `/api/agents/{serverName}/files/mkdir` | POST | Admin | Create directory |
-| `/api/agents/{serverName}/backup/create` | POST | Admin | Create backup |
+| `/api/agents/{serverName}/files` | GET | Operator | List allowlisted files |
+| `/api/agents/{serverName}/files/read` | GET | Operator | Read allowlisted file |
+| `/api/agents/{serverName}/files/write` | POST | Operator | Write allowlisted file |
+| `/api/agents/{serverName}/files/delete` | POST | Operator | Delete allowlisted file |
+| `/api/agents/{serverName}/files/mkdir` | POST | Operator | Create allowlisted directory |
+| `/api/agents/{serverName}/backup/create` | POST | Operator | Create backup with node-local credentials |
 | `/api/agents/{serverName}/backup/restore` | POST | Admin | Restore backup |
-| `/api/agents/{serverName}/backup/list` | POST | Admin | List backups |
+| `/api/agents/{serverName}/backup/list` | POST | Operator | List backups with node-local credentials |
 
 ### Auth Endpoints
 

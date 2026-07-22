@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"io"
 	"net/http"
 	"path/filepath"
 	"strconv"
@@ -11,17 +12,21 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/tionis/hogs/agent"
+	"github.com/tionis/hogs/auth"
 	"github.com/tionis/hogs/database"
+	"github.com/tionis/hogs/engine"
 )
 
 type AgentHandler struct {
 	Store   *database.Store
 	Service *agent.AgentService
 	Hub     *agent.Hub
+	Auth    *auth.Authenticator
+	Engine  *engine.Engine
 }
 
-func NewAgentHandler(store *database.Store, service *agent.AgentService, hub *agent.Hub) *AgentHandler {
-	return &AgentHandler{Store: store, Service: service, Hub: hub}
+func NewAgentHandler(store *database.Store, service *agent.AgentService, hub *agent.Hub, authenticator *auth.Authenticator, eng *engine.Engine) *AgentHandler {
+	return &AgentHandler{Store: store, Service: service, Hub: hub, Auth: authenticator, Engine: eng}
 }
 
 func (h *AgentHandler) ListAgents(w http.ResponseWriter, r *http.Request) {
@@ -262,6 +267,10 @@ func (h *AgentHandler) AgentFileList(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid path", http.StatusBadRequest)
 		return
 	}
+	if status, err := authorizeManagedPath(h.Store, h.Engine, h.Auth, r, serverName, path); err != nil {
+		http.Error(w, err.Error(), status)
+		return
+	}
 
 	result, err := h.Service.FileList(serverName, path)
 	if err != nil {
@@ -282,6 +291,10 @@ func (h *AgentHandler) AgentFileRead(w http.ResponseWriter, r *http.Request) {
 	}
 	if !isValidAgentPath(path) {
 		http.Error(w, "Invalid path", http.StatusBadRequest)
+		return
+	}
+	if status, err := authorizeManagedPath(h.Store, h.Engine, h.Auth, r, serverName, path); err != nil {
+		http.Error(w, err.Error(), status)
 		return
 	}
 
@@ -317,6 +330,10 @@ func (h *AgentHandler) AgentFileWrite(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid path", http.StatusBadRequest)
 		return
 	}
+	if status, err := authorizeManagedPath(h.Store, h.Engine, h.Auth, r, serverName, req.Path); err != nil {
+		http.Error(w, err.Error(), status)
+		return
+	}
 
 	result, err := h.Service.FileWrite(serverName, req.Path, req.ContentB64)
 	if err != nil {
@@ -337,6 +354,10 @@ func (h *AgentHandler) AgentFileDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	if !isValidAgentPath(path) {
 		http.Error(w, "Invalid path", http.StatusBadRequest)
+		return
+	}
+	if status, err := authorizeManagedPath(h.Store, h.Engine, h.Auth, r, serverName, path); err != nil {
+		http.Error(w, err.Error(), status)
 		return
 	}
 
@@ -361,6 +382,10 @@ func (h *AgentHandler) AgentMkdir(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid path", http.StatusBadRequest)
 		return
 	}
+	if status, err := authorizeManagedPath(h.Store, h.Engine, h.Auth, r, serverName, path); err != nil {
+		http.Error(w, err.Error(), status)
+		return
+	}
 
 	result, err := h.Service.Mkdir(serverName, path)
 	if err != nil {
@@ -374,26 +399,23 @@ func (h *AgentHandler) AgentMkdir(w http.ResponseWriter, r *http.Request) {
 
 func (h *AgentHandler) AgentBackupCreate(w http.ResponseWriter, r *http.Request) {
 	serverName := mux.Vars(r)["serverName"]
+	if _, _, status, err := authorizeManagedCapability(h.Store, h.Engine, h.Auth, r, serverName, managedBackup); err != nil {
+		http.Error(w, err.Error(), status)
+		return
+	}
 
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1 MB limit
 
 	var req struct {
-		Repo     string   `json:"repo"`
-		Password string   `json:"password"`
-		Paths    []string `json:"paths"`
-		Tags     []string `json:"tags"`
+		Paths []string `json:"paths"`
+		Tags  []string `json:"tags"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
 
-	if req.Repo == "" || req.Password == "" {
-		http.Error(w, "repo and password are required", http.StatusBadRequest)
-		return
-	}
-
-	result, err := h.Service.BackupCreate(serverName, req.Repo, req.Password, req.Paths, req.Tags)
+	result, err := h.Service.BackupCreate(serverName, req.Paths, req.Tags)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return
@@ -405,12 +427,14 @@ func (h *AgentHandler) AgentBackupCreate(w http.ResponseWriter, r *http.Request)
 
 func (h *AgentHandler) AgentBackupRestore(w http.ResponseWriter, r *http.Request) {
 	serverName := mux.Vars(r)["serverName"]
+	if _, _, status, err := authorizeManagedCapability(h.Store, h.Engine, h.Auth, r, serverName, managedRestore); err != nil {
+		http.Error(w, err.Error(), status)
+		return
+	}
 
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1 MB limit
 
 	var req struct {
-		Repo     string `json:"repo"`
-		Password string `json:"password"`
 		Snapshot string `json:"snapshot"`
 		Target   string `json:"target"`
 	}
@@ -419,12 +443,12 @@ func (h *AgentHandler) AgentBackupRestore(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	if req.Repo == "" || req.Password == "" || req.Snapshot == "" {
-		http.Error(w, "repo, password, and snapshot are required", http.StatusBadRequest)
+	if req.Snapshot == "" {
+		http.Error(w, "snapshot is required", http.StatusBadRequest)
 		return
 	}
 
-	result, err := h.Service.BackupRestore(serverName, req.Repo, req.Password, req.Snapshot, req.Target)
+	result, err := h.Service.BackupRestore(serverName, req.Snapshot, req.Target)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return
@@ -436,24 +460,14 @@ func (h *AgentHandler) AgentBackupRestore(w http.ResponseWriter, r *http.Request
 
 func (h *AgentHandler) AgentBackupList(w http.ResponseWriter, r *http.Request) {
 	serverName := mux.Vars(r)["serverName"]
+	if _, _, status, err := authorizeManagedCapability(h.Store, h.Engine, h.Auth, r, serverName, managedBackup); err != nil {
+		http.Error(w, err.Error(), status)
+		return
+	}
 
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1 MB limit
 
-	var req struct {
-		Repo     string `json:"repo"`
-		Password string `json:"password"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
-		return
-	}
-
-	if req.Repo == "" || req.Password == "" {
-		http.Error(w, "repo and password are required", http.StatusBadRequest)
-		return
-	}
-
-	result, err := h.Service.BackupList(serverName, req.Repo, req.Password)
+	result, err := h.Service.BackupList(serverName)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return
@@ -464,32 +478,7 @@ func (h *AgentHandler) AgentBackupList(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *AgentHandler) AgentBackupInit(w http.ResponseWriter, r *http.Request) {
-	serverName := mux.Vars(r)["serverName"]
-
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1 MB limit
-
-	var req struct {
-		Repo     string `json:"repo"`
-		Password string `json:"password"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
-		return
-	}
-
-	if req.Repo == "" || req.Password == "" {
-		http.Error(w, "repo and password are required", http.StatusBadRequest)
-		return
-	}
-
-	result, err := h.Service.BackupInit(serverName, req.Repo, req.Password)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusServiceUnavailable)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(result)
+	http.Error(w, "backup repositories are provisioned on the managed node", http.StatusGone)
 }
 
 func generateAgentToken() string {

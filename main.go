@@ -131,7 +131,7 @@ func main() {
 		agentHub.LoadAndRecoverPendingOps()
 		agentHub.StartPendingOpsCleanup()
 		agentService = agent.NewAgentService(store, agentHub)
-		agentHandler = api.NewAgentHandler(store, agentService, agentHub)
+		agentHandler = api.NewAgentHandler(store, agentService, agentHub, authenticator, eng)
 		consoleHandler = api.NewConsoleHandler(agentHub, authenticator, store, eng)
 		log.Println("Agent WebSocket endpoint enabled at /agent/ws")
 	}
@@ -363,15 +363,15 @@ func main() {
 		router.Handle("/api/agents/{id}/regenerate-token", authenticator.RequireRole("admin")(http.HandlerFunc(agentHandler.RegenerateToken))).Methods("POST")
 		router.Handle("/api/agents/delete", authenticator.RequireRole("admin")(http.HandlerFunc(agentHandler.DeleteAgent))).Methods("POST")
 
-		router.Handle("/api/agents/{serverName}/files", authenticator.RequireRole("admin")(http.HandlerFunc(agentHandler.AgentFileList))).Methods("GET")
-		router.Handle("/api/agents/{serverName}/files/read", authenticator.RequireRole("admin")(http.HandlerFunc(agentHandler.AgentFileRead))).Methods("GET")
-		router.Handle("/api/agents/{serverName}/files/write", authenticator.RequireRole("admin")(http.HandlerFunc(agentHandler.AgentFileWrite))).Methods("POST")
-		router.Handle("/api/agents/{serverName}/files/delete", authenticator.RequireRole("admin")(http.HandlerFunc(agentHandler.AgentFileDelete))).Methods("POST")
-		router.Handle("/api/agents/{serverName}/files/mkdir", authenticator.RequireRole("admin")(http.HandlerFunc(agentHandler.AgentMkdir))).Methods("POST")
+		router.Handle("/api/agents/{serverName}/files", authenticator.RequireRole("admin", "user")(http.HandlerFunc(agentHandler.AgentFileList))).Methods("GET")
+		router.Handle("/api/agents/{serverName}/files/read", authenticator.RequireRole("admin", "user")(http.HandlerFunc(agentHandler.AgentFileRead))).Methods("GET")
+		router.Handle("/api/agents/{serverName}/files/write", authenticator.RequireRole("admin", "user")(http.HandlerFunc(agentHandler.AgentFileWrite))).Methods("POST")
+		router.Handle("/api/agents/{serverName}/files/delete", authenticator.RequireRole("admin", "user")(http.HandlerFunc(agentHandler.AgentFileDelete))).Methods("POST")
+		router.Handle("/api/agents/{serverName}/files/mkdir", authenticator.RequireRole("admin", "user")(http.HandlerFunc(agentHandler.AgentMkdir))).Methods("POST")
 
-		router.Handle("/api/agents/{serverName}/backup/create", authenticator.RequireRole("admin")(http.HandlerFunc(agentHandler.AgentBackupCreate))).Methods("POST")
+		router.Handle("/api/agents/{serverName}/backup/create", authenticator.RequireRole("admin", "user")(http.HandlerFunc(agentHandler.AgentBackupCreate))).Methods("POST")
 		router.Handle("/api/agents/{serverName}/backup/restore", authenticator.RequireRole("admin")(http.HandlerFunc(agentHandler.AgentBackupRestore))).Methods("POST")
-		router.Handle("/api/agents/{serverName}/backup/list", authenticator.RequireRole("admin")(http.HandlerFunc(agentHandler.AgentBackupList))).Methods("POST")
+		router.Handle("/api/agents/{serverName}/backup/list", authenticator.RequireRole("admin", "user")(http.HandlerFunc(agentHandler.AgentBackupList))).Methods("POST")
 		router.Handle("/api/agents/{serverName}/backup/init", authenticator.RequireRole("admin")(http.HandlerFunc(agentHandler.AgentBackupInit))).Methods("POST")
 	}
 

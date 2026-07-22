@@ -179,42 +179,32 @@ func (s *AgentService) Mkdir(serverName, path string) (*GenericResultData, error
 	return s.Hub.SendMkdir(ctx, agentID, serverName, path)
 }
 
-func (s *AgentService) BackupCreate(serverName, repo, password string, paths, tags []string) (*GenericResultData, error) {
+func (s *AgentService) BackupCreate(serverName string, paths, tags []string) (*GenericResultData, error) {
 	_, agentID := ResolveBackend(serverName, s.Store, s.Hub)
 	if agentID <= 0 {
 		return nil, fmt.Errorf("no agent backend")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
-	return s.Hub.SendBackupCreate(ctx, agentID, serverName, repo, password, paths, tags)
+	return s.Hub.SendBackupCreate(ctx, agentID, serverName, paths, tags)
 }
 
-func (s *AgentService) BackupRestore(serverName, repo, password, snapshot, target string) (*GenericResultData, error) {
+func (s *AgentService) BackupRestore(serverName, snapshot, target string) (*GenericResultData, error) {
 	_, agentID := ResolveBackend(serverName, s.Store, s.Hub)
 	if agentID <= 0 {
 		return nil, fmt.Errorf("no agent backend")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
-	return s.Hub.SendBackupRestore(ctx, agentID, serverName, repo, password, snapshot, target)
+	return s.Hub.SendBackupRestore(ctx, agentID, serverName, snapshot, target)
 }
 
-func (s *AgentService) BackupList(serverName, repo, password string) (*GenericResultData, error) {
+func (s *AgentService) BackupList(serverName string) (*GenericResultData, error) {
 	_, agentID := ResolveBackend(serverName, s.Store, s.Hub)
 	if agentID <= 0 {
 		return nil, fmt.Errorf("no agent backend")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	return s.Hub.SendBackupList(ctx, agentID, serverName, repo, password)
-}
-
-func (s *AgentService) BackupInit(serverName, repo, password string) (*GenericResultData, error) {
-	_, agentID := ResolveBackend(serverName, s.Store, s.Hub)
-	if agentID <= 0 {
-		return nil, fmt.Errorf("no agent backend")
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-	return s.Hub.SendBackupInit(ctx, agentID, serverName, repo, password)
+	return s.Hub.SendBackupList(ctx, agentID, serverName)
 }

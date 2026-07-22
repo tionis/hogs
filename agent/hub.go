@@ -91,24 +91,18 @@ type MkdirRequestData struct {
 
 type BackupCreateRequestData struct {
 	ServerName string   `json:"serverName"`
-	Repo       string   `json:"repo"`
-	Password   string   `json:"password"`
 	Paths      []string `json:"paths"`
 	Tags       []string `json:"tags"`
 }
 
 type BackupRestoreRequestData struct {
 	ServerName string `json:"serverName"`
-	Repo       string `json:"repo"`
-	Password   string `json:"password"`
 	Snapshot   string `json:"snapshot"`
 	Target     string `json:"target"`
 }
 
 type BackupListRequestData struct {
 	ServerName string `json:"serverName"`
-	Repo       string `json:"repo"`
-	Password   string `json:"password"`
 }
 
 type GenericResultData struct {
@@ -575,20 +569,16 @@ func (h *Hub) SendMkdir(ctx context.Context, agentID int, serverName, path strin
 	return h.sendEnvelopeWithResult(ctx, agentID, "mkdir", MkdirRequestData{ServerName: serverName, Path: path})
 }
 
-func (h *Hub) SendBackupCreate(ctx context.Context, agentID int, serverName, repo, password string, paths, tags []string) (*GenericResultData, error) {
-	return h.sendEnvelopeWithResult(ctx, agentID, "backup_create", BackupCreateRequestData{ServerName: serverName, Repo: repo, Password: password, Paths: paths, Tags: tags})
+func (h *Hub) SendBackupCreate(ctx context.Context, agentID int, serverName string, paths, tags []string) (*GenericResultData, error) {
+	return h.sendEnvelopeWithResult(ctx, agentID, "backup_create", BackupCreateRequestData{ServerName: serverName, Paths: paths, Tags: tags})
 }
 
-func (h *Hub) SendBackupRestore(ctx context.Context, agentID int, serverName, repo, password, snapshot, target string) (*GenericResultData, error) {
-	return h.sendEnvelopeWithResult(ctx, agentID, "backup_restore", BackupRestoreRequestData{ServerName: serverName, Repo: repo, Password: password, Snapshot: snapshot, Target: target})
+func (h *Hub) SendBackupRestore(ctx context.Context, agentID int, serverName, snapshot, target string) (*GenericResultData, error) {
+	return h.sendEnvelopeWithResult(ctx, agentID, "backup_restore", BackupRestoreRequestData{ServerName: serverName, Snapshot: snapshot, Target: target})
 }
 
-func (h *Hub) SendBackupList(ctx context.Context, agentID int, serverName, repo, password string) (*GenericResultData, error) {
-	return h.sendEnvelopeWithResult(ctx, agentID, "backup_list", BackupListRequestData{ServerName: serverName, Repo: repo, Password: password})
-}
-
-func (h *Hub) SendBackupInit(ctx context.Context, agentID int, serverName, repo, password string) (*GenericResultData, error) {
-	return h.sendEnvelopeWithResult(ctx, agentID, "backup_init", BackupCreateRequestData{ServerName: serverName, Repo: repo, Password: password})
+func (h *Hub) SendBackupList(ctx context.Context, agentID int, serverName string) (*GenericResultData, error) {
+	return h.sendEnvelopeWithResult(ctx, agentID, "backup_list", BackupListRequestData{ServerName: serverName})
 }
 
 var resultTypes = map[string]string{
