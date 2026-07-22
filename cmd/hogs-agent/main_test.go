@@ -76,6 +76,20 @@ func TestRCONPacketRoundTrip(t *testing.T) {
 	}
 }
 
+func TestParsePlayerStatus(t *testing.T) {
+	players, maxPlayers, known := parsePlayerStatus("minecraft", "There are 2 of a max of 20 players online: Alex, Steve")
+	if !known || players != 2 || maxPlayers != 20 {
+		t.Fatalf("minecraft status=%d/%d known=%v", players, maxPlayers, known)
+	}
+	players, maxPlayers, known = parsePlayerStatus("factorio", "Online players:\nAlice (online)\nBob (online)\nOffline players:\nCarol")
+	if !known || players != 2 || maxPlayers != 0 {
+		t.Fatalf("factorio status=%d/%d known=%v", players, maxPlayers, known)
+	}
+	if _, _, known = parsePlayerStatus("minecraft", "unexpected response"); known {
+		t.Fatal("malformed status was marked known")
+	}
+}
+
 func TestValidateConfigAcceptsNodeScopedServerAllowlist(t *testing.T) {
 	cfg := testNodeConfig(t.TempDir())
 	if err := validateConfig(cfg); err != nil {

@@ -15,6 +15,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/tionis/hogs/config"
 	"github.com/tionis/hogs/database"
+	"github.com/tionis/hogs/query"
 )
 
 type Envelope struct {
@@ -45,11 +46,12 @@ type ActionResultData struct {
 }
 
 type StatusReportData struct {
-	ServerName string `json:"serverName"`
-	Online     bool   `json:"online"`
-	Players    int    `json:"players"`
-	MaxPlayers int    `json:"maxPlayers"`
-	Version    string `json:"version"`
+	ServerName   string `json:"serverName"`
+	Online       bool   `json:"online"`
+	Players      int    `json:"players"`
+	MaxPlayers   int    `json:"maxPlayers"`
+	PlayersKnown bool   `json:"playersKnown"`
+	Version      string `json:"version"`
 }
 
 type CommandResultData struct {
@@ -143,7 +145,12 @@ type Hub struct {
 	consoleBuffers   map[string][]consoleLine // serverName -> ring buffer
 	consoleBuffersMu sync.RWMutex
 
-	Notifier Notifier
+	Notifier    Notifier
+	StatusCache *query.ServerStatusCache
+}
+
+func (h *Hub) SetStatusCache(cache *query.ServerStatusCache) {
+	h.StatusCache = cache
 }
 
 type AgentConn struct {
@@ -677,6 +684,12 @@ func (ac *AgentConn) readPump() {
 				continue
 			}
 			if metricName != "" {
+				if ac.Hub.StatusCache != nil {
+					ac.Hub.StatusCache.Set(metricName, &query.ServerStatus{
+						Online: status.Online, Players: status.Players, MaxPlayers: status.MaxPlayers,
+						PlayersKnown: status.PlayersKnown, Version: status.Version,
+					})
+				}
 				metric := &database.ServerMetric{
 					ServerName: metricName,
 					AgentID:    ac.AgentID,

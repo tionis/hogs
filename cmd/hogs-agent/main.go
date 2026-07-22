@@ -17,6 +17,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -92,11 +93,53 @@ type BackupListRequestData struct {
 }
 
 type StatusReportData struct {
-	ServerName string `json:"serverName"`
-	Online     bool   `json:"online"`
-	Players    int    `json:"players"`
-	MaxPlayers int    `json:"maxPlayers"`
-	Version    string `json:"version"`
+	ServerName   string `json:"serverName"`
+	Online       bool   `json:"online"`
+	Players      int    `json:"players"`
+	MaxPlayers   int    `json:"maxPlayers"`
+	PlayersKnown bool   `json:"playersKnown"`
+	Version      string `json:"version"`
+}
+
+var minecraftPlayerCount = regexp.MustCompile(`(?i)there are\s+(\d+)\s+of a max of\s+(\d+)\s+players online`)
+
+func playerStatus(server *ServerConfig) (players, maxPlayers int, known bool) {
+	if server.Console.Type != "rcon" {
+		return 0, 0, false
+	}
+	command := "list"
+	if server.GameType == "factorio" {
+		command = "/players"
+	}
+	output, err := executeCommand(server, command)
+	if err != nil {
+		return 0, 0, false
+	}
+	return parsePlayerStatus(server.GameType, output)
+}
+
+func parsePlayerStatus(gameType, output string) (players, maxPlayers int, known bool) {
+	if gameType == "minecraft" {
+		matches := minecraftPlayerCount.FindStringSubmatch(output)
+		if len(matches) != 3 {
+			return 0, 0, false
+		}
+		players, err := strconv.Atoi(matches[1])
+		if err != nil {
+			return 0, 0, false
+		}
+		maxPlayers, err = strconv.Atoi(matches[2])
+		return players, maxPlayers, err == nil
+	}
+	if gameType == "factorio" {
+		for _, line := range strings.Split(output, "\n") {
+			if strings.HasSuffix(strings.TrimSpace(line), "(online)") {
+				players++
+			}
+		}
+		return players, 0, true
+	}
+	return 0, 0, false
 }
 
 type AgentConfig struct {
@@ -1072,12 +1115,17 @@ func reportStatus(c *websocket.Conn) {
 	for _, name := range sortedServerNames() {
 		server := agentConfig.Servers[name]
 		online, subState := getServiceStatus(server.Unit)
+		players, maxPlayers, playersKnown := 0, 0, false
+		if online {
+			players, maxPlayers, playersKnown = playerStatus(&server)
+		}
 		status := StatusReportData{
-			ServerName: name,
-			Online:     online,
-			Players:    0,
-			MaxPlayers: 0,
-			Version:    subState,
+			ServerName:   name,
+			Online:       online,
+			Players:      players,
+			MaxPlayers:   maxPlayers,
+			PlayersKnown: playersKnown,
+			Version:      subState,
 		}
 		env := Envelope{Type: "status", Data: mustMarshal(status)}
 		_ = writeJSON(c, env)

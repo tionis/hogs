@@ -41,4 +41,7 @@ payloads.
 
 The agent registers its node, full server-name allowlist, and observed
 capabilities. It sends an independent status report per server, so agent
-reachability is not confused with a stopped game unit.
+reachability is not confused with a stopped game unit. For running Minecraft
+and Factorio servers with RCON, the report includes a verified player count;
+failed or unavailable queries are marked unknown instead of being reported as
+an empty server.
