@@ -316,7 +316,7 @@ func (h *PterodactylHandler) resolveBackend(server *database.Server, link *datab
 	if link.Node != "" && h.AgentHub != nil {
 		ag, err := h.Store.GetAgentByNodeName(link.Node)
 		if err == nil && ag != nil {
-			return agent.NewAgentBackend(ag.ID, ag.NodeName, h.AgentHub), nil
+			return agent.NewAgentBackend(ag.ID, ag.NodeName, server.Name, h.AgentHub), nil
 		}
 	}
 

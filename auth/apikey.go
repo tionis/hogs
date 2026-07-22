@@ -94,3 +94,27 @@ func GetAPIKeyFromContext(r *http.Request) *database.APIKey {
 	key, _ := r.Context().Value(apiKeyContextKey).(*database.APIKey)
 	return key
 }
+
+// RequireAPIKeyRole protects machine-oriented endpoints without depending on
+// an interactive OIDC session. This is the authentication boundary used by
+// inventory reconciliation clients such as Gandalf.
+func RequireAPIKeyRole(roles ...string) func(http.Handler) http.Handler {
+	allowed := make(map[string]struct{}, len(roles))
+	for _, role := range roles {
+		allowed[role] = struct{}{}
+	}
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			key := GetAPIKeyFromContext(r)
+			if key == nil {
+				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				return
+			}
+			if _, ok := allowed[key.Role]; !ok {
+				http.Error(w, "Forbidden", http.StatusForbidden)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}

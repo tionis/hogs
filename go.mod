@@ -13,6 +13,7 @@ require (
 	github.com/mcstatus-io/mcutil/v4 v4.0.1
 	github.com/robfig/cron/v3 v3.0.1
 	golang.org/x/oauth2 v0.34.0
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
