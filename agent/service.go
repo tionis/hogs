@@ -88,6 +88,8 @@ type AgentService struct {
 	Hub   *Hub
 }
 
+const lifecycleActionTimeout = 3 * time.Minute
+
 func NewAgentService(store *database.Store, hub *Hub) *AgentService {
 	return &AgentService{Store: store, Hub: hub}
 }
@@ -96,7 +98,7 @@ func (s *AgentService) ExecuteAction(serverName, action string) error {
 	backendType, agentID := ResolveBackend(serverName, s.Store, s.Hub)
 
 	if backendType == "agent" && agentID > 0 {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), lifecycleActionTimeout)
 		defer cancel()
 
 		ab := NewAgentBackend(agentID, "", serverName, s.Hub)
