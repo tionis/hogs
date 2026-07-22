@@ -501,7 +501,11 @@
               if (data.online) {
                 let statusText = '';
                 const noun = window.HOGS_GAME_NOUNS[gameType] || 'Players';
-                statusText = `<span class="status-online">Online</span> - ${data.players}/${data.maxPlayers} ${noun}`;
+                statusText = `<span class="status-online">Online</span>`;
+                if (data.playersKnown) {
+                  const playerCount = data.maxPlayers > 0 ? `${data.players}/${data.maxPlayers}` : `${data.players}`;
+                  statusText += ` - ${playerCount} ${noun}`;
+                }
                 if (data.version) statusText += ` (${data.version})`;
                 if (data.mapName && gameType === 'satisfactory') statusText += ` in ${data.mapName}`;
                 el.innerHTML = statusText;

@@ -118,6 +118,17 @@ func playerStatus(server *ServerConfig) (players, maxPlayers int, known bool) {
 	return parsePlayerStatus(server.GameType, output)
 }
 
+func serverVersion(server *ServerConfig) string {
+	if server.GameType != "factorio" || server.Console.Type != "rcon" {
+		return ""
+	}
+	output, err := executeCommand(server, "/version")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(output)
+}
+
 func parsePlayerStatus(gameType, output string) (players, maxPlayers int, known bool) {
 	if gameType == "minecraft" {
 		matches := minecraftPlayerCount.FindStringSubmatch(output)
@@ -709,8 +720,30 @@ func executeRCON(console ConsoleConfig, command string) (string, error) {
 	if err := writeRCONPacket(conn, 2, 2, command); err != nil {
 		return "", err
 	}
-	_, _, body, err := readRCONPacket(conn)
-	return body, err
+	return readRCONResponse(conn, 2)
+}
+
+func readRCONResponse(conn net.Conn, requestID int32) (string, error) {
+	var response strings.Builder
+	gotResponse := false
+	for {
+		idleTimeout := 100 * time.Millisecond
+		if !gotResponse {
+			idleTimeout = 10 * time.Second
+		}
+		_ = conn.SetReadDeadline(time.Now().Add(idleTimeout))
+		id, _, body, err := readRCONPacket(conn)
+		if err != nil {
+			if gotResponse {
+				return response.String(), nil
+			}
+			return "", err
+		}
+		if id == requestID {
+			gotResponse = true
+			response.WriteString(body)
+		}
+	}
 }
 
 func writeRCONPacket(w io.Writer, id, packetType int32, body string) error {
@@ -1134,8 +1167,10 @@ func reportStatus(c *websocket.Conn) {
 		server := agentConfig.Servers[name]
 		online, _ := getServiceStatus(server.Unit)
 		players, maxPlayers, playersKnown := 0, 0, false
+		version := ""
 		if online {
 			players, maxPlayers, playersKnown = playerStatus(&server)
+			version = serverVersion(&server)
 		}
 		status := StatusReportData{
 			ServerName:   name,
@@ -1143,6 +1178,7 @@ func reportStatus(c *websocket.Conn) {
 			Players:      players,
 			MaxPlayers:   maxPlayers,
 			PlayersKnown: playersKnown,
+			Version:      version,
 		}
 		env := Envelope{Type: "status", Data: mustMarshal(status)}
 		_ = writeJSON(c, env)
