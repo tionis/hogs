@@ -1,10 +1,14 @@
 # HOGS - Halls of Game Servers
 
-A modern web interface for managing and showcasing game servers (Minecraft, Satisfactory, Factorio, and more). Built with Go, it provides a clean UI for server status, mod downloads, and map viewing, protected by OIDC authentication for administrative tasks.
+A game-server management control plane for Minecraft, Satisfactory, Factorio,
+Valheim, and other dedicated servers. HOGS combines a declarative inventory API,
+node agents, policy-controlled operations, scheduling, backups, status, and an
+OIDC-protected operator UI.
 
 ## Features
 
 *   **Multi-Game Support:** Query Minecraft, Satisfactory, Factorio, and Valheim servers with game-specific status protocols. New games can be added via the querier registry.
+*   **Declarative Inventory API:** Transactional plan/apply/readback and cursor events let Gandalf or another inventory system manage nodes, servers, policies, schedules, and integrations. See [the inventory API contract](docs/INVENTORY_API.md).
 *   **Real-time Server Status:** Live player counts, version info, and online status using efficient caching (60s TTL).
 *   **Role-Based Access Control:** OIDC groups map to admin/user roles. Admins get full dashboard access; users can interact with servers based on per-server permissions.
 *   **Pterodactyl Integration:** Link servers to a Pterodactyl panel for start/stop/restart and approved command execution — all configurable per-server via `allowed_actions`.

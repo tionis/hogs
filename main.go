@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -138,6 +139,7 @@ func main() {
 	webhookDispatcher := webhook.NewDispatcher(store)
 	webhookHandler := api.NewWebhookHandler(store, webhookDispatcher)
 	notificationHandler := api.NewNotificationHandler(store, notifyService)
+	inventoryHandler := api.NewInventoryHandler(store)
 
 	var scimHandler *scim.Handler
 	if cfg.SCIMEnabled && cfg.SCIMBearerToken != "" {
@@ -153,6 +155,27 @@ func main() {
 			log.Printf("Warning: cron scheduler failed to start: %v", err)
 		}
 	}
+	inventoryHandler.SetAfterApply(func(changes []api.InventoryChange) error {
+		if scheduler != nil {
+			if err := scheduler.LoadJobs(); err != nil {
+				return err
+			}
+		}
+		if agentHub != nil {
+			rotated := []string{}
+			for _, change := range changes {
+				const prefix = "nodes/"
+				const suffix = "/token"
+				if change.Action == "rotate" && strings.HasPrefix(change.Resource, prefix) && strings.HasSuffix(change.Resource, suffix) {
+					rotated = append(rotated, strings.TrimSuffix(strings.TrimPrefix(change.Resource, prefix), suffix))
+				}
+			}
+			if err := agentHub.ReconcileCredentials(rotated); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 
 	// Server status change notifications
 	cache.SetOnChange(func(serverName string, oldStatus, newStatus *query.ServerStatus) {
@@ -232,6 +255,15 @@ func main() {
 	router.HandleFunc("/backgrounds/{contentHash}/{filename}", serverHandler.ServeBackgroundFile).Methods("GET")
 	router.HandleFunc("/healthz", serverHandler.Healthz).Methods("GET")
 	router.HandleFunc("/api/servers/{serverName}/metrics", serverHandler.GetServerMetrics).Methods("GET")
+
+	// The inventory API is deliberately machine-authenticated and independent
+	// from interactive OIDC sessions. It is the canonical Gandalf reconciliation
+	// surface for desired game-management state.
+	inventoryAdmin := auth.RequireAPIKeyRole("admin")
+	router.Handle("/api/v1/inventory", inventoryAdmin(http.HandlerFunc(inventoryHandler.GetState))).Methods("GET")
+	router.Handle("/api/v1/inventory/plan", inventoryAdmin(http.HandlerFunc(inventoryHandler.Plan))).Methods("POST")
+	router.Handle("/api/v1/inventory", inventoryAdmin(http.HandlerFunc(inventoryHandler.Apply))).Methods("PUT")
+	router.Handle("/api/v1/inventory/events", inventoryAdmin(http.HandlerFunc(inventoryHandler.Events))).Methods("GET")
 
 	if authenticator != nil {
 		router.Handle("/servers/{serverName}/action", authenticator.RequireRole("admin", "user")(http.HandlerFunc(pteroHandler.ServerAction))).Methods("POST")

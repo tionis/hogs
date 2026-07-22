@@ -1,0 +1,10 @@
+DROP INDEX IF EXISTS idx_command_schemas_server_name_unique;
+DROP INDEX IF EXISTS idx_notification_channels_name_unique;
+DROP INDEX IF EXISTS idx_webhooks_name_unique;
+DROP INDEX IF EXISTS idx_server_templates_name_unique;
+DROP INDEX IF EXISTS idx_cron_jobs_name_unique;
+DROP INDEX IF EXISTS idx_inventory_events_timestamp;
+DROP INDEX IF EXISTS idx_inventory_events_generation;
+DROP TABLE IF EXISTS inventory_events;
+DROP TABLE IF EXISTS inventory_state;
+DROP TABLE IF EXISTS server_management;

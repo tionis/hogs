@@ -170,11 +170,7 @@ func connectAndServe(interrupt chan os.Signal) error {
 	if err != nil {
 		return fmt.Errorf("invalid server URL: %w", err)
 	}
-	q := u.Query()
-	q.Set("token", agentToken)
-	u.RawQuery = q.Encode()
-
-	log.Printf("Connecting to %s...", u.String())
+	log.Printf("Connecting to %s://%s%s...", u.Scheme, u.Host, u.Path)
 
 	dialer := websocket.DefaultDialer
 	if tlsCert != "" && tlsKey != "" {
@@ -189,7 +185,9 @@ func connectAndServe(interrupt chan os.Signal) error {
 		}
 	}
 
-	c, _, err := dialer.Dial(u.String(), nil)
+	header := http.Header{}
+	header.Set("Authorization", "Bearer "+agentToken)
+	c, _, err := dialer.Dial(u.String(), header)
 	if err != nil {
 		return fmt.Errorf("dial failed: %w", err)
 	}

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -462,6 +463,35 @@ func (h *Hub) RemoveConn(agentID int) {
 	h.Store.UpdateAgentOnline(agentID, false)
 }
 
+// ReconcileCredentials immediately closes connections authenticated by a
+// rotated or revoked token. A revoked token has an empty stored hash.
+func (h *Hub) ReconcileCredentials(changes []string) error {
+	rotated := make(map[string]bool, len(changes))
+	for _, name := range changes {
+		rotated[name] = true
+	}
+	h.mu.RLock()
+	ids := make([]int, 0, len(h.Conns))
+	for id := range h.Conns {
+		ids = append(ids, id)
+	}
+	h.mu.RUnlock()
+	for _, id := range ids {
+		var name, tokenHash string
+		if err := h.Store.DB.QueryRow("SELECT name, token_hash FROM agents WHERE id=?", id).Scan(&name, &tokenHash); err != nil {
+			if err == sql.ErrNoRows {
+				h.RemoveConn(id)
+				continue
+			}
+			return err
+		}
+		if tokenHash == "" || rotated[name] {
+			h.RemoveConn(id)
+		}
+	}
+	return nil
+}
+
 func (h *Hub) sendEnvelopeWithResult(ctx context.Context, agentID int, msgType string, data interface{}) (*GenericResultData, error) {
 	ac := h.GetConn(agentID)
 	if ac == nil {
@@ -618,10 +648,16 @@ func (ac *AgentConn) readPump() {
 				continue
 			}
 			log.Printf("Agent %d status: online=%v players=%d/%d", ac.AgentID, status.Online, status.Players, status.MaxPlayers)
-			ac.Hub.Store.UpdateAgentOnline(ac.AgentID, status.Online)
-			if ac.NodeName != "" {
+			// Agent reachability and game-process status are separate observations.
+			// A status report proves the agent is reachable even when the game is off.
+			ac.Hub.Store.UpdateAgentOnline(ac.AgentID, true)
+			metricName := ac.ServerName
+			if metricName == "" {
+				metricName = ac.NodeName
+			}
+			if metricName != "" {
 				metric := &database.ServerMetric{
-					ServerName: ac.NodeName,
+					ServerName: metricName,
 					AgentID:    ac.AgentID,
 					Timestamp:  time.Now().UTC().Format(time.RFC3339),
 					Online:     status.Online,
