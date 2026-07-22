@@ -24,3 +24,29 @@ func TestSecurityHeadersAllowSameOriginFrames(t *testing.T) {
 		t.Fatalf("Content-Security-Policy = %q, want same-origin frame policy", got)
 	}
 }
+
+func TestSecurityHeadersScopeUnsafeEvalToMapProxy(t *testing.T) {
+	handler := securityHeadersMiddleware(&config.Config{})(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	for _, test := range []struct {
+		path           string
+		wantUnsafeEval bool
+	}{
+		{path: "/cog/map/", wantUnsafeEval: true},
+		{path: "/cog/map/assets/main.js", wantUnsafeEval: true},
+		{path: "/cog", wantUnsafeEval: false},
+		{path: "/map/", wantUnsafeEval: false},
+		{path: "/admin/map/settings", wantUnsafeEval: false},
+	} {
+		t.Run(test.path, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, test.path, nil))
+			got := strings.Contains(recorder.Header().Get("Content-Security-Policy"), "'unsafe-eval'")
+			if got != test.wantUnsafeEval {
+				t.Fatalf("unsafe-eval present = %v, want %v", got, test.wantUnsafeEval)
+			}
+		})
+	}
+}
