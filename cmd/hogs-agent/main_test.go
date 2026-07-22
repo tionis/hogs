@@ -90,6 +90,20 @@ func TestParsePlayerStatus(t *testing.T) {
 	}
 }
 
+func TestRoutineRCONConnectionLineFilter(t *testing.T) {
+	for _, line := range []string{
+		"[RCON Listener #2/INFO] Thread RCON Client /10.0.0.1 started",
+		"[RconClient] Thread RCON Client /10.0.0.1 shutting down",
+	} {
+		if !isRoutineRCONConnectionLine(line) {
+			t.Fatalf("routine RCON line was not filtered: %q", line)
+		}
+	}
+	if isRoutineRCONConnectionLine("[Server thread/INFO] Player joined the game") {
+		t.Fatal("normal server output was filtered")
+	}
+}
+
 func TestValidateConfigAcceptsNodeScopedServerAllowlist(t *testing.T) {
 	cfg := testNodeConfig(t.TempDir())
 	if err := validateConfig(cfg); err != nil {

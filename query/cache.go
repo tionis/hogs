@@ -70,3 +70,29 @@ func (c *ServerStatusCache) Set(serverName string, status *ServerStatus) {
 		onChange(serverName, oldEntry.Status, status)
 	}
 }
+
+// SetAgentObservation updates process reachability and authoritative occupancy
+// without discarding richer game-protocol fields already cached by the control
+// plane (MOTD, version, player samples, and protocol metadata).
+func (c *ServerStatusCache) SetAgentObservation(serverName string, observation *ServerStatus) {
+	c.mu.Lock()
+	oldEntry := c.cache[serverName]
+	status := observation
+	if observation.Online && oldEntry != nil && oldEntry.Status != nil {
+		merged := *oldEntry.Status
+		merged.Online = observation.Online
+		merged.Players = observation.Players
+		merged.MaxPlayers = observation.MaxPlayers
+		merged.PlayersKnown = observation.PlayersKnown
+		merged.LastUpdated = observation.LastUpdated
+		merged.Error = observation.Error
+		status = &merged
+	}
+	c.cache[serverName] = &cacheEntry{Status: status, Timestamp: time.Now()}
+	onChange := c.onChange
+	c.mu.Unlock()
+
+	if onChange != nil && oldEntry != nil && oldEntry.Status.Online != status.Online {
+		onChange(serverName, oldEntry.Status, status)
+	}
+}

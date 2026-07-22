@@ -144,7 +144,7 @@ func TestManagedFileAccessUsesReconciledWritablePaths(t *testing.T) {
 	if _, err := store.DB.Exec(`UPDATE server_management SET writable_paths='["/srv/managed-test/config"]' WHERE server_id=?`, server.ID); err != nil {
 		t.Fatal(err)
 	}
-	req := managedTestRequest(t, store, authenticator, "moderator@example.test", "user", "game-moderators")
+	req := managedTestRequest(t, store, authenticator, "admin@example.test", "admin")
 
 	if status, err := authorizeManagedPath(store, eng, authenticator, req, "managed-test", "config/settings.json"); err != nil || status != http.StatusOK {
 		t.Fatalf("allowlisted path status=%d err=%v", status, err)
@@ -154,6 +154,18 @@ func TestManagedFileAccessUsesReconciledWritablePaths(t *testing.T) {
 	}
 	if status, err := authorizeManagedPath(store, eng, authenticator, req, "managed-test", "/srv/managed-test/config/settings.json"); err == nil || status != http.StatusBadRequest {
 		t.Fatalf("absolute path status=%d err=%v, want bad request", status, err)
+	}
+}
+
+func TestManagedFileAccessRejectsNonAdminOperator(t *testing.T) {
+	store, authenticator, eng := managedAuthorizationFixture(t, []string{"game-moderators"}, `true`)
+	server, _ := store.GetServerByName("managed-test")
+	if _, err := store.DB.Exec(`UPDATE server_management SET writable_paths='["/srv/managed-test/config"]' WHERE server_id=?`, server.ID); err != nil {
+		t.Fatal(err)
+	}
+	req := managedTestRequest(t, store, authenticator, "moderator@example.test", "user", "game-moderators")
+	if status, err := authorizeManagedPath(store, eng, authenticator, req, "managed-test", "config/settings.json"); err == nil || status != http.StatusForbidden {
+		t.Fatalf("non-admin operator status=%d err=%v, want forbidden", status, err)
 	}
 }
 
