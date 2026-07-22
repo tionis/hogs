@@ -149,7 +149,10 @@ func TestHomeRenders(t *testing.T) {
 
 func TestServerDetailRenders(t *testing.T) {
 	handler, store, _ := testWebHandler(t)
-	store.CreateServer(&database.Server{Name: "DetailSrv", GameType: "minecraft", State: "online"})
+	store.CreateServer(&database.Server{
+		Name: "DetailSrv", GameType: "minecraft", State: "online", Address: "play.example.test",
+		Metadata: map[string]string{"directAddress": "node.example.test:25565"},
+	})
 
 	req := httptest.NewRequest(http.MethodGet, "/DetailSrv", nil)
 	req = mux.SetURLVars(req, map[string]string{"serverName": "DetailSrv"})
@@ -162,6 +165,9 @@ func TestServerDetailRenders(t *testing.T) {
 	}
 	if !contains(w.Body.String(), "DetailSrv") {
 		t.Error("expected server detail to contain server name")
+	}
+	if !contains(w.Body.String(), "play.example.test") || !contains(w.Body.String(), "node.example.test:25565") {
+		t.Error("expected server detail to contain discovery and fallback addresses")
 	}
 }
 

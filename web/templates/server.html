@@ -20,7 +20,14 @@
           </h1>
           <div class="server-status-poller h5 mb-0" data-server="{{.Server.Name}}" data-game-type="{{.Server.GameType}}" data-state="{{.Server.State}}">Checking status...</div>
         </div>
-        {{if .Server.Address}}<h6 style="color: var(--text-secondary);">{{.Server.Address}}</h6>{{end}}
+        {{if .Server.Address}}
+        <div class="mb-2" style="color: var(--text-secondary);">
+          <span>Connect:</span> <code>{{.Server.Address}}</code>
+          {{with index .Server.Metadata "directAddress"}}
+          <br><span class="small">Direct fallback:</span> <code class="small">{{.}}</code>
+          {{end}}
+        </div>
+        {{end}}
         <p class="card-text lead">{{.Server.Description | nl2br}}</p>
 
         {{if .Server.ModURL}}
