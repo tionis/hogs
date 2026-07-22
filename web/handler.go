@@ -273,6 +273,7 @@ func (h *WebHandler) ServerDetail(w http.ResponseWriter, r *http.Request) {
 		AllowedActions  []string
 		HasAgent        bool
 		ShowConsole     bool
+		ShowFiles       bool
 	}{
 		Server:          server,
 		Authenticated:   isAuthenticated,
@@ -286,6 +287,7 @@ func (h *WebHandler) ServerDetail(w http.ResponseWriter, r *http.Request) {
 		AllowedActions:  nil,
 		HasAgent:        hasAgent,
 		ShowConsole:     isAuthenticated && hasAgent,
+		ShowFiles:       isAuthenticated && userRole == "admin" && hasAgent,
 	}
 
 	data.PteroLink = link

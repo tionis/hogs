@@ -75,20 +75,24 @@ func (h *ServerHandler) GetServerStatus(w http.ResponseWriter, r *http.Request) 
 	vars := mux.Vars(r)
 	serverName := vars["serverName"]
 
-	// Check cache first
-	if cachedStatus, found := h.Cache.Get(serverName); found {
+	server, err := h.Store.GetServerByName(serverName)
+	if err != nil {
+		log.Printf("Error getting server %s from database: %v", serverName, err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	cachedStatus, cached := h.Cache.Get(serverName)
+	// Agent observations intentionally contain only process and occupancy data.
+	// A Minecraft result without protocol metadata still needs one modern status
+	// query to populate its MOTD and real game version.
+	needsMinecraftDetails := cached && server.GameType == "minecraft" && cachedStatus.Online && cachedStatus.Extras == nil
+	if cached && !needsMinecraftDetails {
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(w).Encode(cachedStatus); err != nil {
 			log.Printf("Error encoding cached server status to JSON: %v", err)
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		}
-		return
-	}
-
-	server, err := h.Store.GetServerByName(serverName)
-	if err != nil {
-		log.Printf("Error getting server %s from database: %v", serverName, err)
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
 	if server == nil {
@@ -126,6 +130,11 @@ func (h *ServerHandler) GetServerStatus(w http.ResponseWriter, r *http.Request) 
 		log.Printf("Error querying %s server %s (%s): %v", server.GameType, server.Name, server.Address, err)
 		// Even if there's an error, the status object will contain error information.
 		// We still cache it to avoid hammering the server.
+	}
+	if cached && cachedStatus.PlayersKnown && status.Online {
+		status.Players = cachedStatus.Players
+		status.MaxPlayers = cachedStatus.MaxPlayers
+		status.PlayersKnown = true
 	}
 
 	h.Cache.Set(serverName, status) // Cache the new status

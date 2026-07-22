@@ -498,7 +498,7 @@ func handleMessage(message []byte, c *websocket.Conn) {
 		if err != nil {
 			return
 		}
-		executeConsoleInput(server, data.Input)
+		executeConsoleInput(c, data.ServerName, server, data.Input)
 
 	default:
 		log.Printf("Unknown message type: %s", env.Type)
@@ -552,15 +552,10 @@ func startConsoleStreaming(c *websocket.Conn, serverName string, server *ServerC
 				return
 			default:
 				line := scanner.Text()
-				env := Envelope{
-					Type: "console",
-					Data: mustMarshal(map[string]string{
-						"serverName": serverName,
-						"line":       line,
-						"timestamp":  time.Now().UTC().Format(time.RFC3339),
-					}),
+				if isRoutineRCONConnectionLine(line) {
+					continue
 				}
-				if err := writeJSON(c, env); err != nil {
+				if err := sendConsoleLine(c, serverName, line); err != nil {
 					log.Printf("console write failed: %v", err)
 					cmd.Process.Kill()
 					return
@@ -573,12 +568,32 @@ func startConsoleStreaming(c *websocket.Conn, serverName string, server *ServerC
 	}()
 }
 
-func executeConsoleInput(server *ServerConfig, input string) {
+func isRoutineRCONConnectionLine(line string) bool {
+	return strings.Contains(line, "Thread RCON Client /") &&
+		(strings.Contains(line, " started") || strings.Contains(line, " shutting down"))
+}
+
+func sendConsoleLine(c *websocket.Conn, serverName, line string) error {
+	env := Envelope{
+		Type: "console",
+		Data: mustMarshal(map[string]string{
+			"serverName": serverName,
+			"line":       line,
+			"timestamp":  time.Now().UTC().Format(time.RFC3339),
+		}),
+	}
+	return writeJSON(c, env)
+}
+
+func executeConsoleInput(c *websocket.Conn, serverName string, server *ServerConfig, input string) {
+	_ = sendConsoleLine(c, serverName, "> "+input)
 	out, err := executeCommand(server, input)
 	if err != nil {
-		log.Printf("console input error: %v", err)
+		_ = sendConsoleLine(c, serverName, "Error: "+err.Error())
 	} else if out != "" {
-		log.Printf("console input completed: %s", out)
+		for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+			_ = sendConsoleLine(c, serverName, line)
+		}
 	}
 }
 
@@ -1114,7 +1129,7 @@ func backupList(server *ServerConfig) map[string]interface{} {
 func reportStatus(c *websocket.Conn) {
 	for _, name := range sortedServerNames() {
 		server := agentConfig.Servers[name]
-		online, subState := getServiceStatus(server.Unit)
+		online, _ := getServiceStatus(server.Unit)
 		players, maxPlayers, playersKnown := 0, 0, false
 		if online {
 			players, maxPlayers, playersKnown = playerStatus(&server)
@@ -1125,7 +1140,6 @@ func reportStatus(c *websocket.Conn) {
 			Players:      players,
 			MaxPlayers:   maxPlayers,
 			PlayersKnown: playersKnown,
-			Version:      subState,
 		}
 		env := Envelope{Type: "status", Data: mustMarshal(status)}
 		_ = writeJSON(c, env)

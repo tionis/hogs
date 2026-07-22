@@ -185,6 +185,37 @@ func TestCacheStatusChangeCallback(t *testing.T) {
 	}
 }
 
+func TestAgentObservationPreservesProtocolDetails(t *testing.T) {
+	cache := NewServerStatusCache()
+	cache.Set("srv", &ServerStatus{
+		Online: true, Players: 1, MaxPlayers: 20, Version: "1.20.1",
+		ServerMessage: "A useful MOTD", Extras: map[string]interface{}{"protocol": 763},
+	})
+	cache.SetAgentObservation("srv", &ServerStatus{
+		Online: true, Players: 3, MaxPlayers: 20, PlayersKnown: true,
+	})
+	status, found := cache.Get("srv")
+	if !found {
+		t.Fatal("merged status missing")
+	}
+	if status.Version != "1.20.1" || status.ServerMessage != "A useful MOTD" || status.Extras == nil {
+		t.Fatalf("protocol details were discarded: %#v", status)
+	}
+	if status.Players != 3 || !status.PlayersKnown {
+		t.Fatalf("agent occupancy was not applied: %#v", status)
+	}
+}
+
+func TestOfflineAgentObservationClearsStaleProtocolDetails(t *testing.T) {
+	cache := NewServerStatusCache()
+	cache.Set("srv", &ServerStatus{Online: true, Version: "1.20.1", ServerMessage: "MOTD"})
+	cache.SetAgentObservation("srv", &ServerStatus{Online: false})
+	status, found := cache.Get("srv")
+	if !found || status.Online || status.Version != "" || status.ServerMessage != "" {
+		t.Fatalf("offline observation retained stale details: %#v", status)
+	}
+}
+
 func formatType(v interface{}) string {
 	return fmt.Sprintf("%T", v)
 }

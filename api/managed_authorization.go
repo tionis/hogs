@@ -85,6 +85,9 @@ func authorizeManagedCapability(store *database.Store, eng *engine.Engine, authe
 	}
 
 	user := userEnvFromRequest(store, authenticator, r)
+	if capability == managedFile && user.Role != "admin" {
+		return nil, nil, http.StatusForbidden, fmt.Errorf("server administrator access required")
+	}
 	if user.Role != "admin" && !isManagedOperator(management.Operators, user) {
 		return nil, nil, http.StatusForbidden, fmt.Errorf("server operator access required")
 	}
