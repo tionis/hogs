@@ -386,6 +386,19 @@ func TestGenericResultDataUnmarshalsLegacyAgentPayload(t *testing.T) {
 	}
 }
 
+func TestGenericResultDataUsesLegacyFailureMessageAsError(t *testing.T) {
+	var result GenericResultData
+	if err := json.Unmarshal([]byte(`{"success":false,"message":"systemctl stop failed"}`), &result); err != nil {
+		t.Fatalf("unmarshal legacy failure: %v", err)
+	}
+	if result.Success {
+		t.Fatal("expected failed result")
+	}
+	if result.Error != "systemctl stop failed" {
+		t.Fatalf("error = %q, want systemctl stop failed", result.Error)
+	}
+}
+
 func TestConsoleBufferAndBroadcast(t *testing.T) {
 	hub, _ := testHub(t)
 

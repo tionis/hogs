@@ -135,6 +135,14 @@ func (r *GenericResultData) UnmarshalJSON(payload []byte) error {
 		}
 		delete(fields, "error")
 	}
+	// Older agents return lifecycle details as "message". Surface failed
+	// messages as errors so operators are not left with an empty failure.
+	if raw, ok := fields["message"]; ok && !r.Success && r.Error == "" {
+		if err := json.Unmarshal(raw, &r.Error); err != nil {
+			return err
+		}
+		delete(fields, "message")
+	}
 	if raw, ok := fields["data"]; ok {
 		if err := json.Unmarshal(raw, &r.Data); err != nil {
 			return err
