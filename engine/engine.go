@@ -15,12 +15,14 @@ import (
 )
 
 type ServerEnv struct {
-	ID       int      `json:"id"`
-	Name     string   `json:"name"`
-	GameType string   `json:"gameType"`
-	Tags     []string `json:"tags"`
-	Node     string   `json:"node"`
-	Running  bool     `json:"running"`
+	ID           int      `json:"id"`
+	Name         string   `json:"name"`
+	GameType     string   `json:"gameType"`
+	Tags         []string `json:"tags"`
+	Node         string   `json:"node"`
+	Running      bool     `json:"running"`
+	Players      int      `json:"players"`
+	PlayersKnown bool     `json:"playersKnown"`
 }
 
 type UserEnv struct {
@@ -76,21 +78,27 @@ func (e *Engine) buildEnv(server *database.Server, user *UserEnv) (map[string]in
 		link, _ := e.Store.GetPterodactylLink(srv.ID)
 		node := ""
 		running := false
+		players := 0
+		playersKnown := false
 		if link != nil {
 			node = link.Node
-			if e.Cache != nil {
-				if status, found := e.Cache.Get(srv.Name); found {
-					running = status.Online
-				}
+		}
+		if e.Cache != nil {
+			if status, found := e.Cache.Get(srv.Name); found {
+				running = status.Online
+				players = status.Players
+				playersKnown = status.PlayersKnown
 			}
 		}
 		serverEnvs = append(serverEnvs, ServerEnv{
-			ID:       srv.ID,
-			Name:     srv.Name,
-			GameType: srv.GameType,
-			Tags:     tags,
-			Node:     node,
-			Running:  running,
+			ID:           srv.ID,
+			Name:         srv.Name,
+			GameType:     srv.GameType,
+			Tags:         tags,
+			Node:         node,
+			Running:      running,
+			Players:      players,
+			PlayersKnown: playersKnown,
 		})
 	}
 
@@ -105,12 +113,12 @@ func (e *Engine) buildEnv(server *database.Server, user *UserEnv) (map[string]in
 		node = link.Node
 	}
 
-	serverEnv := ServerEnv{
-		ID:       server.ID,
-		Name:     server.Name,
-		GameType: server.GameType,
-		Tags:     tags,
-		Node:     node,
+	serverEnv := ServerEnv{ID: server.ID, Name: server.Name, GameType: server.GameType, Tags: tags, Node: node}
+	for _, candidate := range serverEnvs {
+		if candidate.ID == server.ID {
+			serverEnv = candidate
+			break
+		}
 	}
 
 	now := time.Now()

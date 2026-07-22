@@ -73,7 +73,7 @@ Constraint evaluation environment exposes:
 | Variable | Type | Description |
 |----------|------|-------------|
 | `action` | `string` | The requested action (`start`, `stop`, `restart`, `command:name`) |
-| `server` | `ServerEnv` | Target server: `.ID`, `.Name`, `.GameType`, `.Tags`, `.Node`, `.Running` |
+| `server` | `ServerEnv` | Target server: `.ID`, `.Name`, `.GameType`, `.Tags`, `.Node`, `.Running`, `.Players`, `.PlayersKnown` |
 | `servers` | `[]ServerEnv` | All known servers with their current running state |
 | `user` | `UserEnv` | Requesting user: `.Email`, `.Role` |
 | `time` | `TimeEnv` | `.Hour`, `.Weekday`, `.Now` (Go `time.Time`) |
@@ -103,6 +103,9 @@ countRunning(filterByTag(serversOnNode(server.Node), "minecraft")) < 1
 
 // Only admins can start servers with the "production" tag
 !hasTag(server, "production") || user.Role == "admin"
+
+// Non-admin stops require a fresh, verified empty player list
+action != "stop" || user.Role == "admin" || (server.PlayersKnown && server.Players == 0)
 ```
 
 ### ACL Rules (replaces `allowed_actions`)

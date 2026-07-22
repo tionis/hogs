@@ -128,6 +128,7 @@ func main() {
 	if cfg.AgentEnabled {
 		agentHub = agent.NewHub(store, cfg)
 		agentHub.SetNotifier(notifyService)
+		agentHub.SetStatusCache(cache)
 		agentHub.LoadAndRecoverPendingOps()
 		agentHub.StartPendingOpsCleanup()
 		agentService = agent.NewAgentService(store, agentHub)

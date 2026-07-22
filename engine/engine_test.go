@@ -544,6 +544,34 @@ func TestEvaluateConstraintsBlocking(t *testing.T) {
 	}
 }
 
+func TestEvaluateConstraintsCanRequireKnownEmptyServer(t *testing.T) {
+	eng := testEngine(t)
+	store := eng.Store
+	if err := store.CreateServer(&database.Server{Name: "test", Address: "t:25565", GameType: "minecraft", State: "online"}); err != nil {
+		t.Fatal(err)
+	}
+	server, _ := store.GetServerByName("test")
+	if err := store.CreateConstraint(&database.Constraint{
+		Name: "empty-only-stop", Condition: `action != "stop" || user.Role == "admin" || (server.PlayersKnown && server.Players == 0)`,
+		Strategy: "deny", Priority: 1, Enabled: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	user := &UserEnv{Email: "operator@example.test", Role: "user"}
+
+	if result, err := eng.EvaluateConstraints(server, "stop", user); err != nil || result.Allowed {
+		t.Fatalf("unknown player state should block stop: result=%#v err=%v", result, err)
+	}
+	eng.Cache.Set("test", &query.ServerStatus{Online: true, Players: 0, MaxPlayers: 20, PlayersKnown: true})
+	if result, err := eng.EvaluateConstraints(server, "stop", user); err != nil || !result.Allowed {
+		t.Fatalf("known empty server should allow stop: result=%#v err=%v", result, err)
+	}
+	eng.Cache.Set("test", &query.ServerStatus{Online: true, Players: 1, MaxPlayers: 20, PlayersKnown: true})
+	if result, err := eng.EvaluateConstraints(server, "stop", user); err != nil || result.Allowed {
+		t.Fatalf("occupied server should block stop: result=%#v err=%v", result, err)
+	}
+}
+
 func TestEvaluateDeniedNoLink(t *testing.T) {
 	eng := testEngine(t)
 	store := eng.Store

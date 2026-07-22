@@ -11,6 +11,7 @@ type ServerStatus struct {
 	Online        bool                   `json:"online"`
 	Players       int                    `json:"players"`
 	MaxPlayers    int                    `json:"maxPlayers"`
+	PlayersKnown  bool                   `json:"playersKnown"`
 	PlayerList    []Player               `json:"playerList,omitempty"`
 	Version       string                 `json:"version,omitempty"`
 	MapName       string                 `json:"mapName,omitempty"`
