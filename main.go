@@ -239,9 +239,6 @@ func main() {
 		router.Handle("/admin/servers/delete", authenticator.RequireRole("admin")(http.HandlerFunc(webHandler.HandleServerDelete))).Methods("POST")
 
 		router.Handle("/admin/files/{serverName}", authenticator.RequireRole("admin")(http.HandlerFunc(webHandler.FileManager))).Methods("GET")
-		router.Handle("/admin/files/upload", authenticator.RequireRole("admin")(http.HandlerFunc(webHandler.HandleFileUpload))).Methods("POST")
-		router.Handle("/admin/files/delete", authenticator.RequireRole("admin")(http.HandlerFunc(webHandler.HandleFileDelete))).Methods("POST")
-		router.Handle("/admin/files/mkdir", authenticator.RequireRole("admin")(http.HandlerFunc(webHandler.HandleMkdir))).Methods("POST")
 	} else {
 		router.HandleFunc("/login", func(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Authentication is not configured", http.StatusServiceUnavailable)
@@ -365,6 +362,7 @@ func main() {
 		router.Handle("/api/agents/delete", authenticator.RequireRole("admin")(http.HandlerFunc(agentHandler.DeleteAgent))).Methods("POST")
 
 		router.Handle("/api/agents/{serverName}/files", authenticator.RequireRole("admin", "user")(http.HandlerFunc(agentHandler.AgentFileList))).Methods("GET")
+		router.Handle("/api/agents/{serverName}/files/roots", authenticator.RequireRole("admin", "user")(http.HandlerFunc(agentHandler.AgentFileRoots))).Methods("GET")
 		router.Handle("/api/agents/{serverName}/files/read", authenticator.RequireRole("admin", "user")(http.HandlerFunc(agentHandler.AgentFileRead))).Methods("GET")
 		router.Handle("/api/agents/{serverName}/files/write", authenticator.RequireRole("admin", "user")(http.HandlerFunc(agentHandler.AgentFileWrite))).Methods("POST")
 		router.Handle("/api/agents/{serverName}/files/delete", authenticator.RequireRole("admin", "user")(http.HandlerFunc(agentHandler.AgentFileDelete))).Methods("POST")

@@ -66,7 +66,7 @@
           {{if eq .State "auto"}}<span class="badge bg-secondary">Auto</span>{{end}}
         </td>
         <td>
-          <a href="/admin/files/{{.Name}}" class="btn btn-sm btn-outline-info me-1">Files</a>
+          <a href="/{{.Name}}#file-browser-card" class="btn btn-sm btn-outline-info me-1">Files</a>
           <a href="/admin/servers/{{.ID}}" class="btn btn-sm btn-outline-primary me-1">Edit</a>
           <form action="/admin/servers/delete" method="POST" class="d-inline" onsubmit="return confirm('Are you sure you want to delete {{.Name}}?');">
             <input type="hidden" name="id" value="{{.ID}}">
