@@ -20,14 +20,6 @@
           </h1>
           <div class="server-status-poller h5 mb-0" data-server="{{.Server.Name}}" data-game-type="{{.Server.GameType}}" data-state="{{.Server.State}}">Checking status...</div>
         </div>
-        {{if .Server.Address}}
-        <div class="mb-2" style="color: var(--text-secondary);">
-          <span>Connect:</span> <code>{{.Server.Address}}</code>
-          {{with index .Server.Metadata "directAddress"}}
-          <br><span class="small">Direct fallback:</span> <code class="small">{{.}}</code>
-          {{end}}
-        </div>
-        {{end}}
         <p class="card-text lead">{{.Server.Description | nl2br}}</p>
 
         {{if .Server.ModURL}}
@@ -150,17 +142,34 @@
       </div>
       <ul class="list-group list-group-flush">
          {{if .Server.Address}}<li class="list-group-item d-flex justify-content-between align-items-center">
-            <strong>Address</strong> <span>{{.Server.Address}}</span>
+            <strong>Connect address</strong>
+            <span class="d-flex align-items-center gap-2">
+              <code id="connect-address">{{.Server.Address}}</code>
+              <button type="button" class="btn btn-sm btn-outline-secondary py-0"
+                      data-copy-target="connect-address" onclick="copyServerAddress(this)">Copy</button>
+            </span>
          </li>{{end}}
+         {{with index .Server.Metadata "directAddress"}}
+         <li class="list-group-item d-flex justify-content-between align-items-center">
+           <strong>Direct fallback</strong>
+           <span class="d-flex align-items-center gap-2">
+             <code id="direct-address">{{.}}</code>
+             <button type="button" class="btn btn-sm btn-outline-secondary py-0"
+                     data-copy-target="direct-address" onclick="copyServerAddress(this)">Copy</button>
+           </span>
+         </li>
+         {{end}}
          <li class="list-group-item d-flex justify-content-between align-items-center">
             <strong>Game</strong> <span class="game-badge" style="{{gameBadgeCSS .Server.GameType}}">{{.Server.GameType | gameIcon}}{{.Server.GameType | gameDisplayName}}</span>
          </li>
          {{range $k, $v := .Server.Metadata}}
          {{if ne $k "api_token"}}
          {{if ne $k "rcon_password"}}
+         {{if ne $k "directAddress"}}
          <li class="list-group-item d-flex justify-content-between align-items-center">
             <strong>{{$k}}</strong> <span>{{$v}}</span>
          </li>
+         {{end}}
          {{end}}
          {{end}}
          {{end}}
@@ -267,6 +276,19 @@
 </div>
 
 <script>
+async function copyServerAddress(button) {
+    const target = document.getElementById(button.dataset.copyTarget);
+    if (!target) return;
+    const original = button.textContent;
+    try {
+        await navigator.clipboard.writeText(target.textContent.trim());
+        button.textContent = 'Copied';
+    } catch (_) {
+        button.textContent = 'Copy failed';
+    }
+    window.setTimeout(() => { button.textContent = original; }, 1500);
+}
+
 async function runServerAction(action, button) {
     const feedback = document.getElementById('server-action-feedback');
     const original = button.textContent;

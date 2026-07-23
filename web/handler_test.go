@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -173,6 +174,44 @@ func TestServerDetailRenders(t *testing.T) {
 	}
 	if !contains(w.Body.String(), "play.example.test") || !contains(w.Body.String(), "node.example.test:25565") {
 		t.Error("expected server detail to contain discovery and fallback addresses")
+	}
+	body := w.Body.String()
+	for _, expected := range []string{
+		"Connect address", "Direct fallback", `data-copy-target="connect-address"`,
+		`data-copy-target="direct-address"`, "copyServerAddress",
+	} {
+		if !contains(body, expected) {
+			t.Errorf("expected address UI to contain %q", expected)
+		}
+	}
+	if count := strings.Count(body, "play.example.test"); count != 1 {
+		t.Errorf("connect address rendered %d times, want once", count)
+	}
+	if count := strings.Count(body, "node.example.test:25565"); count != 1 {
+		t.Errorf("direct address rendered %d times, want once", count)
+	}
+	if contains(body, "<strong>directAddress</strong>") || contains(body, "<span>Connect:</span>") {
+		t.Error("address metadata was also rendered through the generic or top-level UI")
+	}
+}
+
+func TestServerDetailOmitsDirectFallbackWhenNotConfigured(t *testing.T) {
+	handler, store, _ := testWebHandler(t)
+	if err := store.CreateServer(&database.Server{
+		Name: "NoFallbackSrv", GameType: "factorio", State: "online", Address: "factorio.example.test",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/NoFallbackSrv", nil)
+	req = mux.SetURLVars(req, map[string]string{"serverName": "NoFallbackSrv"})
+	w := httptest.NewRecorder()
+	handler.ServerDetail(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if contains(w.Body.String(), "Direct fallback") || contains(w.Body.String(), `id="direct-address"`) {
+		t.Error("direct fallback controls rendered without a configured address")
 	}
 }
 
