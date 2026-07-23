@@ -783,6 +783,11 @@ func (h *InventoryHandler) applyManifest(manifest, previous InventoryManifest, d
 	if err := applyServers(tx, manifest.Servers); err != nil {
 		return err
 	}
+	if _, err := tx.Exec(`DELETE FROM background_tags
+		WHERE tag NOT IN ('dark', 'light', 'home')
+		  AND tag NOT IN (SELECT DISTINCT game_type FROM servers WHERE game_type <> '')`); err != nil {
+		return err
+	}
 	if err := applyConstraints(tx, manifest.Constraints); err != nil {
 		return err
 	}

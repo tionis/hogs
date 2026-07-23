@@ -11,7 +11,8 @@ OIDC-protected operator UI.
 *   **Declarative Inventory API:** Transactional plan/apply/readback and cursor events let Gandalf or another inventory system manage nodes, servers, policies, schedules, and integrations. See [the inventory API contract](docs/INVENTORY_API.md).
 *   **Node-Scoped Agent:** One agent manages an explicit local allowlist of units and data roots through a capability-authenticated HTTP API. Direct agents use public HTTPS so browsers can stream large files without relaying them through HOGS; tunneled agents can use the same API over a private transport. See [the agent contract](docs/AGENT.md).
 *   **Real-time Server Status:** Live player counts, version info, and online status using efficient caching (60s TTL).
-*   **Role-Based Access Control:** OIDC groups map to admin/user roles. Admins get full dashboard access; users can interact with servers based on per-server permissions.
+*   **Structured Server Access:** OIDC users and groups receive explicit per-server capabilities, deployment policy limits what can be granted, and operational constraints remain a separate decision layer. See [server access control](docs/ACCESS_CONTROL.md).
+*   **Linked Game Identities:** Users or administrators link one in-game identity per game type for safe, game-specific whitelist management.
 *   **Pterodactyl Integration:** Link servers to a Pterodactyl panel for start/stop/restart and approved command execution — all configurable per-server via `allowed_actions`.
 *   **Admin Dashboard:** Complete web-based management interface for adding, editing, and deleting servers without touching the database.
 *   **Background Images:** Customizable, theme-aware background images with hash-addressed caching for performance.

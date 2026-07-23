@@ -1,13 +1,14 @@
-{{define "title"}}Debug Users{{end}}
+{{define "title"}}Users and Game Identities{{end}}
 
 {{define "content"}}
 <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
-  <h1 class="h2">Debug Users</h1>
+  <h1 class="h2">Users and Game Identities</h1>
   <a href="/admin" class="btn btn-sm btn-outline-secondary">Back to Admin</a>
 </div>
 
 <div class="alert alert-info">
-  <strong>Note:</strong> This page is for debugging purposes only. Users and groups are managed in your OIDC provider (Keycloak, Authentik, etc.). Role changes should be made there, not here.
+  Users, groups, and roles remain authoritative in the OIDC provider. HOGS stores only the
+  game-account identities used for game-specific allowlist operations.
 </div>
 
 <div class="table-responsive">
@@ -20,6 +21,7 @@
         <th>Groups</th>
         <th>External ID</th>
         <th>Display Name</th>
+        <th>Game Identities</th>
         <th>First Seen</th>
         <th>Last Login</th>
       </tr>
@@ -41,6 +43,26 @@
         </td>
         <td class="small">{{if .ExternalID}}{{.ExternalID}}{{else}}<em class="text-muted">none</em>{{end}}</td>
         <td>{{if .DisplayName}}{{.DisplayName}}{{else}}<em class="text-muted">none</em>{{end}}</td>
+        <td style="min-width: 22rem">
+          {{range .Identities}}
+          <div class="d-flex align-items-center gap-1 mb-1">
+            <span class="badge bg-secondary">{{.GameType}}</span>
+            <code>{{.Username}}</code>
+            <span class="text-muted small">({{.Source}})</span>
+            <form action="/account/game-identities/delete" method="POST" class="ms-auto">
+              <input type="hidden" name="user_email" value="{{.UserEmail}}">
+              <input type="hidden" name="game_type" value="{{.GameType}}">
+              <button type="submit" class="btn btn-sm btn-outline-danger py-0">Remove</button>
+            </form>
+          </div>
+          {{end}}
+          <form action="/account/game-identities/set" method="POST" class="row g-1 mt-1">
+            <input type="hidden" name="user_email" value="{{.Email}}">
+            <div class="col-4"><input name="game_type" class="form-control form-control-sm" placeholder="minecraft" required></div>
+            <div class="col-5"><input name="username" class="form-control form-control-sm" placeholder="In-game name" required></div>
+            <div class="col-3"><button class="btn btn-sm btn-outline-primary w-100" type="submit">Link</button></div>
+          </form>
+        </td>
         <td class="small text-muted">{{.FirstSeen}}</td>
         <td class="small text-muted">{{.LastLogin}}</td>
       </tr>

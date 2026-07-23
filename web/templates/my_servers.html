@@ -3,7 +3,32 @@
 {{define "content"}}
 <div class="pt-3 pb-2 mb-3 border-bottom">
   <h1 class="h2">My Servers</h1>
-  <p class="text-muted">Servers you have actions on (linked to Pterodactyl with permissions for your role).</p>
+  <p class="text-muted">Servers and actions granted directly to you or through your OIDC groups.</p>
+</div>
+
+<div class="card mb-4">
+  <div class="card-header">My Linked Game Accounts</div>
+  <div class="card-body">
+    <p class="small text-muted">A linked identity is reused when you whitelist yourself on servers of that game type.</p>
+    {{range .Identities}}
+    <div class="d-flex align-items-center gap-2 mb-2">
+      <span class="badge bg-secondary">{{.GameType}}</span>
+      <code>{{.Username}}</code>
+      <form action="/account/game-identities/delete" method="POST" class="ms-auto">
+        <input type="hidden" name="game_type" value="{{.GameType}}">
+        <button class="btn btn-sm btn-outline-danger" type="submit">Unlink</button>
+      </form>
+    </div>
+    {{end}}
+    <form action="/account/game-identities/set" method="POST" class="row g-2">
+      <div class="col-md-4">
+        <input class="form-control form-control-sm" name="game_type" list="identity-game-types" placeholder="Game type" required>
+        <datalist id="identity-game-types">{{range .GameTypes}}<option value="{{.}}">{{. | gameDisplayName}}</option>{{end}}</datalist>
+      </div>
+      <div class="col-md-5"><input class="form-control form-control-sm" name="username" placeholder="In-game username" required></div>
+      <div class="col-md-3"><button class="btn btn-sm btn-outline-primary w-100" type="submit">Link account</button></div>
+    </form>
+  </div>
 </div>
 
 {{if .Servers}}

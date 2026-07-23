@@ -352,11 +352,6 @@ func (h *PterodactylHandler) getUserEnv(r *http.Request) *engine.UserEnv {
 	return userEnvFromRequest(h.Store, h.Auth, r)
 }
 
-func (h *PterodactylHandler) evaluateACLEnabled(link *database.PterodactylLink, server *database.Server, action string, user *engine.UserEnv) bool {
-	result := h.Engine.Evaluate(server, action, nil, user)
-	return result.Allowed
-}
-
 func (h *PterodactylHandler) SendCommand(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	serverName := vars["serverName"]
@@ -423,16 +418,7 @@ func (h *PterodactylHandler) SendCommand(w http.ResponseWriter, r *http.Request)
 func (h *PterodactylHandler) WhitelistSet(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	serverName := vars["serverName"]
-	username := r.FormValue("username")
-
-	if username == "" {
-		http.Error(w, "Username is required", http.StatusBadRequest)
-		return
-	}
-	if !isValidMinecraftUsername(username) {
-		http.Error(w, "Invalid username format", http.StatusBadRequest)
-		return
-	}
+	username := strings.TrimSpace(r.FormValue("username"))
 
 	server, err := h.Store.GetServerByName(serverName)
 	if err != nil {
@@ -451,16 +437,14 @@ func (h *PterodactylHandler) WhitelistSet(w http.ResponseWriter, r *http.Request
 	}
 
 	user := h.getUserEnv(r)
-	if !isActionAllowed(link.AllowedActions, "whitelist") {
-		if h.Engine == nil || !h.evaluateACLEnabled(link, server, "whitelist", user) {
-			http.Error(w, "Whitelist action not permitted for this server", http.StatusForbidden)
+	if h.Engine != nil {
+		result := h.Engine.Evaluate(server, "whitelist", nil, user)
+		if !result.Allowed {
+			http.Error(w, result.Reason, result.Status)
 			return
 		}
-	}
-
-	addCmd := whitelistAddCommand(server.GameType, username)
-	if addCmd == "" {
-		http.Error(w, "Whitelist not supported for game type: "+server.GameType, http.StatusBadRequest)
+	} else if !isActionAllowed(link.AllowedActions, "whitelist") {
+		http.Error(w, "Whitelist action not permitted for this server", http.StatusForbidden)
 		return
 	}
 
@@ -469,8 +453,55 @@ func (h *PterodactylHandler) WhitelistSet(w http.ResponseWriter, r *http.Request
 		http.Error(w, "Authenticated identity is required", http.StatusUnauthorized)
 		return
 	}
-
 	existing, _ := h.Store.GetUserWhitelist(userEmail, server.ID)
+	if r.FormValue("op") == "remove" {
+		if existing == nil {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]string{"status": "ok", "message": "not whitelisted"})
+			return
+		}
+		removeCmd := whitelistRemoveCommand(server.GameType, existing.Username)
+		b, bErr := h.resolveBackend(server, link)
+		if bErr != nil {
+			http.Error(w, bErr.Error(), http.StatusServiceUnavailable)
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+		defer cancel()
+		if err := b.SendCommand(ctx, removeCmd); err != nil {
+			http.Error(w, fmt.Sprintf("%s whitelist removal failed: %s", b.Name(), err.Error()), http.StatusInternalServerError)
+			return
+		}
+		if err := h.Store.DeleteUserWhitelist(userEmail, server.ID); err != nil {
+			http.Error(w, "Failed to update whitelist entry", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok", "message": "removed from whitelist"})
+		return
+	}
+	identity, _ := h.Store.GetGameIdentity(userEmail, server.GameType)
+	if username == "" && identity != nil {
+		username = identity.Username
+	}
+	if username == "" || (server.GameType == "minecraft" && !isValidMinecraftUsername(username)) {
+		http.Error(w, "A valid linked in-game username is required", http.StatusBadRequest)
+		return
+	}
+	addCmd := whitelistAddCommand(server.GameType, username)
+	if addCmd == "" {
+		http.Error(w, "Whitelist not supported for game type: "+server.GameType, http.StatusBadRequest)
+		return
+	}
+	if identity == nil || identity.Username != username {
+		if err := h.Store.SetGameIdentity(&database.GameIdentity{
+			UserEmail: userEmail, GameType: server.GameType, Username: username, Source: "self",
+		}); err != nil {
+			http.Error(w, "Failed to save linked game identity", http.StatusInternalServerError)
+			return
+		}
+	}
+
 	if existing != nil && existing.Username == username {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok", "message": "already whitelisted"})
@@ -536,13 +567,17 @@ func (h *PterodactylHandler) WhitelistStatus(w http.ResponseWriter, r *http.Requ
 	}
 
 	existing, _ := h.Store.GetUserWhitelist(userEmail, server.ID)
+	identity, _ := h.Store.GetGameIdentity(userEmail, server.GameType)
 
 	w.Header().Set("Content-Type", "application/json")
-	if existing != nil {
-		json.NewEncoder(w).Encode(map[string]string{"username": existing.Username})
-	} else {
-		json.NewEncoder(w).Encode(map[string]string{"username": ""})
+	response := map[string]string{"username": "", "linkedUsername": ""}
+	if identity != nil {
+		response["linkedUsername"] = identity.Username
 	}
+	if existing != nil {
+		response["username"] = existing.Username
+	}
+	json.NewEncoder(w).Encode(response)
 }
 
 var minecraftUsernameRegex = regexp.MustCompile(`^[a-zA-Z0-9_]{3,16}$`)

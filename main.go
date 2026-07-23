@@ -171,6 +171,7 @@ func main() {
 	webhookHandler := api.NewWebhookHandler(store, webhookDispatcher)
 	notificationHandler := api.NewNotificationHandler(store, notifyService)
 	inventoryHandler := api.NewInventoryHandler(store)
+	accessHandler := api.NewAccessHandler(store)
 
 	var scimHandler *scim.Handler
 	if cfg.SCIMEnabled && cfg.SCIMBearerToken != "" {
@@ -249,6 +250,8 @@ func main() {
 		router.Handle("/admin/servers/add", authenticator.RequireRole("admin")(http.HandlerFunc(webHandler.HandleServerCreate))).Methods("POST")
 		router.Handle("/admin/servers/update", authenticator.RequireRole("admin")(http.HandlerFunc(webHandler.HandleServerUpdate))).Methods("POST")
 		router.Handle("/admin/servers/delete", authenticator.RequireRole("admin")(http.HandlerFunc(webHandler.HandleServerDelete))).Methods("POST")
+		router.Handle("/admin/access-grants/set", authenticator.RequireRole("admin")(http.HandlerFunc(webHandler.HandleAccessGrantSet))).Methods("POST")
+		router.Handle("/admin/access-grants/delete", authenticator.RequireRole("admin")(http.HandlerFunc(webHandler.HandleAccessGrantDelete))).Methods("POST")
 
 		router.Handle("/admin/files/{serverName}", authenticator.RequireRole("admin")(http.HandlerFunc(webHandler.FileManager))).Methods("GET")
 	} else {
@@ -279,6 +282,12 @@ func main() {
 	router.Handle("/api/v1/inventory/plan", inventoryAdmin(http.HandlerFunc(inventoryHandler.Plan))).Methods("POST")
 	router.Handle("/api/v1/inventory", inventoryAdmin(http.HandlerFunc(inventoryHandler.Apply))).Methods("PUT")
 	router.Handle("/api/v1/inventory/events", inventoryAdmin(http.HandlerFunc(inventoryHandler.Events))).Methods("GET")
+	router.Handle("/api/v1/servers/{serverName}/access-grants", inventoryAdmin(http.HandlerFunc(accessHandler.ListGrants))).Methods("GET")
+	router.Handle("/api/v1/servers/{serverName}/access-grants", inventoryAdmin(http.HandlerFunc(accessHandler.SetGrant))).Methods("PUT")
+	router.Handle("/api/v1/servers/{serverName}/access-grants/{grantID}", inventoryAdmin(http.HandlerFunc(accessHandler.DeleteGrant))).Methods("DELETE")
+	router.Handle("/api/v1/game-identities", inventoryAdmin(http.HandlerFunc(accessHandler.ListGameIdentities))).Methods("GET")
+	router.Handle("/api/v1/game-identities", inventoryAdmin(http.HandlerFunc(accessHandler.SetGameIdentity))).Methods("PUT")
+	router.Handle("/api/v1/game-identities", inventoryAdmin(http.HandlerFunc(accessHandler.DeleteGameIdentity))).Methods("DELETE")
 
 	if authenticator != nil {
 		router.Handle("/servers/{serverName}/action", authenticator.RequireRole("admin", "user")(http.HandlerFunc(pteroHandler.ServerAction))).Methods("POST")
@@ -308,6 +317,8 @@ func main() {
 		router.Handle("/api/pterodactyl/servers", authenticator.RequireRole("admin")(http.HandlerFunc(pteroHandler.ListPteroServers))).Methods("GET")
 
 		router.Handle("/my-servers", authenticator.RequireRole("admin", "user")(http.HandlerFunc(webHandler.MyServers))).Methods("GET")
+		router.Handle("/account/game-identities/set", authenticator.RequireRole("admin", "user")(http.HandlerFunc(webHandler.HandleGameIdentitySet))).Methods("POST")
+		router.Handle("/account/game-identities/delete", authenticator.RequireRole("admin", "user")(http.HandlerFunc(webHandler.HandleGameIdentityDelete))).Methods("POST")
 
 		router.Handle("/admin/commands/{serverId}", authenticator.RequireRole("admin")(http.HandlerFunc(webHandler.CommandManager))).Methods("GET")
 		router.Handle("/admin/commands/add", authenticator.RequireRole("admin")(http.HandlerFunc(automationHandler.AddCommandSchema))).Methods("POST")

@@ -493,6 +493,39 @@ func TestEvaluateACLExpressionRule(t *testing.T) {
 	}
 }
 
+func TestEvaluateACLStructuredGrantOverridesLegacyRule(t *testing.T) {
+	store := testEngineStore(t)
+	srv := &database.Server{Name: "structured", GameType: "minecraft", State: "online"}
+	if err := store.CreateServer(srv); err != nil {
+		t.Fatal(err)
+	}
+	link := &database.PterodactylLink{
+		ServerID: srv.ID, PteroServerID: "agent:structured",
+		AllowedActions: `["start","stop"]`, ACLRule: `true`,
+	}
+	if err := store.CreatePterodactylLink(link); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetServerAccessGrant(&database.ServerAccessGrant{
+		ServerID: srv.ID, SubjectType: "group", Subject: "Operators",
+		Capabilities: []string{"start"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	eng := NewEngine(store, &config.Config{}, query.NewServerStatusCache())
+	user := &UserEnv{Email: "player@example.test", Role: "user", Groups: []string{"Operators"}}
+	if allowed, err := eng.EvaluateACL(link, srv, "start", user); err != nil || !allowed {
+		t.Fatalf("start allowed=%v err=%v", allowed, err)
+	}
+	if allowed, err := eng.EvaluateACL(link, srv, "stop", user); err != nil || allowed {
+		t.Fatalf("stop allowed=%v err=%v", allowed, err)
+	}
+	admin := &UserEnv{Email: "admin@example.test", Role: "admin"}
+	if allowed, err := eng.EvaluateACL(link, srv, "stop", admin); err != nil || !allowed {
+		t.Fatalf("admin stop allowed=%v err=%v", allowed, err)
+	}
+}
+
 func TestEvaluateConstraintsNoConstraints(t *testing.T) {
 	eng := testEngine(t)
 	store := eng.Store

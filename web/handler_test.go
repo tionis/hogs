@@ -153,6 +153,33 @@ func TestHomeRenders(t *testing.T) {
 	}
 }
 
+func TestAdminGameTypesIncludeCustomServerType(t *testing.T) {
+	types := adminGameTypes([]database.Server{{GameType: "custom_game"}})
+	if !containsString(types, "custom_game") || !containsString(types, "minecraft") {
+		t.Fatalf("admin game types = %#v", types)
+	}
+}
+
+func TestBackgroundGameTagsOnlyUseConfiguredServers(t *testing.T) {
+	options := AvailableBackgroundTags([]string{"factorio"})
+	var values []string
+	for _, option := range options {
+		values = append(values, option.Value)
+	}
+	if !containsString(values, "factorio") || containsString(values, "valheim") {
+		t.Fatalf("background tag values = %#v", values)
+	}
+}
+
+func containsString(values []string, wanted string) bool {
+	for _, value := range values {
+		if value == wanted {
+			return true
+		}
+	}
+	return false
+}
+
 func TestServerDetailRenders(t *testing.T) {
 	handler, store, _ := testWebHandler(t)
 	store.CreateServer(&database.Server{

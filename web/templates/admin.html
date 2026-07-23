@@ -120,13 +120,13 @@
           <div class="row">
             <div class="col-md-6 mb-3">
               <label for="addGameType" class="form-label">Game Type</label>
-              <select class="form-select" id="addGameType" name="game_type" onchange="toggleGameFields('add')">
-                <option value="minecraft" selected>Minecraft</option>
-                <option value="satisfactory">Satisfactory</option>
-                <option value="factorio">Factorio</option>
-                <option value="valheim">Valheim</option>
-                <option value="starrupture">Star Rupture</option>
-              </select>
+              <input class="form-control" id="addGameType" name="game_type" value="minecraft"
+                list="admin-game-types" pattern="[a-z0-9][a-z0-9_-]{0,31}" required
+                onchange="toggleGameFields('add')" placeholder="minecraft">
+              <datalist id="admin-game-types">
+                {{range .GameTypes}}<option value="{{.}}">{{. | gameDisplayName}}</option>{{end}}
+              </datalist>
+              <div class="form-text">Choose a known type or enter a lowercase custom slug.</div>
             </div>
             <div class="col-md-6 mb-3">
               <label for="addState" class="form-label">State</label>

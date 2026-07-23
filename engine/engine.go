@@ -224,6 +224,21 @@ func ParseWeekday(name string) time.Weekday {
 }
 
 func (e *Engine) EvaluateACL(link *database.PterodactylLink, server *database.Server, action string, user *UserEnv) (bool, error) {
+	if user != nil {
+		allowed, governed, err := e.Store.ServerAccessAllowed(server.ID, user.Email, user.Groups, action)
+		if err != nil {
+			return false, fmt.Errorf("evaluate structured access grants: %w", err)
+		}
+		if governed {
+			if !isActionAllowed(link.AllowedActions, action) {
+				return false, nil
+			}
+			if user.Role == "admin" || user.Role == "system" {
+				return true, nil
+			}
+			return allowed, nil
+		}
+	}
 	if link.ACLRule != "" {
 		env, err := e.buildEnv(server, user)
 		if err != nil {

@@ -91,8 +91,17 @@ func authorizeManagedCapability(store *database.Store, eng *engine.Engine, authe
 	if capability == managedFile && user.Role != "admin" {
 		return nil, nil, http.StatusForbidden, fmt.Errorf("server administrator access required")
 	}
-	if user.Role != "admin" && !isManagedOperator(management.Operators, user) {
-		return nil, nil, http.StatusForbidden, fmt.Errorf("server operator access required")
+	if user.Role != "admin" {
+		granted, governed, accessErr := store.ServerAccessAllowed(server.ID, user.Email, user.Groups, string(capability))
+		if accessErr != nil {
+			return nil, nil, http.StatusInternalServerError, fmt.Errorf("evaluate server access: %w", accessErr)
+		}
+		if governed && !granted {
+			return nil, nil, http.StatusForbidden, fmt.Errorf("server capability is not granted")
+		}
+		if !governed && !isManagedOperator(management.Operators, user) {
+			return nil, nil, http.StatusForbidden, fmt.Errorf("server operator access required")
+		}
 	}
 	if eng != nil {
 		result := eng.Evaluate(server, string(capability), nil, user)

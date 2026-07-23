@@ -68,6 +68,152 @@ type UserWhitelist struct {
 	Username  string `json:"username"`
 }
 
+type ServerAccessGrant struct {
+	ID           int      `json:"id"`
+	ServerID     int      `json:"serverId"`
+	SubjectType  string   `json:"subjectType"`
+	Subject      string   `json:"subject"`
+	Capabilities []string `json:"capabilities"`
+}
+
+func (s *Store) ListServerAccessGrants(serverID int) ([]ServerAccessGrant, error) {
+	rows, err := s.DB.Query(`SELECT id,server_id,subject_type,subject,capabilities
+		FROM server_access_grants WHERE server_id=? ORDER BY subject_type,subject`, serverID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var grants []ServerAccessGrant
+	for rows.Next() {
+		var grant ServerAccessGrant
+		var capabilities string
+		if err := rows.Scan(&grant.ID, &grant.ServerID, &grant.SubjectType, &grant.Subject, &capabilities); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal([]byte(capabilities), &grant.Capabilities); err != nil {
+			return nil, err
+		}
+		grants = append(grants, grant)
+	}
+	return grants, rows.Err()
+}
+
+func (s *Store) SetServerAccessGrant(grant *ServerAccessGrant) error {
+	capabilities, err := json.Marshal(grant.Capabilities)
+	if err != nil {
+		return err
+	}
+	result, err := s.DB.Exec(`INSERT INTO server_access_grants(server_id,subject_type,subject,capabilities)
+		VALUES(?,?,?,?) ON CONFLICT(server_id,subject_type,subject)
+		DO UPDATE SET capabilities=excluded.capabilities`,
+		grant.ServerID, grant.SubjectType, grant.Subject, string(capabilities))
+	if err != nil {
+		return err
+	}
+	if grant.ID == 0 {
+		id, _ := result.LastInsertId()
+		grant.ID = int(id)
+	}
+	return nil
+}
+
+func (s *Store) DeleteServerAccessGrant(id, serverID int) error {
+	_, err := s.DB.Exec("DELETE FROM server_access_grants WHERE id=? AND server_id=?", id, serverID)
+	return err
+}
+
+// ServerAccessAllowed reports whether structured access grants govern a server
+// and whether one grants the requested capability to this identity.
+func (s *Store) ServerAccessAllowed(serverID int, email string, groups []string, capability string) (bool, bool, error) {
+	grants, err := s.ListServerAccessGrants(serverID)
+	if err != nil {
+		return false, false, err
+	}
+	if len(grants) == 0 {
+		return false, false, nil
+	}
+	groupSet := make(map[string]struct{}, len(groups))
+	for _, group := range groups {
+		groupSet[group] = struct{}{}
+	}
+	for _, grant := range grants {
+		matches := grant.SubjectType == "authenticated" ||
+			(grant.SubjectType == "user" && strings.EqualFold(grant.Subject, email))
+		if grant.SubjectType == "group" {
+			_, matches = groupSet[grant.Subject]
+		}
+		if !matches {
+			continue
+		}
+		for _, allowed := range grant.Capabilities {
+			if allowed == "*" || allowed == capability ||
+				(allowed == "command" && strings.HasPrefix(capability, "command:")) {
+				return true, true, nil
+			}
+		}
+	}
+	return false, true, nil
+}
+
+type GameIdentity struct {
+	ID        int    `json:"id"`
+	UserEmail string `json:"userEmail"`
+	GameType  string `json:"gameType"`
+	Username  string `json:"username"`
+	Source    string `json:"source"`
+	UpdatedAt string `json:"updatedAt"`
+}
+
+func (s *Store) ListGameIdentities(email string) ([]GameIdentity, error) {
+	query := "SELECT id,user_email,game_type,username,source,updated_at FROM game_identities"
+	var args []interface{}
+	if email != "" {
+		query += " WHERE user_email=?"
+		args = append(args, email)
+	}
+	query += " ORDER BY user_email,game_type"
+	rows, err := s.DB.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var identities []GameIdentity
+	for rows.Next() {
+		var identity GameIdentity
+		if err := rows.Scan(&identity.ID, &identity.UserEmail, &identity.GameType, &identity.Username, &identity.Source, &identity.UpdatedAt); err != nil {
+			return nil, err
+		}
+		identities = append(identities, identity)
+	}
+	return identities, rows.Err()
+}
+
+func (s *Store) GetGameIdentity(email, gameType string) (*GameIdentity, error) {
+	row := s.DB.QueryRow(`SELECT id,user_email,game_type,username,source,updated_at
+		FROM game_identities WHERE user_email=? AND game_type=?`, email, gameType)
+	var identity GameIdentity
+	if err := row.Scan(&identity.ID, &identity.UserEmail, &identity.GameType, &identity.Username, &identity.Source, &identity.UpdatedAt); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &identity, nil
+}
+
+func (s *Store) SetGameIdentity(identity *GameIdentity) error {
+	_, err := s.DB.Exec(`INSERT INTO game_identities(user_email,game_type,username,source,updated_at)
+		VALUES(?,?,?,?,CURRENT_TIMESTAMP) ON CONFLICT(user_email,game_type)
+		DO UPDATE SET username=excluded.username,source=excluded.source,updated_at=CURRENT_TIMESTAMP`,
+		identity.UserEmail, identity.GameType, identity.Username, identity.Source)
+	return err
+}
+
+func (s *Store) DeleteGameIdentity(email, gameType string) error {
+	_, err := s.DB.Exec("DELETE FROM game_identities WHERE user_email=? AND game_type=?", email, gameType)
+	return err
+}
+
 func (s *Store) GetUserWhitelist(email string, serverID int) (*UserWhitelist, error) {
 	row := s.DB.QueryRow("SELECT id, user_email, server_id, username FROM user_whitelists WHERE user_email = ? AND server_id = ?", email, serverID)
 	var uw UserWhitelist
@@ -124,6 +270,7 @@ type Store struct {
 }
 
 func NewStore(dataSourceName string) (*Store, error) {
+	dataSourceName = sqliteDSNWithForeignKeys(dataSourceName)
 	if err := runMigrations(dataSourceName); err != nil {
 		return nil, fmt.Errorf("failed to run migrations: %w", err)
 	}
@@ -136,11 +283,24 @@ func NewStore(dataSourceName string) (*Store, error) {
 	if err = db.Ping(); err != nil {
 		return nil, err
 	}
-
 	log.Println("Database connection established.")
 	store := &Store{DB: db}
 
 	return store, nil
+}
+
+func sqliteDSNWithForeignKeys(dataSourceName string) string {
+	if strings.Contains(dataSourceName, "_foreign_keys=") || strings.Contains(dataSourceName, "_fk=") {
+		return dataSourceName
+	}
+	if dataSourceName == ":memory:" {
+		return "file::memory:?cache=shared&_foreign_keys=on"
+	}
+	separator := "?"
+	if strings.Contains(dataSourceName, "?") {
+		separator = "&"
+	}
+	return dataSourceName + separator + "_foreign_keys=on"
 }
 
 func runMigrations(dataSourceName string) error {
@@ -271,8 +431,16 @@ func (s *Store) CreateServer(srv *Server) error {
 		gameType = "minecraft"
 	}
 
-	_, err = stmt.Exec(srv.Name, srv.Address, srv.Description, srv.MapURL, srv.ModURL, srv.State, gameType, showMotd, string(metadataJSON))
-	return err
+	result, err := stmt.Exec(srv.Name, srv.Address, srv.Description, srv.MapURL, srv.ModURL, srv.State, gameType, showMotd, string(metadataJSON))
+	if err != nil {
+		return err
+	}
+	id, err := result.LastInsertId()
+	if err != nil {
+		return err
+	}
+	srv.ID = int(id)
+	return nil
 }
 
 func (s *Store) UpdateServer(srv *Server) error {
@@ -821,6 +989,15 @@ func (s *Store) SetServerTags(serverID int, tags []string) error {
 		}
 	}
 	return nil
+}
+
+// PruneUnusedBackgroundGameTags removes game-context choices after their last
+// server disappears. Theme and page tags remain permanent.
+func (s *Store) PruneUnusedBackgroundGameTags() error {
+	_, err := s.DB.Exec(`DELETE FROM background_tags
+		WHERE tag NOT IN ('dark', 'light', 'home')
+		  AND tag NOT IN (SELECT DISTINCT game_type FROM servers WHERE game_type <> '')`)
+	return err
 }
 
 type Constraint struct {

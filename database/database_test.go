@@ -364,6 +364,86 @@ func TestPterodactylCommandCRUD(t *testing.T) {
 	}
 }
 
+func TestStructuredAccessGrants(t *testing.T) {
+	store := testStore(t)
+	server := &Server{Name: "grant-test", GameType: "minecraft", State: "online"}
+	if err := store.CreateServer(server); err != nil {
+		t.Fatal(err)
+	}
+	grant := &ServerAccessGrant{
+		ServerID: server.ID, SubjectType: "group", Subject: "Game Operators",
+		Capabilities: []string{"start", "command"},
+	}
+	if err := store.SetServerAccessGrant(grant); err != nil {
+		t.Fatal(err)
+	}
+	if allowed, governed, err := store.ServerAccessAllowed(server.ID, "player@example.test", []string{"Game Operators"}, "start"); err != nil || !governed || !allowed {
+		t.Fatalf("start allowed=%v governed=%v err=%v", allowed, governed, err)
+	}
+	if allowed, governed, err := store.ServerAccessAllowed(server.ID, "player@example.test", []string{"Game Operators"}, "command:seed"); err != nil || !governed || !allowed {
+		t.Fatalf("command allowed=%v governed=%v err=%v", allowed, governed, err)
+	}
+	if allowed, governed, err := store.ServerAccessAllowed(server.ID, "player@example.test", []string{"Game Operators"}, "stop"); err != nil || !governed || allowed {
+		t.Fatalf("stop allowed=%v governed=%v err=%v", allowed, governed, err)
+	}
+}
+
+func TestGameIdentityAndServerCascade(t *testing.T) {
+	store := testStore(t)
+	server := &Server{Name: "identity-test", GameType: "minecraft", State: "online"}
+	if err := store.CreateServer(server); err != nil {
+		t.Fatal(err)
+	}
+	if server.ID == 0 {
+		t.Fatal("CreateServer did not populate ID")
+	}
+	identity := &GameIdentity{
+		UserEmail: "player@example.test", GameType: "minecraft", Username: "PlayerOne", Source: "self",
+	}
+	if err := store.SetGameIdentity(identity); err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.GetGameIdentity(identity.UserEmail, identity.GameType)
+	if err != nil || got == nil || got.Username != identity.Username {
+		t.Fatalf("identity=%#v err=%v", got, err)
+	}
+	if err := store.SetServerTags(server.ID, []string{"temporary"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.DeleteServer(server.ID); err != nil {
+		t.Fatal(err)
+	}
+	tags, err := store.GetServerTags(server.ID)
+	if err != nil || len(tags) != 0 {
+		t.Fatalf("orphan tags=%v err=%v", tags, err)
+	}
+}
+
+func TestPruneUnusedBackgroundGameTags(t *testing.T) {
+	store := testStore(t)
+	server := &Server{Name: "tag-server", GameType: "minecraft", State: "online"}
+	if err := store.CreateServer(server); err != nil {
+		t.Fatal(err)
+	}
+	background := &Background{
+		Filename: "background.webp", ContentHash: "abc123", Enabled: true,
+		Tags: []string{"dark", "minecraft", "valheim"},
+	}
+	if err := store.CreateBackground(background); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.PruneUnusedBackgroundGameTags(); err != nil {
+		t.Fatal(err)
+	}
+	tags, err := store.GetBackgroundTags(background.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tags) != 2 || tags[0] != "dark" || tags[1] != "minecraft" {
+		t.Fatalf("tags after prune = %#v", tags)
+	}
+}
+
 func TestAgentPendingOpCRUD(t *testing.T) {
 	store := testStore(t)
 

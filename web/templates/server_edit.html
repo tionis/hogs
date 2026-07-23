@@ -34,13 +34,12 @@
           <div class="row">
             <div class="col-md-6 mb-3">
               <label for="editGameType" class="form-label">Game Type</label>
-              <select class="form-select" id="editGameType" name="game_type">
-                <option value="minecraft" {{if eq .Server.GameType "minecraft"}}selected{{end}}>Minecraft</option>
-                <option value="satisfactory" {{if eq .Server.GameType "satisfactory"}}selected{{end}}>Satisfactory</option>
-                <option value="factorio" {{if eq .Server.GameType "factorio"}}selected{{end}}>Factorio</option>
-                <option value="valheim" {{if eq .Server.GameType "valheim"}}selected{{end}}>Valheim</option>
-                <option value="starrupture" {{if eq .Server.GameType "starrupture"}}selected{{end}}>Star Rupture</option>
-              </select>
+              <input class="form-control" id="editGameType" name="game_type" value="{{.Server.GameType}}"
+                list="edit-game-types" pattern="[a-z0-9][a-z0-9_-]{0,31}" required>
+              <datalist id="edit-game-types">
+                {{range .GameTypes}}<option value="{{.}}">{{. | gameDisplayName}}</option>{{end}}
+              </datalist>
+              <div class="form-text">Choose a known type or enter a lowercase custom slug.</div>
             </div>
             <div class="col-md-6 mb-3">
               <label for="editState" class="form-label">State</label>
@@ -242,6 +241,65 @@
     </div>
     {{end}}
 
+    <div class="card mb-4" id="access-control">
+      <div class="card-header">Server Access</div>
+      <div class="card-body">
+        <p class="small text-muted">
+          Administrators always have access. Grants assign individual capabilities to an OIDC user,
+          group, or any authenticated user. Once the first grant exists, these grants replace the
+          legacy operator/ACL rule for non-administrators.
+        </p>
+        {{if .AccessGrants}}
+        <div class="table-responsive mb-3">
+          <table class="table table-sm align-middle">
+            <thead><tr><th>Subject</th><th>Capabilities</th><th></th></tr></thead>
+            <tbody>
+              {{range .AccessGrants}}
+              <tr>
+                <td><span class="badge bg-secondary">{{.SubjectType}}</span> {{.Subject}}</td>
+                <td>{{range .Capabilities}}<span class="badge bg-info me-1">{{.}}</span>{{end}}</td>
+                <td>
+                  <form action="/admin/access-grants/delete" method="POST">
+                    <input type="hidden" name="server_id" value="{{$.Server.ID}}">
+                    <input type="hidden" name="grant_id" value="{{.ID}}">
+                    <button class="btn btn-sm btn-outline-danger" type="submit">Remove</button>
+                  </form>
+                </td>
+              </tr>
+              {{end}}
+            </tbody>
+          </table>
+        </div>
+        {{else}}
+        <div class="alert alert-secondary py-2 small">No structured grants yet; legacy operators and the advanced ACL rule remain active.</div>
+        {{end}}
+        <form action="/admin/access-grants/set" method="POST">
+          <input type="hidden" name="server_id" value="{{.Server.ID}}">
+          <div class="row g-2 mb-2">
+            <div class="col-4">
+              <select class="form-select form-select-sm" name="subject_type">
+                <option value="group">OIDC group</option>
+                <option value="user">User email</option>
+                <option value="authenticated">Any authenticated user</option>
+              </select>
+            </div>
+            <div class="col-8">
+              <input class="form-control form-control-sm" name="subject" placeholder="Group name or user email">
+            </div>
+          </div>
+          <div class="d-flex flex-wrap gap-2 mb-3">
+            {{range .AccessCapabilities}}
+            <label class="form-check form-check-inline me-1">
+              <input class="form-check-input" type="checkbox" name="capability" value="{{.}}">
+              <span class="form-check-label">{{.}}</span>
+            </label>
+            {{end}}
+          </div>
+          <button class="btn btn-sm btn-primary" type="submit">Add or replace grant</button>
+        </form>
+      </div>
+    </div>
+
     <div class="card">
       <div class="card-header">Danger Zone</div>
       <div class="card-body">
@@ -255,12 +313,12 @@
     {{if .PteroConfigured}}
     {{if .PteroLink}}
     <div class="card mt-3">
-      <div class="card-header">ACL Rule</div>
+      <div class="card-header">Advanced ACL Fallback</div>
       <div class="card-body">
         <form action="/admin/acl/{{.Server.ID}}" method="POST">
           <div class="mb-3">
             <textarea class="form-control form-control-sm" name="acl_rule" rows="3" placeholder='user.Role == "admin" || action in ["start", "stop", "restart"]'>{{.PteroLink.ACLRule}}</textarea>
-            <div class="form-text">Expression-based ACL. Leave empty to use legacy allowed_actions.</div>
+            <div class="form-text">Used only while no structured Server Access grants exist. Constraints remain separate and always apply.</div>
           </div>
           <button type="submit" class="btn btn-sm btn-primary">Save ACL Rule</button>
         </form>

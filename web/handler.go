@@ -10,9 +10,11 @@ import (
 	"github.com/tionis/hogs/config"
 	"github.com/tionis/hogs/database"
 	"github.com/tionis/hogs/engine"
+	"github.com/tionis/hogs/query"
 	"html/template"
 	"log"
 	"net/http"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -48,17 +50,61 @@ type BackgroundTagOption struct {
 	Group       string
 }
 
-func AvailableBackgroundTags() []BackgroundTagOption {
-	return []BackgroundTagOption{
+func AvailableBackgroundTags(gameTypes []string) []BackgroundTagOption {
+	options := []BackgroundTagOption{
 		{Value: "dark", DisplayName: "Dark", Group: "Theme"},
 		{Value: "light", DisplayName: "Light", Group: "Theme"},
 		{Value: "home", DisplayName: "Home", Group: "Page"},
-		{Value: "minecraft", DisplayName: "Minecraft", Group: "Game"},
-		{Value: "satisfactory", DisplayName: "Satisfactory", Group: "Game"},
-		{Value: "factorio", DisplayName: "Factorio", Group: "Game"},
-		{Value: "valheim", DisplayName: "Valheim", Group: "Game"},
-		{Value: "starrupture", DisplayName: "Star Rupture", Group: "Game"},
 	}
+	for _, gameType := range gameTypes {
+		options = append(options, BackgroundTagOption{
+			Value: gameType, DisplayName: query.GetGameInfo(gameType).DisplayName, Group: "Game",
+		})
+	}
+	return options
+}
+
+func adminGameTypes(servers []database.Server) []string {
+	seen := make(map[string]struct{})
+	for _, info := range query.AllGameInfo() {
+		seen[info.Type] = struct{}{}
+	}
+	for _, server := range servers {
+		if server.GameType != "" {
+			seen[server.GameType] = struct{}{}
+		}
+	}
+	result := make([]string, 0, len(seen))
+	for gameType := range seen {
+		result = append(result, gameType)
+	}
+	sort.Strings(result)
+	return result
+}
+
+var gameTypePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,31}$`)
+
+func normalizeGameType(value string) string {
+	return strings.ToLower(strings.TrimSpace(value))
+}
+
+func validGameType(value string) bool {
+	return gameTypePattern.MatchString(value)
+}
+
+func configuredGameTypes(servers []database.Server) []string {
+	seen := make(map[string]struct{})
+	for _, server := range servers {
+		if server.GameType != "" {
+			seen[server.GameType] = struct{}{}
+		}
+	}
+	result := make([]string, 0, len(seen))
+	for gameType := range seen {
+		result = append(result, gameType)
+	}
+	sort.Strings(result)
+	return result
 }
 
 func (h *WebHandler) pickBackgrounds(contextTags []string) BackgroundURLs {
@@ -333,6 +379,7 @@ func (h *WebHandler) Admin(w http.ResponseWriter, r *http.Request) {
 	data := struct {
 		Servers         []database.Server
 		ServerTemplates []database.ServerTemplate
+		GameTypes       []string
 		Authenticated   bool
 		UserRole        string
 		SiteName        string
@@ -341,6 +388,7 @@ func (h *WebHandler) Admin(w http.ResponseWriter, r *http.Request) {
 	}{
 		Servers:         servers,
 		ServerTemplates: templates,
+		GameTypes:       adminGameTypes(servers),
 		Authenticated:   true,
 		UserRole:        "admin",
 		SiteName:        h.siteName(),
@@ -369,13 +417,18 @@ func (h *WebHandler) HandleServerCreate(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	gameType := normalizeGameType(r.FormValue("game_type"))
+	if !validGameType(gameType) {
+		http.Error(w, "Game type must be a lowercase slug using letters, numbers, dashes, or underscores", http.StatusBadRequest)
+		return
+	}
 	server := &database.Server{
 		Name:        r.FormValue("name"),
 		Address:     r.FormValue("address"),
 		Description: r.FormValue("description"),
 		MapURL:      r.FormValue("map_url"),
 		ModURL:      r.FormValue("mod_url"),
-		GameType:    r.FormValue("game_type"),
+		GameType:    gameType,
 		State:       r.FormValue("state"),
 		ShowMOTD:    r.FormValue("show_motd") == "on",
 		Metadata:    h.parseMetadata(r),
@@ -449,34 +502,45 @@ func (h *WebHandler) ServerEdit(w http.ResponseWriter, r *http.Request) {
 	if serverTags == nil {
 		serverTags = []string{}
 	}
+	accessGrants, _ := h.Store.ListServerAccessGrants(server.ID)
+	if accessGrants == nil {
+		accessGrants = []database.ServerAccessGrant{}
+	}
 
 	agents, _ := h.Store.ListAgents()
 	if agents == nil {
 		agents = []database.Agent{}
 	}
+	allServers, _ := h.Store.ListServers()
 
 	data := struct {
-		Server          *database.Server
-		PteroConfigured bool
-		PteroLink       *PterodactylLinkData
-		ServerTags      []string
-		Agents          []database.Agent
-		Authenticated   bool
-		UserRole        string
-		SiteName        string
-		UserEmail       string
-		BackgroundURLs  BackgroundURLs
+		Server             *database.Server
+		GameTypes          []string
+		PteroConfigured    bool
+		PteroLink          *PterodactylLinkData
+		ServerTags         []string
+		AccessGrants       []database.ServerAccessGrant
+		AccessCapabilities []string
+		Agents             []database.Agent
+		Authenticated      bool
+		UserRole           string
+		SiteName           string
+		UserEmail          string
+		BackgroundURLs     BackgroundURLs
 	}{
-		Server:          server,
-		PteroConfigured: h.Config.PterodactylURL != "",
-		PteroLink:       pteroLink,
-		ServerTags:      serverTags,
-		Agents:          agents,
-		Authenticated:   true,
-		UserRole:        "admin",
-		SiteName:        h.siteName(),
-		UserEmail:       h.Auth.GetUserEmail(r),
-		BackgroundURLs:  h.pickBackgrounds([]string{"home"}),
+		Server:             server,
+		GameTypes:          adminGameTypes(allServers),
+		PteroConfigured:    h.Config.PterodactylURL != "",
+		PteroLink:          pteroLink,
+		ServerTags:         serverTags,
+		AccessGrants:       accessGrants,
+		AccessCapabilities: []string{"status", "start", "stop", "restart", "command", "console", "whitelist", "backup"},
+		Agents:             agents,
+		Authenticated:      true,
+		UserRole:           "admin",
+		SiteName:           h.siteName(),
+		UserEmail:          h.Auth.GetUserEmail(r),
+		BackgroundURLs:     h.pickBackgrounds([]string{"home"}),
 	}
 
 	tmpl, err := template.New("base.html").Funcs(sharedFuncMap()).ParseFS(templateFS, "templates/base.html", "templates/server_edit.html")
@@ -505,6 +569,11 @@ func (h *WebHandler) HandleServerUpdate(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	gameType := normalizeGameType(r.FormValue("game_type"))
+	if !validGameType(gameType) {
+		http.Error(w, "Game type must be a lowercase slug using letters, numbers, dashes, or underscores", http.StatusBadRequest)
+		return
+	}
 	server := &database.Server{
 		ID:          id,
 		Name:        r.FormValue("name"),
@@ -512,7 +581,7 @@ func (h *WebHandler) HandleServerUpdate(w http.ResponseWriter, r *http.Request) 
 		Description: r.FormValue("description"),
 		MapURL:      r.FormValue("map_url"),
 		ModURL:      r.FormValue("mod_url"),
-		GameType:    r.FormValue("game_type"),
+		GameType:    gameType,
 		State:       r.FormValue("state"),
 		ShowMOTD:    r.FormValue("show_motd") == "on",
 		Metadata:    h.parseMetadata(r),
@@ -538,6 +607,9 @@ func (h *WebHandler) HandleServerUpdate(w http.ResponseWriter, r *http.Request) 
 		if err := h.Store.SetServerTags(server.ID, []string{}); err != nil {
 			log.Printf("Warning: failed to clear tags for server %s: %v", server.Name, err)
 		}
+	}
+	if err := h.Store.PruneUnusedBackgroundGameTags(); err != nil {
+		log.Printf("Warning: failed to prune unused background tags: %v", err)
 	}
 
 	http.Redirect(w, r, "/admin/servers/"+strconv.Itoa(id), http.StatusFound)
@@ -587,6 +659,9 @@ func (h *WebHandler) HandleServerDelete(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "Failed to delete server: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+	if err := h.Store.PruneUnusedBackgroundGameTags(); err != nil {
+		log.Printf("Warning: failed to prune unused background tags: %v", err)
+	}
 
 	http.Redirect(w, r, "/admin", http.StatusFound)
 }
@@ -598,7 +673,26 @@ func (h *WebHandler) BackgroundManager(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	availableTags := AvailableBackgroundTags()
+	servers, err := h.Store.ListServers()
+	if err != nil {
+		http.Error(w, "Failed to load servers", http.StatusInternalServerError)
+		return
+	}
+	gameTypes := configuredGameTypes(servers)
+	availableTags := AvailableBackgroundTags(gameTypes)
+	allowedTags := make(map[string]struct{}, len(availableTags))
+	for _, option := range availableTags {
+		allowedTags[option.Value] = struct{}{}
+	}
+	for i := range backgrounds {
+		filtered := backgrounds[i].Tags[:0]
+		for _, tag := range backgrounds[i].Tags {
+			if _, allowed := allowedTags[tag]; allowed {
+				filtered = append(filtered, tag)
+			}
+		}
+		backgrounds[i].Tags = filtered
+	}
 
 	data := struct {
 		Backgrounds    []database.Background
@@ -692,15 +786,18 @@ func (h *WebHandler) Users(w http.ResponseWriter, r *http.Request) {
 
 	type UserWithGroups struct {
 		database.User
-		Groups []database.SCIMGroup
+		Groups     []database.SCIMGroup
+		Identities []database.GameIdentity
 	}
 
 	var usersWithGroups []UserWithGroups
 	for _, u := range users {
 		groups, _ := h.Store.GetSCIMGroupsForUser(u.ID)
+		identities, _ := h.Store.ListGameIdentities(u.Email)
 		usersWithGroups = append(usersWithGroups, UserWithGroups{
-			User:   u,
-			Groups: groups,
+			User:       u,
+			Groups:     groups,
+			Identities: identities,
 		})
 	}
 
@@ -734,6 +831,132 @@ func (h *WebHandler) Users(w http.ResponseWriter, r *http.Request) {
 	buf.WriteTo(w)
 }
 
+func (h *WebHandler) HandleAccessGrantSet(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Invalid form data", http.StatusBadRequest)
+		return
+	}
+	serverID, err := strconv.Atoi(r.FormValue("server_id"))
+	if err != nil {
+		http.Error(w, "Invalid server ID", http.StatusBadRequest)
+		return
+	}
+	subjectType := r.FormValue("subject_type")
+	subject := strings.TrimSpace(r.FormValue("subject"))
+	if subjectType != "user" && subjectType != "group" && subjectType != "authenticated" {
+		http.Error(w, "Subject type must be user, group, or authenticated", http.StatusBadRequest)
+		return
+	}
+	if subjectType == "authenticated" {
+		subject = "*"
+	}
+	if subject == "" {
+		http.Error(w, "Subject is required", http.StatusBadRequest)
+		return
+	}
+	known := map[string]bool{
+		"status": true, "start": true, "stop": true, "restart": true,
+		"command": true, "console": true, "whitelist": true, "backup": true,
+	}
+	var capabilities []string
+	for _, capability := range r.Form["capability"] {
+		if known[capability] {
+			capabilities = append(capabilities, capability)
+		}
+	}
+	if len(capabilities) == 0 {
+		http.Error(w, "At least one capability is required", http.StatusBadRequest)
+		return
+	}
+	if err := h.Store.SetServerAccessGrant(&database.ServerAccessGrant{
+		ServerID: serverID, SubjectType: subjectType, Subject: subject, Capabilities: capabilities,
+	}); err != nil {
+		http.Error(w, "Failed to save access grant", http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, "/admin/servers/"+strconv.Itoa(serverID)+"#access-control", http.StatusFound)
+}
+
+func (h *WebHandler) HandleAccessGrantDelete(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Invalid form data", http.StatusBadRequest)
+		return
+	}
+	serverID, serverErr := strconv.Atoi(r.FormValue("server_id"))
+	grantID, grantErr := strconv.Atoi(r.FormValue("grant_id"))
+	if serverErr != nil || grantErr != nil {
+		http.Error(w, "Invalid access grant", http.StatusBadRequest)
+		return
+	}
+	if err := h.Store.DeleteServerAccessGrant(grantID, serverID); err != nil {
+		http.Error(w, "Failed to delete access grant", http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, "/admin/servers/"+strconv.Itoa(serverID)+"#access-control", http.StatusFound)
+}
+
+var safeGameUsernamePattern = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,64}$`)
+
+func validGameUsername(gameType, username string) bool {
+	if gameType == "minecraft" {
+		return regexp.MustCompile(`^[A-Za-z0-9_]{3,16}$`).MatchString(username)
+	}
+	return safeGameUsernamePattern.MatchString(username)
+}
+
+func (h *WebHandler) HandleGameIdentitySet(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Invalid form data", http.StatusBadRequest)
+		return
+	}
+	role := h.userRole(r)
+	email := h.Auth.GetUserEmail(r)
+	source := "self"
+	if role == "admin" && strings.TrimSpace(r.FormValue("user_email")) != "" {
+		email = strings.TrimSpace(r.FormValue("user_email"))
+		source = "admin"
+	}
+	gameType := normalizeGameType(r.FormValue("game_type"))
+	username := strings.TrimSpace(r.FormValue("username"))
+	if email == "" || !validGameType(gameType) || !validGameUsername(gameType, username) {
+		http.Error(w, "Invalid game identity", http.StatusBadRequest)
+		return
+	}
+	if err := h.Store.SetGameIdentity(&database.GameIdentity{
+		UserEmail: email, GameType: gameType, Username: username, Source: source,
+	}); err != nil {
+		http.Error(w, "Failed to save game identity", http.StatusInternalServerError)
+		return
+	}
+	if role == "admin" {
+		http.Redirect(w, r, "/admin/users", http.StatusFound)
+		return
+	}
+	http.Redirect(w, r, "/my-servers", http.StatusFound)
+}
+
+func (h *WebHandler) HandleGameIdentityDelete(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Invalid form data", http.StatusBadRequest)
+		return
+	}
+	role := h.userRole(r)
+	email := h.Auth.GetUserEmail(r)
+	if role == "admin" && strings.TrimSpace(r.FormValue("user_email")) != "" {
+		email = strings.TrimSpace(r.FormValue("user_email"))
+	}
+	gameType := normalizeGameType(r.FormValue("game_type"))
+	if err := h.Store.DeleteGameIdentity(email, gameType); err != nil {
+		http.Error(w, "Failed to delete game identity", http.StatusInternalServerError)
+		return
+	}
+	if role == "admin" {
+		http.Redirect(w, r, "/admin/users", http.StatusFound)
+		return
+	}
+	http.Redirect(w, r, "/my-servers", http.StatusFound)
+}
+
 func (h *WebHandler) HandleUserUpdate(w http.ResponseWriter, r *http.Request) {
 	// User updates are disabled — OIDC is the authoritative source.
 	// This endpoint is kept for backwards compatibility but does nothing.
@@ -754,14 +977,22 @@ func (h *WebHandler) MyServers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	user := h.getUserEnv(r)
 	var rows []MyServerRow
 	for _, srv := range servers {
 		link, _ := h.Store.GetPterodactylLink(srv.ID)
 		if link == nil {
 			continue
 		}
+		var configuredActions []string
+		json.Unmarshal([]byte(link.AllowedActions), &configuredActions)
 		var actions []string
-		json.Unmarshal([]byte(link.AllowedActions), &actions)
+		for _, action := range configuredActions {
+			allowed, evalErr := h.Engine.EvaluateACL(link, &srv, action, user)
+			if evalErr == nil && allowed {
+				actions = append(actions, action)
+			}
+		}
 		if len(actions) == 0 {
 			continue
 		}
@@ -776,15 +1007,23 @@ func (h *WebHandler) MyServers(w http.ResponseWriter, r *http.Request) {
 			AllowedActions: actions,
 		})
 	}
+	identities, _ := h.Store.ListGameIdentities(user.Email)
+	if identities == nil {
+		identities = []database.GameIdentity{}
+	}
 
 	data := struct {
 		Servers        []MyServerRow
+		Identities     []database.GameIdentity
+		GameTypes      []string
 		Authenticated  bool
 		UserRole       string
 		SiteName       string
 		BackgroundURLs BackgroundURLs
 	}{
 		Servers:        rows,
+		Identities:     identities,
+		GameTypes:      configuredGameTypes(servers),
 		Authenticated:  true,
 		UserRole:       h.userRole(r),
 		SiteName:       h.siteName(),

@@ -232,9 +232,8 @@
          <h6 class="mt-3">Whitelist</h6>
          <div id="whitelist-status" class="small mb-2" style="color: var(--text-secondary);"></div>
          <form action="/servers/{{.Server.Name}}/whitelist" method="POST" class="input-group input-group-sm">
-           <input type="hidden" name="user_email" value="{{.UserEmail}}">
-           <input type="text" name="username" class="form-control" placeholder="Your in-game username" required id="whitelist-username">
-           <button type="submit" class="btn btn-outline-success">Whitelist Me</button>
+           <input type="text" name="username" class="form-control" placeholder="Linked {{.Server.GameType}} username" required id="whitelist-username">
+           <button type="submit" class="btn btn-outline-success">Link and Whitelist Me</button>
          </form>
          {{end}}
          {{if .PteroCommands}}
@@ -502,8 +501,11 @@ document.addEventListener("DOMContentLoaded", function() {
         if (data.username) {
           if (statusEl) statusEl.innerHTML = `Currently whitelisted as: <strong>${data.username}</strong>`;
           if (inputEl) inputEl.value = data.username;
-        } else if (statusEl) {
-          statusEl.textContent = 'You are not yet whitelisted.';
+        } else {
+          if (inputEl && data.linkedUsername) inputEl.value = data.linkedUsername;
+          if (statusEl) statusEl.textContent = data.linkedUsername
+            ? `Linked identity: ${data.linkedUsername}. Not yet whitelisted on this server.`
+            : 'Link your in-game identity to whitelist it on this server.';
         }
       })
       .catch(() => {});
