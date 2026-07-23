@@ -6,10 +6,32 @@ import (
 	"html/template"
 	"strings"
 
+	"github.com/tionis/hogs/database"
 	"github.com/tionis/hogs/query"
 )
 
-func sharedFuncMap() template.FuncMap {
+func sharedFuncMap(stores ...*database.Store) template.FuncMap {
+	var store *database.Store
+	if len(stores) > 0 {
+		store = stores[0]
+	}
+	gameInfo := func(gameType string) query.GameInfo {
+		info := query.GetGameInfo(gameType)
+		if store == nil {
+			return info
+		}
+		custom, err := store.GetGameType(gameType)
+		if err != nil || custom == nil {
+			return info
+		}
+		info.DisplayName = custom.DisplayName
+		info.PlayerNoun = custom.PlayerNoun
+		info.BadgeCSS = fmt.Sprintf("background: %s; color: #fff;", custom.AccentColor)
+		if custom.Icon != "" {
+			info.Icon = `<span class="game-icon">` + template.HTMLEscapeString(custom.Icon) + `</span>`
+		}
+		return info
+	}
 	return template.FuncMap{
 		"json": func(v interface{}) string {
 			b, _ := json.Marshal(v)
@@ -31,22 +53,28 @@ func sharedFuncMap() template.FuncMap {
 			return strings.ToUpper(s[:1]) + s[1:]
 		},
 		"gameIcon": func(s string) template.HTML {
-			return template.HTML(query.GetGameInfo(s).Icon)
+			return template.HTML(gameInfo(s).Icon)
 		},
 		"gameBadgeCSS": func(s string) string {
-			return query.GetGameInfo(s).BadgeCSS
+			return gameInfo(s).BadgeCSS
 		},
 		"gamePlayerNoun": func(s string) string {
-			return query.GetGameInfo(s).PlayerNoun
+			return gameInfo(s).PlayerNoun
 		},
 		"gameDisplayName": func(s string) string {
-			return query.GetGameInfo(s).DisplayName
+			return gameInfo(s).DisplayName
 		},
 		"gameNounMapJS": func() template.JS {
 			infos := query.AllGameInfo()
 			m := make(map[string]string)
 			for _, info := range infos {
-				m[info.Type] = info.PlayerNoun
+				m[info.Type] = gameInfo(info.Type).PlayerNoun
+			}
+			if store != nil {
+				custom, _ := store.ListGameTypes()
+				for _, info := range custom {
+					m[info.Slug] = info.PlayerNoun
+				}
 			}
 			b, _ := json.Marshal(m)
 			return template.JS(b)

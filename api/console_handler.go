@@ -37,27 +37,42 @@ func (h *ConsoleHandler) ServeWS(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
-	if _, _, status, err := authorizeManagedCapability(h.Store, h.Engine, h.Auth, r, serverName, managedConsole); err != nil {
+	server, _, status, err := authorizeManagedCapability(h.Store, h.Engine, h.Auth, r, serverName, managedConsole)
+	if err != nil {
 		http.Error(w, err.Error(), status)
 		return
 	}
-	agentStream, err := h.Service.Console(r.Context(), serverName)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusServiceUnavailable)
-		return
-	}
-	defer agentStream.Body.Close()
+	history, _ := h.Store.ListConsoleHistory(server.ID, 500)
+	agentStream, streamErr := h.Service.Console(r.Context(), serverName)
 	conn, err := consoleUpgrader.Upgrade(w, r, nil)
 	if err != nil {
+		if agentStream != nil {
+			agentStream.Body.Close()
+		}
 		return
 	}
 	defer conn.Close()
+	if agentStream != nil {
+		defer agentStream.Body.Close()
+	}
 
 	var writeMu sync.Mutex
-	writeLine := func(line string) error {
+	writeLine := func(stream, line string, persist bool) error {
+		if persist {
+			_ = h.Store.AppendConsoleHistory(server.ID, stream, line, 500)
+		}
 		writeMu.Lock()
 		defer writeMu.Unlock()
-		return conn.WriteJSON(map[string]string{"type": "console", "line": line})
+		return conn.WriteJSON(map[string]string{"type": "console", "stream": stream, "line": line})
+	}
+	for _, entry := range history {
+		if writeLine(entry.Stream, entry.Line, false) != nil {
+			return
+		}
+	}
+	if streamErr != nil {
+		_ = writeLine("error", "Live console unavailable: "+streamErr.Error(), false)
+		return
 	}
 	streamDone := make(chan struct{})
 	go func() {
@@ -69,7 +84,7 @@ func (h *ConsoleHandler) ServeWS(w http.ResponseWriter, r *http.Request) {
 				Line string `json:"line"`
 			}
 			if json.Unmarshal(scanner.Bytes(), &line) == nil && line.Line != "" {
-				if writeLine(line.Line) != nil {
+				if writeLine("server", line.Line, true) != nil {
 					return
 				}
 			}
@@ -87,17 +102,17 @@ func (h *ConsoleHandler) ServeWS(w http.ResponseWriter, r *http.Request) {
 		if json.Unmarshal(message, &request) != nil || strings.TrimSpace(request.Input) == "" {
 			continue
 		}
-		_ = writeLine("> " + request.Input)
+		_ = writeLine("command", "> "+request.Input, true)
 		result, err := h.Service.SendCommandResult(serverName, request.Input)
 		if err != nil {
-			_ = writeLine("Error: " + err.Error())
+			_ = writeLine("error", "Error: "+err.Error(), true)
 			continue
 		}
 		if data, ok := result.Data.(map[string]interface{}); ok {
 			if output, ok := data["output"].(string); ok {
 				for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
 					if line != "" {
-						_ = writeLine(line)
+						_ = writeLine("response", line, true)
 					}
 				}
 			}

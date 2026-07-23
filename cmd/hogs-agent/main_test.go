@@ -107,6 +107,16 @@ func TestRCONResponseCombinesPackets(t *testing.T) {
 	}
 }
 
+func TestRCONResponseAcceptsEmptyEOF(t *testing.T) {
+	client, server := net.Pipe()
+	go server.Close()
+	defer client.Close()
+	response, err := readRCONResponse(client, 2)
+	if err != nil || response != "" {
+		t.Fatalf("empty response=%q err=%v, want successful empty output", response, err)
+	}
+}
+
 func TestParsePlayerStatus(t *testing.T) {
 	players, maxPlayers, known := parsePlayerStatus("minecraft", "There are 2 of a max of 20 players online: Alex, Steve")
 	if !known || players != 2 || maxPlayers != 20 {

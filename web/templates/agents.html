@@ -8,27 +8,53 @@
   </ol>
 </nav>
 
-<h2>Agents</h2>
+<h2>Workers</h2>
 <p class="text-muted">
-  Agents connect prepared game-server hosts to HOGS and report their reachability
+  Workers connect prepared game-server hosts to HOGS and report their reachability
   and management capabilities.
 </p>
 
 {{if .Agents}}
 <div class="table-responsive">
   <table class="table table-sm align-middle">
-    <thead><tr><th>Name</th><th>Node</th><th>Private API</th><th>Last observation</th><th>Capabilities</th></tr></thead>
+    <thead><tr><th>Worker ID</th><th>Display label</th><th>Worker API</th><th>Last observation</th><th>Capabilities</th><th>Servers</th></tr></thead>
     <tbody>
       {{range .Agents}}
       <tr>
-        <td><strong>{{.Name}}</strong></td>
-        <td><code>{{.NodeName}}</code></td>
+        <td><strong><code>{{.NodeName}}</code></strong>{{if .Mode}} <span class="badge bg-info">{{.Mode}}</span>{{end}}</td>
+        <td>
+          <form action="/admin/agents/label" method="POST" class="input-group input-group-sm" style="min-width:12rem">
+            <input type="hidden" name="id" value="{{.ID}}">
+            <input class="form-control" name="display_name" value="{{.Name}}" maxlength="64" aria-label="Worker display label">
+            <button class="btn btn-outline-primary" type="submit">Save</button>
+          </form>
+        </td>
         <td>
           {{if .Connected}}<span class="badge bg-success">Reachable</span>{{else}}<span class="badge bg-secondary">Unreachable</span>{{end}}
+          {{if .WorkerAPI}}<div class="small mt-1"><code>{{.WorkerAPI}}</code></div>{{end}}
+          <details class="mt-2" style="min-width:20rem">
+            <summary class="small">Manage transport</summary>
+            <form action="/admin/agents/transport" method="POST" class="mt-2">
+              <input type="hidden" name="node" value="{{.NodeName}}">
+              <label class="form-label small mb-0">Connection mode</label>
+              <select class="form-select form-select-sm mb-2" name="mode">
+                <option value="direct" {{if eq .Mode "direct"}}selected{{end}}>Direct HTTPS</option>
+                <option value="tunneled" {{if eq .Mode "tunneled"}}selected{{end}}>Tunneled HTTP/HTTPS</option>
+              </select>
+              <label class="form-label small mb-0">Control-plane URL</label>
+              <input class="form-control form-control-sm mb-2" type="url" name="control_url" value="{{.ControlURL}}" required>
+              <label class="form-label small mb-0">Browser-facing URL</label>
+              <input class="form-control form-control-sm mb-2" type="url" name="public_url" value="{{.PublicURL}}" placeholder="Required for direct workers">
+              <button class="btn btn-sm btn-outline-primary" type="submit">Save transport</button>
+            </form>
+          </details>
         </td>
         <td class="text-muted small">{{if .LastSeen}}{{.LastSeen}}{{else}}not yet observed{{end}}</td>
         <td>
           {{range .CapabilityLabels}}<span class="badge bg-secondary me-1">{{.}}</span>{{else}}<span class="text-muted">None reported</span>{{end}}
+        </td>
+        <td>
+          {{range .AssignedServers}}<a class="badge bg-secondary text-decoration-none me-1" href="/admin/servers/{{.ID}}">{{.Name}}</a>{{else}}<span class="text-muted">None</span>{{end}}
         </td>
       </tr>
       {{end}}
@@ -36,16 +62,17 @@
   </table>
 </div>
 {{else}}
-<p class="text-muted">No agents are declared in the inventory.</p>
+<p class="text-muted">No workers are registered.</p>
 {{end}}
 
 <div class="card mt-4">
   <div class="card-header">Management workflow</div>
   <div class="card-body">
     <p class="mb-0 text-muted">
-      A system administrator prepares a game server, adds it to the agent running
-      on that host, and exposes it in this panel. Game administrators can then
-      manage the server according to their permissions.
+      A system administrator prepares a game server and its worker API. An instance
+      administrator maintains worker endpoints and labels here, then assigns panel
+      servers to workers from each server's edit screen. Worker credentials remain
+      host-provisioned and are never displayed in the panel.
     </p>
   </div>
 </div>

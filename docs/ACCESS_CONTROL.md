@@ -19,7 +19,19 @@ enable an action disabled by deployment policy.
 
 Current grant capabilities are `status`, `start`, `stop`, `restart`, `command`,
 `console`, `whitelist`, and `backup`. `command` covers only commands separately
-approved for the server.
+approved for the server. For a non-administrator, `whitelist` means
+**whitelist own linked account**; it never permits managing another player.
+Instance administrators use the separate whitelist-management panel on the
+server edit page.
+
+## Instance roles
+
+The interactive role is recalculated at every OIDC login. Membership in
+`OIDC_ADMIN_GROUP` grants `admin`; otherwise membership in `OIDC_USER_GROUP`
+grants `user`. When no user group is configured, every authenticated
+non-administrator receives `user`. Removing someone from the admin group
+therefore demotes them at their next login instead of retaining an old database
+role. The resolved role is copied into the login session.
 
 ## Game identities and whitelists
 

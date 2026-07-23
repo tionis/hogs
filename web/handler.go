@@ -20,6 +20,7 @@ import (
 	"strings"
 
 	"github.com/gorilla/mux"
+	"github.com/tionis/hogs/agent"
 )
 
 //go:embed templates/*.html assets/*
@@ -27,11 +28,13 @@ var templateFS embed.FS
 
 // WebHandler handles frontend requests.
 type WebHandler struct {
-	Store          *database.Store
-	Config         *config.Config
-	Auth           *auth.Authenticator
-	Engine         *engine.Engine
-	AgentConnected func(int) bool
+	Store           *database.Store
+	Config          *config.Config
+	Auth            *auth.Authenticator
+	Engine          *engine.Engine
+	AgentConnected  func(int) bool
+	AgentNodeInfo   func(string) (agent.NodeSummary, bool)
+	AgentNodeUpdate func(string, string, string, string) error
 }
 
 // NewWebHandler creates a new WebHandler.
@@ -82,7 +85,26 @@ func adminGameTypes(servers []database.Server) []string {
 	return result
 }
 
+func (h *WebHandler) adminGameTypes(servers []database.Server) []string {
+	result := adminGameTypes(servers)
+	seen := make(map[string]struct{}, len(result))
+	for _, gameType := range result {
+		seen[gameType] = struct{}{}
+	}
+	gameTypes, _ := h.Store.ListGameTypes()
+	for _, info := range gameTypes {
+		seen[info.Slug] = struct{}{}
+	}
+	result = result[:0]
+	for gameType := range seen {
+		result = append(result, gameType)
+	}
+	sort.Strings(result)
+	return result
+}
+
 var gameTypePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,31}$`)
+var gameTypeColorPattern = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
 
 func normalizeGameType(value string) string {
 	return strings.ToLower(strings.TrimSpace(value))
@@ -90,6 +112,18 @@ func normalizeGameType(value string) string {
 
 func validGameType(value string) bool {
 	return gameTypePattern.MatchString(value)
+}
+
+func (h *WebHandler) ensureGameType(slug string) error {
+	existing, err := h.Store.GetGameType(slug)
+	if err != nil || existing != nil {
+		return err
+	}
+	info := query.GetGameInfo(slug)
+	return h.Store.SetGameType(&database.GameType{
+		Slug: slug, DisplayName: info.DisplayName, PlayerNoun: info.PlayerNoun,
+		AccentColor: "#666666",
+	})
 }
 
 func configuredGameTypes(servers []database.Server) []string {
@@ -252,7 +286,7 @@ func (h *WebHandler) Home(w http.ResponseWriter, r *http.Request) {
 		BackgroundURLs: h.pickBackgrounds([]string{"home"}),
 	}
 
-	tmpl, err := template.New("base.html").Funcs(sharedFuncMap()).ParseFS(templateFS, "templates/base.html", "templates/index.html")
+	tmpl, err := template.New("base.html").Funcs(sharedFuncMap(h.Store)).ParseFS(templateFS, "templates/base.html", "templates/index.html")
 	if err != nil {
 		http.Error(w, "Template error: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -345,11 +379,18 @@ func (h *WebHandler) ServerDetail(w http.ResponseWriter, r *http.Request) {
 
 	var allowedActions []string
 	if data.PteroLink != nil {
-		json.Unmarshal([]byte(data.PteroLink.AllowedActions), &allowedActions)
+		var configuredActions []string
+		json.Unmarshal([]byte(data.PteroLink.AllowedActions), &configuredActions)
+		for _, action := range configuredActions {
+			allowed, evalErr := h.Engine.EvaluateACL(data.PteroLink, server, action, userEnv)
+			if evalErr == nil && allowed {
+				allowedActions = append(allowedActions, action)
+			}
+		}
 	}
 	data.AllowedActions = allowedActions
 
-	tmpl, err := template.New("base.html").Funcs(sharedFuncMap()).ParseFS(templateFS, "templates/base.html", "templates/server.html")
+	tmpl, err := template.New("base.html").Funcs(sharedFuncMap(h.Store)).ParseFS(templateFS, "templates/base.html", "templates/server.html")
 	if err != nil {
 		http.Error(w, "Template error: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -388,7 +429,7 @@ func (h *WebHandler) Admin(w http.ResponseWriter, r *http.Request) {
 	}{
 		Servers:         servers,
 		ServerTemplates: templates,
-		GameTypes:       adminGameTypes(servers),
+		GameTypes:       h.adminGameTypes(servers),
 		Authenticated:   true,
 		UserRole:        "admin",
 		SiteName:        h.siteName(),
@@ -396,7 +437,7 @@ func (h *WebHandler) Admin(w http.ResponseWriter, r *http.Request) {
 		BackgroundURLs:  h.pickBackgrounds([]string{"home"}),
 	}
 
-	tmpl, err := template.New("base.html").Funcs(sharedFuncMap()).ParseFS(templateFS, "templates/base.html", "templates/admin.html")
+	tmpl, err := template.New("base.html").Funcs(sharedFuncMap(h.Store)).ParseFS(templateFS, "templates/base.html", "templates/admin.html")
 	if err != nil {
 		http.Error(w, "Template error: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -420,6 +461,10 @@ func (h *WebHandler) HandleServerCreate(w http.ResponseWriter, r *http.Request) 
 	gameType := normalizeGameType(r.FormValue("game_type"))
 	if !validGameType(gameType) {
 		http.Error(w, "Game type must be a lowercase slug using letters, numbers, dashes, or underscores", http.StatusBadRequest)
+		return
+	}
+	if err := h.ensureGameType(gameType); err != nil {
+		http.Error(w, "Failed to register game type", http.StatusInternalServerError)
 		return
 	}
 	server := &database.Server{
@@ -506,6 +551,10 @@ func (h *WebHandler) ServerEdit(w http.ResponseWriter, r *http.Request) {
 	if accessGrants == nil {
 		accessGrants = []database.ServerAccessGrant{}
 	}
+	whitelistEntries, _ := h.Store.ListUserWhitelists(server.ID)
+	if whitelistEntries == nil {
+		whitelistEntries = []database.UserWhitelist{}
+	}
 
 	agents, _ := h.Store.ListAgents()
 	if agents == nil {
@@ -521,6 +570,7 @@ func (h *WebHandler) ServerEdit(w http.ResponseWriter, r *http.Request) {
 		ServerTags         []string
 		AccessGrants       []database.ServerAccessGrant
 		AccessCapabilities []string
+		WhitelistEntries   []database.UserWhitelist
 		Agents             []database.Agent
 		Authenticated      bool
 		UserRole           string
@@ -529,12 +579,13 @@ func (h *WebHandler) ServerEdit(w http.ResponseWriter, r *http.Request) {
 		BackgroundURLs     BackgroundURLs
 	}{
 		Server:             server,
-		GameTypes:          adminGameTypes(allServers),
+		GameTypes:          h.adminGameTypes(allServers),
 		PteroConfigured:    h.Config.PterodactylURL != "",
 		PteroLink:          pteroLink,
 		ServerTags:         serverTags,
 		AccessGrants:       accessGrants,
 		AccessCapabilities: []string{"status", "start", "stop", "restart", "command", "console", "whitelist", "backup"},
+		WhitelistEntries:   whitelistEntries,
 		Agents:             agents,
 		Authenticated:      true,
 		UserRole:           "admin",
@@ -543,7 +594,7 @@ func (h *WebHandler) ServerEdit(w http.ResponseWriter, r *http.Request) {
 		BackgroundURLs:     h.pickBackgrounds([]string{"home"}),
 	}
 
-	tmpl, err := template.New("base.html").Funcs(sharedFuncMap()).ParseFS(templateFS, "templates/base.html", "templates/server_edit.html")
+	tmpl, err := template.New("base.html").Funcs(sharedFuncMap(h.Store)).ParseFS(templateFS, "templates/base.html", "templates/server_edit.html")
 	if err != nil {
 		http.Error(w, "Template error: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -572,6 +623,10 @@ func (h *WebHandler) HandleServerUpdate(w http.ResponseWriter, r *http.Request) 
 	gameType := normalizeGameType(r.FormValue("game_type"))
 	if !validGameType(gameType) {
 		http.Error(w, "Game type must be a lowercase slug using letters, numbers, dashes, or underscores", http.StatusBadRequest)
+		return
+	}
+	if err := h.ensureGameType(gameType); err != nil {
+		http.Error(w, "Failed to register game type", http.StatusInternalServerError)
 		return
 	}
 	server := &database.Server{
@@ -713,7 +768,7 @@ func (h *WebHandler) BackgroundManager(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var buf bytes.Buffer
-	tmpl, err := template.New("base.html").Funcs(sharedFuncMap()).ParseFS(templateFS, "templates/base.html", "templates/backgrounds.html")
+	tmpl, err := template.New("base.html").Funcs(sharedFuncMap(h.Store)).ParseFS(templateFS, "templates/base.html", "templates/backgrounds.html")
 	if err != nil {
 		http.Error(w, "Template error: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -763,7 +818,7 @@ func (h *WebHandler) Settings(w http.ResponseWriter, r *http.Request) {
 		BackgroundURLs: h.pickBackgrounds([]string{"home"}),
 	}
 
-	tmpl, err := template.New("base.html").Funcs(sharedFuncMap()).ParseFS(templateFS, "templates/base.html", "templates/settings.html")
+	tmpl, err := template.New("base.html").Funcs(sharedFuncMap(h.Store)).ParseFS(templateFS, "templates/base.html", "templates/settings.html")
 	if err != nil {
 		http.Error(w, "Template error: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -817,7 +872,7 @@ func (h *WebHandler) Users(w http.ResponseWriter, r *http.Request) {
 		BackgroundURLs: h.pickBackgrounds([]string{"home"}),
 	}
 
-	tmpl, err := template.New("base.html").Funcs(sharedFuncMap()).ParseFS(templateFS, "templates/base.html", "templates/users.html")
+	tmpl, err := template.New("base.html").Funcs(sharedFuncMap(h.Store)).ParseFS(templateFS, "templates/base.html", "templates/users.html")
 	if err != nil {
 		http.Error(w, "Template error: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -829,6 +884,86 @@ func (h *WebHandler) Users(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	buf.WriteTo(w)
+}
+
+func (h *WebHandler) GameTypes(w http.ResponseWriter, r *http.Request) {
+	gameTypes, err := h.Store.ListGameTypes()
+	if err != nil {
+		http.Error(w, "Failed to load game types", http.StatusInternalServerError)
+		return
+	}
+	data := struct {
+		GameTypes      []database.GameType
+		Authenticated  bool
+		UserRole       string
+		SiteName       string
+		UserEmail      string
+		BackgroundURLs BackgroundURLs
+	}{
+		GameTypes: gameTypes, Authenticated: true, UserRole: "admin",
+		SiteName: h.siteName(), UserEmail: h.Auth.GetUserEmail(r),
+		BackgroundURLs: h.pickBackgrounds([]string{"home"}),
+	}
+	tmpl, err := template.New("base.html").Funcs(sharedFuncMap(h.Store)).ParseFS(
+		templateFS, "templates/base.html", "templates/game_types.html")
+	if err != nil {
+		http.Error(w, "Template error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, data); err != nil {
+		http.Error(w, "Render error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	buf.WriteTo(w)
+}
+
+func (h *WebHandler) HandleGameTypeSet(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Invalid form data", http.StatusBadRequest)
+		return
+	}
+	slug := normalizeGameType(r.FormValue("slug"))
+	displayName := strings.TrimSpace(r.FormValue("display_name"))
+	playerNoun := strings.TrimSpace(r.FormValue("player_noun"))
+	icon := strings.TrimSpace(r.FormValue("icon"))
+	accentColor := strings.TrimSpace(r.FormValue("accent_color"))
+	if !validGameType(slug) || displayName == "" || len(displayName) > 64 ||
+		playerNoun == "" || len(playerNoun) > 32 || len(icon) > 8 ||
+		!gameTypeColorPattern.MatchString(accentColor) {
+		http.Error(w, "Invalid game type fields", http.StatusBadRequest)
+		return
+	}
+	existing, err := h.Store.GetGameType(slug)
+	if err != nil {
+		http.Error(w, "Failed to load game type", http.StatusInternalServerError)
+		return
+	}
+	item := &database.GameType{
+		Slug: slug, DisplayName: displayName, PlayerNoun: playerNoun,
+		Icon: icon, AccentColor: strings.ToLower(accentColor),
+	}
+	if existing != nil {
+		item.Builtin = existing.Builtin
+	}
+	if err := h.Store.SetGameType(item); err != nil {
+		http.Error(w, "Failed to save game type", http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, "/admin/game-types", http.StatusFound)
+}
+
+func (h *WebHandler) HandleGameTypeDelete(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Invalid form data", http.StatusBadRequest)
+		return
+	}
+	slug := normalizeGameType(r.FormValue("slug"))
+	if err := h.Store.DeleteGameType(slug); err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	http.Redirect(w, r, "/admin/game-types", http.StatusFound)
 }
 
 func (h *WebHandler) HandleAccessGrantSet(w http.ResponseWriter, r *http.Request) {
@@ -1030,7 +1165,7 @@ func (h *WebHandler) MyServers(w http.ResponseWriter, r *http.Request) {
 		BackgroundURLs: h.pickBackgrounds([]string{"home"}),
 	}
 
-	tmpl, err := template.New("base.html").Funcs(sharedFuncMap()).ParseFS(templateFS, "templates/base.html", "templates/my_servers.html")
+	tmpl, err := template.New("base.html").Funcs(sharedFuncMap(h.Store)).ParseFS(templateFS, "templates/base.html", "templates/my_servers.html")
 	if err != nil {
 		http.Error(w, "Template error: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -1081,7 +1216,7 @@ func (h *WebHandler) CommandManager(w http.ResponseWriter, r *http.Request) {
 		BackgroundURLs: h.pickBackgrounds([]string{"home"}),
 	}
 
-	tmpl, err := template.New("base.html").Funcs(sharedFuncMap()).ParseFS(templateFS, "templates/base.html", "templates/commands.html")
+	tmpl, err := template.New("base.html").Funcs(sharedFuncMap(h.Store)).ParseFS(templateFS, "templates/base.html", "templates/commands.html")
 	if err != nil {
 		http.Error(w, "Template error: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -1117,7 +1252,7 @@ func (h *WebHandler) ConstraintManager(w http.ResponseWriter, r *http.Request) {
 		BackgroundURLs: h.pickBackgrounds([]string{"home"}),
 	}
 
-	tmpl, err := template.New("base.html").Funcs(sharedFuncMap()).ParseFS(templateFS, "templates/base.html", "templates/constraints.html")
+	tmpl, err := template.New("base.html").Funcs(sharedFuncMap(h.Store)).ParseFS(templateFS, "templates/base.html", "templates/constraints.html")
 	if err != nil {
 		http.Error(w, "Template error: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -1160,7 +1295,7 @@ func (h *WebHandler) CronManager(w http.ResponseWriter, r *http.Request) {
 		BackgroundURLs: h.pickBackgrounds([]string{"home"}),
 	}
 
-	tmpl, err := template.New("base.html").Funcs(sharedFuncMap()).ParseFS(templateFS, "templates/base.html", "templates/cron.html")
+	tmpl, err := template.New("base.html").Funcs(sharedFuncMap(h.Store)).ParseFS(templateFS, "templates/base.html", "templates/cron.html")
 	if err != nil {
 		http.Error(w, "Template error: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -1191,7 +1326,7 @@ func (h *WebHandler) Help(w http.ResponseWriter, r *http.Request) {
 		BackgroundURLs: h.pickBackgrounds([]string{"home"}),
 	}
 
-	tmpl, err := template.New("base.html").Funcs(sharedFuncMap()).ParseFS(templateFS, "templates/base.html", "templates/help.html")
+	tmpl, err := template.New("base.html").Funcs(sharedFuncMap(h.Store)).ParseFS(templateFS, "templates/base.html", "templates/help.html")
 	if err != nil {
 		http.Error(w, "Template error: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -1306,7 +1441,13 @@ func (h *WebHandler) Agents(w http.ResponseWriter, r *http.Request) {
 		database.Agent
 		Connected        bool
 		CapabilityLabels []string
+		Mode             string
+		WorkerAPI        string
+		ControlURL       string
+		PublicURL        string
+		AssignedServers  []database.Server
 	}
+	servers, _ := h.Store.ListServers()
 	views := make([]agentView, 0, len(agents))
 	for _, current := range agents {
 		connected := false
@@ -1318,10 +1459,32 @@ func (h *WebHandler) Agents(w http.ResponseWriter, r *http.Request) {
 			capabilities = nil
 		}
 		sort.Strings(capabilities)
+		var assigned []database.Server
+		for _, server := range servers {
+			link, _ := h.Store.GetPterodactylLink(server.ID)
+			if link != nil && link.Node == current.NodeName {
+				assigned = append(assigned, server)
+			}
+		}
+		mode, workerAPI, controlURL, publicURL := "", "", "", ""
+		if h.AgentNodeInfo != nil {
+			if info, ok := h.AgentNodeInfo(current.NodeName); ok {
+				mode, controlURL, publicURL = info.Mode, info.ControlURL, info.PublicURL
+				workerAPI = publicURL
+				if workerAPI == "" {
+					workerAPI = controlURL
+				}
+			}
+		}
 		views = append(views, agentView{
 			Agent:            current,
 			Connected:        connected,
 			CapabilityLabels: capabilities,
+			Mode:             mode,
+			WorkerAPI:        workerAPI,
+			ControlURL:       controlURL,
+			PublicURL:        publicURL,
+			AssignedServers:  assigned,
 		})
 	}
 
@@ -1339,7 +1502,7 @@ func (h *WebHandler) Agents(w http.ResponseWriter, r *http.Request) {
 		BackgroundURLs: h.pickBackgrounds([]string{"home"}),
 	}
 
-	tmpl, err := template.New("base.html").Funcs(sharedFuncMap()).ParseFS(templateFS, "templates/base.html", "templates/agents.html")
+	tmpl, err := template.New("base.html").Funcs(sharedFuncMap(h.Store)).ParseFS(templateFS, "templates/base.html", "templates/agents.html")
 	if err != nil {
 		http.Error(w, "Template error: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -1351,6 +1514,57 @@ func (h *WebHandler) Agents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	buf.WriteTo(w)
+}
+
+func (h *WebHandler) HandleAgentLabelUpdate(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Invalid form data", http.StatusBadRequest)
+		return
+	}
+	id, err := strconv.Atoi(r.FormValue("id"))
+	if err != nil {
+		http.Error(w, "Invalid worker ID", http.StatusBadRequest)
+		return
+	}
+	current, err := h.Store.GetAgent(id)
+	if err != nil || current == nil {
+		http.Error(w, "Worker not found", http.StatusNotFound)
+		return
+	}
+	label := strings.TrimSpace(r.FormValue("display_name"))
+	if label == "" {
+		label = current.NodeName
+	}
+	if len(label) > 64 {
+		http.Error(w, "Display name is too long", http.StatusBadRequest)
+		return
+	}
+	current.Name = label
+	if err := h.Store.UpdateAgent(current); err != nil {
+		http.Error(w, "Failed to update worker", http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, "/admin/agents", http.StatusFound)
+}
+
+func (h *WebHandler) HandleAgentTransportUpdate(w http.ResponseWriter, r *http.Request) {
+	if h.AgentNodeUpdate == nil {
+		http.Error(w, "Worker manager is unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Invalid form data", http.StatusBadRequest)
+		return
+	}
+	node := strings.TrimSpace(r.FormValue("node"))
+	mode := strings.TrimSpace(r.FormValue("mode"))
+	controlURL := strings.TrimSpace(r.FormValue("control_url"))
+	publicURL := strings.TrimSpace(r.FormValue("public_url"))
+	if err := h.AgentNodeUpdate(node, mode, controlURL, publicURL); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	http.Redirect(w, r, "/admin/agents", http.StatusFound)
 }
 
 func (h *WebHandler) AuditLog(w http.ResponseWriter, r *http.Request) {
@@ -1366,7 +1580,7 @@ func (h *WebHandler) AuditLog(w http.ResponseWriter, r *http.Request) {
 		BackgroundURLs: h.pickBackgrounds([]string{"home"}),
 	}
 
-	tmpl, err := template.New("base.html").Funcs(sharedFuncMap()).ParseFS(templateFS, "templates/base.html", "templates/audit.html")
+	tmpl, err := template.New("base.html").Funcs(sharedFuncMap(h.Store)).ParseFS(templateFS, "templates/base.html", "templates/audit.html")
 	if err != nil {
 		http.Error(w, "Template error: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -1462,7 +1676,7 @@ func (h *WebHandler) Dashboard(w http.ResponseWriter, r *http.Request) {
 		BackgroundURLs:     h.pickBackgrounds([]string{"home"}),
 	}
 
-	tmpl, err := template.New("base.html").Funcs(sharedFuncMap()).ParseFS(templateFS, "templates/base.html", "templates/dashboard.html")
+	tmpl, err := template.New("base.html").Funcs(sharedFuncMap(h.Store)).ParseFS(templateFS, "templates/base.html", "templates/dashboard.html")
 	if err != nil {
 		http.Error(w, "Template error: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -1499,7 +1713,7 @@ func (h *WebHandler) Backups(w http.ResponseWriter, r *http.Request) {
 		BackgroundURLs: h.pickBackgrounds([]string{"home"}),
 	}
 
-	tmpl, err := template.New("base.html").Funcs(sharedFuncMap()).ParseFS(templateFS, "templates/base.html", "templates/backups.html")
+	tmpl, err := template.New("base.html").Funcs(sharedFuncMap(h.Store)).ParseFS(templateFS, "templates/base.html", "templates/backups.html")
 	if err != nil {
 		http.Error(w, "Template error: "+err.Error(), http.StatusInternalServerError)
 		return

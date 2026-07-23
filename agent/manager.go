@@ -40,6 +40,50 @@ type DirectAccess struct {
 	ExpiresAt time.Time `json:"expiresAt,omitempty"`
 }
 
+type NodeSummary struct {
+	Mode       string
+	ControlURL string
+	PublicURL  string
+}
+
+func (m *Manager) NodeSummary(node string) (NodeSummary, bool) {
+	if m == nil {
+		return NodeSummary{}, false
+	}
+	m.mu.RLock()
+	managed, ok := m.nodes[node]
+	m.mu.RUnlock()
+	if !ok {
+		return NodeSummary{}, false
+	}
+	return NodeSummary{Mode: managed.Mode, ControlURL: managed.ControlURL, PublicURL: managed.PublicURL}, true
+}
+
+func (m *Manager) UpdateNodeTransport(node, mode, controlURL, publicURL string) error {
+	m.mu.RLock()
+	current, ok := m.nodes[node]
+	m.mu.RUnlock()
+	if !ok {
+		return fmt.Errorf("worker %q is not configured", node)
+	}
+	candidate := current
+	candidate.Mode = mode
+	candidate.ControlURL = strings.TrimRight(strings.TrimSpace(controlURL), "/")
+	candidate.PublicURL = strings.TrimRight(strings.TrimSpace(publicURL), "/")
+	if err := validateManagedNode(candidate); err != nil {
+		return err
+	}
+	if err := m.store.UpdateAgentTransport(node, candidate.Mode, candidate.ControlURL, candidate.PublicURL); err != nil {
+		return fmt.Errorf("save worker transport: %w", err)
+	}
+	m.mu.Lock()
+	m.nodes[node] = candidate
+	delete(m.seen, node)
+	m.mu.Unlock()
+	m.client.CloseIdleConnections()
+	return nil
+}
+
 type ResourceStatus struct {
 	CPUPercent      *float64  `json:"cpuPercent,omitempty"`
 	CPULimitPercent *float64  `json:"cpuLimitPercent,omitempty"`
@@ -97,6 +141,21 @@ func NewManager(configPath string, store *database.Store) (*Manager, error) {
 		return nil, fmt.Errorf("at least one agent node is required")
 	}
 
+	for nodeName, configured := range nodes {
+		_ = store.InitializeAgentTransport(nodeName, configured.Mode, configured.ControlURL, configured.PublicURL)
+		persisted, lookupErr := store.GetAgentByNodeName(nodeName)
+		if lookupErr != nil || persisted == nil || persisted.ControlURL == "" {
+			continue
+		}
+		candidate := configured
+		candidate.Mode = persisted.Mode
+		candidate.ControlURL = persisted.ControlURL
+		candidate.PublicURL = persisted.PublicURL
+		if validateManagedNode(candidate) == nil {
+			nodes[nodeName] = candidate
+		}
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	manager := &Manager{
 		client: &http.Client{Transport: &http.Transport{
@@ -151,8 +210,14 @@ func (m *Manager) PublicOrigins() []string {
 	if m == nil {
 		return nil
 	}
-	seen := make(map[string]struct{})
+	m.mu.RLock()
+	nodes := make([]ManagedNode, 0, len(m.nodes))
 	for _, node := range m.nodes {
+		nodes = append(nodes, node)
+	}
+	m.mu.RUnlock()
+	seen := make(map[string]struct{})
+	for _, node := range nodes {
 		if node.Mode != "direct" {
 			continue
 		}
@@ -263,7 +328,13 @@ func (m *Manager) pollStatuses(ctx context.Context, store *database.Store, cache
 }
 
 func (m *Manager) pollHealth(ctx context.Context) {
+	m.mu.RLock()
+	nodes := make([]string, 0, len(m.nodes))
 	for node := range m.nodes {
+		nodes = append(nodes, node)
+	}
+	m.mu.RUnlock()
+	for _, node := range nodes {
 		node := node
 		go func() {
 			requestCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
@@ -345,7 +416,9 @@ func (m *Manager) StreamHeaders(ctx context.Context, node, method, endpoint stri
 }
 
 func (m *Manager) DirectAccess(node, subject, method, endpoint, filePath string, maxBytes int64) (*DirectAccess, error) {
+	m.mu.RLock()
 	managedNode, ok := m.nodes[node]
+	m.mu.RUnlock()
 	if !ok {
 		return nil, fmt.Errorf("node %q has no agent configuration", node)
 	}
@@ -369,7 +442,9 @@ func (m *Manager) DirectAccess(node, subject, method, endpoint, filePath string,
 }
 
 func (m *Manager) endpoint(node, endpoint string) (ManagedNode, string, error) {
+	m.mu.RLock()
 	managedNode, ok := m.nodes[node]
+	m.mu.RUnlock()
 	if !ok {
 		return ManagedNode{}, "", fmt.Errorf("node %q has no agent configuration", node)
 	}

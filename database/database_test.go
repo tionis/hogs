@@ -419,6 +419,37 @@ func TestGameIdentityAndServerCascade(t *testing.T) {
 	}
 }
 
+func TestGameTypesAndConsoleHistory(t *testing.T) {
+	store := testStore(t)
+	custom := &GameType{
+		Slug: "custom_game", DisplayName: "Custom Game", PlayerNoun: "Pilots",
+		Icon: "✦", AccentColor: "#123456",
+	}
+	if err := store.SetGameType(custom); err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.GetGameType(custom.Slug)
+	if err != nil || got == nil || got.DisplayName != custom.DisplayName || got.PlayerNoun != "Pilots" {
+		t.Fatalf("game type=%#v err=%v", got, err)
+	}
+	server := &Server{Name: "history-test", GameType: custom.Slug, State: "online"}
+	if err := store.CreateServer(server); err != nil {
+		t.Fatal(err)
+	}
+	for _, line := range []string{"server line", "> command", "response"} {
+		if err := store.AppendConsoleHistory(server.ID, "server", line, 2); err != nil {
+			t.Fatal(err)
+		}
+	}
+	history, err := store.ListConsoleHistory(server.ID, 10)
+	if err != nil || len(history) != 2 || history[0].Line != "> command" || history[1].Line != "response" {
+		t.Fatalf("bounded console history=%#v err=%v", history, err)
+	}
+	if err := store.DeleteGameType(custom.Slug); err == nil {
+		t.Fatal("removed a game type still used by a server")
+	}
+}
+
 func TestPruneUnusedBackgroundGameTags(t *testing.T) {
 	store := testStore(t)
 	server := &Server{Name: "tag-server", GameType: "minecraft", State: "online"}

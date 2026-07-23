@@ -52,9 +52,11 @@ func TestSecurityHeadersScopeUnsafeEvalToMapProxy(t *testing.T) {
 }
 
 func TestSecurityHeadersAllowConfiguredDirectAgentOrigins(t *testing.T) {
-	handler := securityHeadersMiddleware(&config.Config{}, []string{
-		"https://agent-a.example.test:9443",
-		"https://agent-b.example.test",
+	handler := securityHeadersMiddleware(&config.Config{}, func() []string {
+		return []string{
+			"https://agent-a.example.test:9443",
+			"https://agent-b.example.test",
+		}
 	})(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	}))

@@ -6,7 +6,7 @@
   <p class="text-muted">Servers and actions granted directly to you or through your OIDC groups.</p>
 </div>
 
-<div class="card mb-4">
+<div class="card mb-4" id="linked-game-accounts">
   <div class="card-header">My Linked Game Accounts</div>
   <div class="card-body">
     <p class="small text-muted">A linked identity is reused when you whitelist yourself on servers of that game type.</p>
@@ -47,7 +47,7 @@
           {{if inList "start" .AllowedActions}}<button class="btn btn-sm btn-outline-success" onclick="serverAction('{{.Server.Name}}', 'start', this)">Start</button>{{end}}
           {{if inList "stop" .AllowedActions}}<button class="btn btn-sm btn-outline-danger" onclick="serverAction('{{.Server.Name}}', 'stop', this)">Stop</button>{{end}}
           {{if inList "restart" .AllowedActions}}<button class="btn btn-sm btn-outline-warning" onclick="serverAction('{{.Server.Name}}', 'restart', this)">Restart</button>{{end}}
-          {{if inList "whitelist" .AllowedActions}}<button class="btn btn-sm btn-outline-info" onclick="showWhitelist('{{.Server.Name}}')">Whitelist</button>{{end}}
+          {{if inList "whitelist" .AllowedActions}}<button class="btn btn-sm btn-outline-info" onclick="showWhitelist('{{.Server.Name}}')">My whitelist entry</button>{{end}}
         </div>
         <div class="d-flex flex-wrap gap-1">
           {{range .PteroCommands}}{{if inList (printf "command:%s" .Command) $.AllowedActions}}<button class="btn btn-sm btn-outline-secondary" onclick="sendCommand('{{$.Server.Name}}', '{{.Command}}', this)">{{.DisplayName}}</button>{{end}}{{end}}
@@ -65,18 +65,19 @@
   <div class="modal-dialog modal-sm">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title">Whitelist Player</h5>
+        <h5 class="modal-title">My Whitelist Entry</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
       <div class="modal-body">
         <input type="hidden" id="whitelist-server">
         <div class="mb-3">
-          <label class="form-label">Username</label>
+          <label class="form-label">My linked in-game username</label>
           <input type="text" class="form-control form-control-sm" id="whitelist-username" placeholder="Notch">
+          <div class="form-text">This permission only manages your own linked account, never another player.</div>
         </div>
         <div class="d-flex gap-2">
-          <button type="button" class="btn btn-sm btn-success" onclick="whitelistAction('add')">Add</button>
-          <button type="button" class="btn btn-sm btn-danger" onclick="whitelistAction('remove')">Remove</button>
+          <button type="button" class="btn btn-sm btn-success" onclick="whitelistAction('add')">Whitelist me</button>
+          <button type="button" class="btn btn-sm btn-outline-danger" onclick="whitelistAction('remove')">Remove me</button>
         </div>
         <div id="whitelist-feedback" class="mt-2"></div>
       </div>
@@ -124,6 +125,15 @@ function showWhitelist(serverName) {
   document.getElementById('whitelist-server').value = serverName;
   document.getElementById('whitelist-username').value = '';
   document.getElementById('whitelist-feedback').innerHTML = '';
+  fetch('/servers/' + encodeURIComponent(serverName) + '/whitelist')
+    .then(resp => resp.ok ? resp.json() : Promise.reject(new Error(resp.statusText)))
+    .then(data => {
+      document.getElementById('whitelist-username').value = data.username || data.linkedUsername || '';
+      document.getElementById('whitelist-feedback').textContent = data.username
+        ? 'Currently whitelisted as ' + data.username + '.'
+        : (data.linkedUsername ? 'Linked as ' + data.linkedUsername + '; not currently whitelisted.' : 'No linked account yet.');
+    })
+    .catch(err => { document.getElementById('whitelist-feedback').textContent = err.message; });
   const modal = new bootstrap.Modal(document.getElementById('whitelistModal'));
   modal.show();
 }
@@ -131,7 +141,7 @@ function showWhitelist(serverName) {
 async function whitelistAction(op) {
   const serverName = document.getElementById('whitelist-server').value;
   const username = document.getElementById('whitelist-username').value;
-  if (!username) {
+  if (op === 'add' && !username) {
     document.getElementById('whitelist-feedback').innerHTML = '<div class="alert alert-warning small py-1">Enter a username.</div>';
     return;
   }
@@ -141,8 +151,9 @@ async function whitelistAction(op) {
       headers: {'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': getCsrfToken()},
       body: 'op=' + encodeURIComponent(op) + '&username=' + encodeURIComponent(username)
     });
-    const text = await resp.text();
-    document.getElementById('whitelist-feedback').innerHTML = '<div class="alert ' + (resp.ok ? 'alert-success' : 'alert-danger') + ' small py-1">' + escapeHtml(text) + '</div>';
+    const contentType = resp.headers.get('content-type') || '';
+    const result = contentType.includes('application/json') ? await resp.json() : {message: (await resp.text()).trim()};
+    document.getElementById('whitelist-feedback').innerHTML = '<div class="alert ' + (resp.ok ? 'alert-success' : 'alert-danger') + ' small py-1">' + escapeHtml(result.message || result.username || resp.statusText) + '</div>';
   } catch (err) {
     document.getElementById('whitelist-feedback').innerHTML = '<div class="alert alert-danger small py-1">' + escapeHtml(err.message) + '</div>';
   }

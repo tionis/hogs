@@ -38,10 +38,23 @@ func (a *AgentBackend) Stop(ctx context.Context) error    { return a.action(ctx,
 func (a *AgentBackend) Restart(ctx context.Context) error { return a.action(ctx, "restart") }
 
 func (a *AgentBackend) SendCommand(ctx context.Context, command string) error {
-	_, err := a.Manager.JSON(ctx, a.NodeName, http.MethodPost,
+	_, err := a.SendCommandOutput(ctx, command)
+	return err
+}
+
+func (a *AgentBackend) SendCommandOutput(ctx context.Context, command string) (string, error) {
+	result, err := a.Manager.JSON(ctx, a.NodeName, http.MethodPost,
 		fmt.Sprintf("/v1/servers/%s/command", url.PathEscape(a.ServerName)),
 		map[string]string{"command": command})
-	return err
+	if err != nil {
+		return "", err
+	}
+	if data, ok := result.Data.(map[string]interface{}); ok {
+		if output, ok := data["output"].(string); ok {
+			return output, nil
+		}
+	}
+	return "", nil
 }
 
 func (a *AgentBackend) Status(ctx context.Context) (*backend.ServerStatus, error) {

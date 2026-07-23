@@ -102,9 +102,28 @@ func authorizeManagedCapability(store *database.Store, eng *engine.Engine, authe
 		if !governed && !isManagedOperator(management.Operators, user) {
 			return nil, nil, http.StatusForbidden, fmt.Errorf("server operator access required")
 		}
+		if !governed && eng != nil {
+			link, linkErr := store.GetPterodactylLink(server.ID)
+			if linkErr != nil {
+				return nil, nil, http.StatusInternalServerError, fmt.Errorf("load server access rule: %w", linkErr)
+			}
+			allowed, aclErr := eng.EvaluateACLRule(link, server, string(capability), user)
+			if aclErr != nil {
+				return nil, nil, http.StatusInternalServerError, fmt.Errorf("evaluate server access rule: %w", aclErr)
+			}
+			if !allowed {
+				return nil, nil, http.StatusForbidden, fmt.Errorf("ACL denied action %s", capability)
+			}
+		}
 	}
 	if eng != nil {
-		result := eng.Evaluate(server, string(capability), nil, user)
+		// Managed capabilities are enabled by server_management and granted by
+		// the structured access model above. The legacy action allowlist belongs
+		// to power/RCON actions and must not disable backups, files, or console.
+		result, constraintErr := eng.EvaluateConstraints(server, string(capability), user)
+		if constraintErr != nil {
+			return nil, nil, http.StatusInternalServerError, fmt.Errorf("evaluate constraints: %w", constraintErr)
+		}
 		if !result.Allowed {
 			status := result.Status
 			if status == 0 {

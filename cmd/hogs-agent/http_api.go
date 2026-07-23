@@ -151,7 +151,9 @@ func handleConsole(w http.ResponseWriter, r *http.Request, server *ServerConfig)
 	}
 	w.Header().Set("Content-Type", "application/x-ndjson")
 	w.Header().Set("Cache-Control", "no-store")
-	cmd := exec.CommandContext(r.Context(), "journalctl", "-u", server.Unit, "-f", "-n", "100", "--no-hostname", "-o", "cat")
+	// HOGS persists the bounded console transcript. Start at the live cursor so
+	// reconnects do not duplicate the last journal lines.
+	cmd := exec.CommandContext(r.Context(), "journalctl", "-u", server.Unit, "-f", "-n", "0", "--no-hostname", "-o", "cat")
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		writeAPIError(w, http.StatusInternalServerError, err)

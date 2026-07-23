@@ -229,12 +229,18 @@
          </div>
          <div id="server-action-feedback" class="small mb-3" role="status"></div>
          {{if inList "whitelist" .AllowedActions}}
-         <h6 class="mt-3">Whitelist</h6>
+         <h6 class="mt-3">Whitelist My Linked Account</h6>
+         <p class="small mb-2" style="color: var(--text-secondary);">
+           This permission only adds or removes your own linked {{.Server.GameType}} account.
+           It cannot manage other players.
+         </p>
          <div id="whitelist-status" class="small mb-2" style="color: var(--text-secondary);"></div>
-         <form action="/servers/{{.Server.Name}}/whitelist" method="POST" class="input-group input-group-sm">
+         <form id="self-whitelist-form" class="input-group input-group-sm">
            <input type="text" name="username" class="form-control" placeholder="Linked {{.Server.GameType}} username" required id="whitelist-username">
-           <button type="submit" class="btn btn-outline-success">Link and Whitelist Me</button>
+           <button type="submit" class="btn btn-outline-success">Whitelist me</button>
+           <button type="button" class="btn btn-outline-danger" id="self-whitelist-remove">Remove me</button>
          </form>
+         <div id="self-whitelist-feedback" class="small mt-2" role="status"></div>
          {{end}}
          {{if .PteroCommands}}
          <h6>Commands</h6>
@@ -490,10 +496,49 @@ document.addEventListener("DOMContentLoaded", function() {
     loadResourceUsage();
     window.setInterval(loadResourceUsage, 15000);
     {{end}}
+
+    const selfWhitelistForm = document.getElementById('self-whitelist-form');
+    const selfWhitelistRemove = document.getElementById('self-whitelist-remove');
+    const selfWhitelistFeedback = document.getElementById('self-whitelist-feedback');
+    async function submitSelfWhitelist(op) {
+        if (!selfWhitelistForm) return;
+        const username = document.getElementById('whitelist-username').value.trim();
+        if (op === 'add' && !username) {
+            selfWhitelistForm.reportValidity();
+            return;
+        }
+        const body = new URLSearchParams({op, username});
+        try {
+            const response = await fetch(`/servers/${encodeURIComponent(serverName)}/whitelist`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': getCsrfToken(), 'Accept': 'application/json'},
+                body
+            });
+            const contentType = response.headers.get('content-type') || '';
+            const result = contentType.includes('application/json') ? await response.json() : {message: (await response.text()).trim()};
+            if (!response.ok) throw new Error(result.message || response.statusText);
+            selfWhitelistFeedback.className = 'small mt-2 text-success';
+            selfWhitelistFeedback.textContent = result.message || 'Whitelist updated.';
+            loadWhitelistStatus();
+        } catch (error) {
+            selfWhitelistFeedback.className = 'small mt-2 text-danger';
+            selfWhitelistFeedback.textContent = error.message;
+        }
+    }
+    if (selfWhitelistForm) {
+        selfWhitelistForm.addEventListener('submit', event => {
+            event.preventDefault();
+            submitSelfWhitelist('add');
+        });
+    }
+    if (selfWhitelistRemove) {
+        selfWhitelistRemove.addEventListener('click', () => submitSelfWhitelist('remove'));
+    }
     {{end}}
 
-    if (userEmail) {
-      fetch(`/servers/${serverName}/whitelist?user_email=${encodeURIComponent(userEmail)}`)
+    function loadWhitelistStatus() {
+      if (!userEmail) return;
+      fetch(`/servers/${serverName}/whitelist`)
       .then(r => r.json())
       .then(data => {
         const statusEl = document.getElementById('whitelist-status');
@@ -510,6 +555,7 @@ document.addEventListener("DOMContentLoaded", function() {
       })
       .catch(() => {});
     }
+    loadWhitelistStatus();
 });
 
 async function initManagedFiles(serverName) {

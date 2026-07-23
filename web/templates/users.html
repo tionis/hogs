@@ -7,8 +7,10 @@
 </div>
 
 <div class="alert alert-info">
-  Users, groups, and roles remain authoritative in the OIDC provider. HOGS stores only the
-  game-account identities used for game-specific allowlist operations.
+  Roles are resolved at login from the configured OIDC groups: membership in the admin
+  group grants <code>admin</code>, membership in the user group grants <code>user</code>.
+  The result is stored in the login session. HOGS stores game-account identities locally
+  for game-specific allowlist operations.
 </div>
 
 <div class="table-responsive">

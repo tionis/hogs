@@ -68,6 +68,152 @@ type UserWhitelist struct {
 	Username  string `json:"username"`
 }
 
+func (s *Store) ListUserWhitelists(serverID int) ([]UserWhitelist, error) {
+	rows, err := s.DB.Query(`SELECT id,user_email,server_id,username
+		FROM user_whitelists WHERE server_id=? ORDER BY lower(username),lower(user_email)`, serverID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var entries []UserWhitelist
+	for rows.Next() {
+		var entry UserWhitelist
+		if err := rows.Scan(&entry.ID, &entry.UserEmail, &entry.ServerID, &entry.Username); err != nil {
+			return nil, err
+		}
+		entries = append(entries, entry)
+	}
+	return entries, rows.Err()
+}
+
+type GameType struct {
+	Slug        string `json:"slug"`
+	DisplayName string `json:"displayName"`
+	PlayerNoun  string `json:"playerNoun"`
+	Icon        string `json:"icon"`
+	AccentColor string `json:"accentColor"`
+	Builtin     bool   `json:"builtin"`
+}
+
+func (s *Store) ListGameTypes() ([]GameType, error) {
+	rows, err := s.DB.Query(`SELECT slug,display_name,player_noun,icon,accent_color,builtin
+		FROM game_types ORDER BY lower(display_name),slug`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []GameType
+	for rows.Next() {
+		var item GameType
+		var builtin int
+		if err := rows.Scan(&item.Slug, &item.DisplayName, &item.PlayerNoun, &item.Icon, &item.AccentColor, &builtin); err != nil {
+			return nil, err
+		}
+		item.Builtin = builtin != 0
+		result = append(result, item)
+	}
+	return result, rows.Err()
+}
+
+func (s *Store) GetGameType(slug string) (*GameType, error) {
+	var item GameType
+	var builtin int
+	err := s.DB.QueryRow(`SELECT slug,display_name,player_noun,icon,accent_color,builtin
+		FROM game_types WHERE slug=?`, slug).Scan(
+		&item.Slug, &item.DisplayName, &item.PlayerNoun, &item.Icon, &item.AccentColor, &builtin)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	item.Builtin = builtin != 0
+	return &item, nil
+}
+
+func (s *Store) SetGameType(item *GameType) error {
+	builtin := 0
+	if item.Builtin {
+		builtin = 1
+	}
+	_, err := s.DB.Exec(`INSERT INTO game_types(slug,display_name,player_noun,icon,accent_color,builtin)
+		VALUES(?,?,?,?,?,?) ON CONFLICT(slug) DO UPDATE SET
+		display_name=excluded.display_name,player_noun=excluded.player_noun,
+		icon=excluded.icon,accent_color=excluded.accent_color`,
+		item.Slug, item.DisplayName, item.PlayerNoun, item.Icon, item.AccentColor, builtin)
+	return err
+}
+
+func (s *Store) DeleteGameType(slug string) error {
+	var used int
+	if err := s.DB.QueryRow("SELECT COUNT(*) FROM servers WHERE game_type=?", slug).Scan(&used); err != nil {
+		return err
+	}
+	if used > 0 {
+		return fmt.Errorf("game type is still used by %d server(s)", used)
+	}
+	var builtin int
+	if err := s.DB.QueryRow("SELECT builtin FROM game_types WHERE slug=?", slug).Scan(&builtin); err != nil {
+		return err
+	}
+	if builtin != 0 {
+		return fmt.Errorf("built-in game types can be edited but not removed")
+	}
+	_, err := s.DB.Exec("DELETE FROM game_types WHERE slug=?", slug)
+	return err
+}
+
+type ConsoleHistoryEntry struct {
+	ID        int    `json:"id"`
+	ServerID  int    `json:"serverId"`
+	Stream    string `json:"stream"`
+	Line      string `json:"line"`
+	CreatedAt string `json:"createdAt"`
+}
+
+func (s *Store) AppendConsoleHistory(serverID int, stream, line string, limit int) error {
+	if limit <= 0 {
+		limit = 500
+	}
+	tx, err := s.DB.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`INSERT INTO console_history(server_id,stream,line) VALUES(?,?,?)`,
+		serverID, stream, line); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM console_history WHERE server_id=? AND id NOT IN
+		(SELECT id FROM console_history WHERE server_id=? ORDER BY id DESC LIMIT ?)`,
+		serverID, serverID, limit); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (s *Store) ListConsoleHistory(serverID, limit int) ([]ConsoleHistoryEntry, error) {
+	if limit <= 0 {
+		limit = 500
+	}
+	rows, err := s.DB.Query(`SELECT id,server_id,stream,line,created_at FROM
+		(SELECT id,server_id,stream,line,created_at FROM console_history
+		 WHERE server_id=? ORDER BY id DESC LIMIT ?) ORDER BY id`, serverID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var entries []ConsoleHistoryEntry
+	for rows.Next() {
+		var entry ConsoleHistoryEntry
+		if err := rows.Scan(&entry.ID, &entry.ServerID, &entry.Stream, &entry.Line, &entry.CreatedAt); err != nil {
+			return nil, err
+		}
+		entries = append(entries, entry)
+	}
+	return entries, rows.Err()
+}
+
 type ServerAccessGrant struct {
 	ID           int      `json:"id"`
 	ServerID     int      `json:"serverId"`
@@ -2059,6 +2205,9 @@ type Agent struct {
 	TokenHash    string          `json:"-"`
 	TokenPrefix  string          `json:"keyPrefix"`
 	NodeName     string          `json:"nodeName"`
+	Mode         string          `json:"mode"`
+	ControlURL   string          `json:"controlUrl"`
+	PublicURL    string          `json:"publicUrl"`
 	Capabilities json.RawMessage `json:"capabilities"`
 	CreatedAt    string          `json:"createdAt"`
 	LastSeen     *string         `json:"lastSeen"`
@@ -2083,19 +2232,21 @@ func (s *Store) CreateAgent(a *Agent) error {
 	return nil
 }
 
+const agentSelectColumns = "id,name,token_prefix,node_name,mode,control_url,public_url,capabilities,created_at,last_seen,online"
+
 func (s *Store) GetAgent(id int) (*Agent, error) {
-	row := s.DB.QueryRow("SELECT id, name, token_prefix, node_name, capabilities, created_at, last_seen, online FROM agents WHERE id = ?", id)
+	row := s.DB.QueryRow("SELECT "+agentSelectColumns+" FROM agents WHERE id = ?", id)
 	return scanAgent(row)
 }
 
 func (s *Store) GetAgentByToken(token string) (*Agent, error) {
 	tokenHash := HashAPIKey(token)
-	row := s.DB.QueryRow("SELECT id, name, token_prefix, node_name, capabilities, created_at, last_seen, online FROM agents WHERE token_hash = ?", tokenHash)
+	row := s.DB.QueryRow("SELECT "+agentSelectColumns+" FROM agents WHERE token_hash = ?", tokenHash)
 	return scanAgent(row)
 }
 
 func (s *Store) GetAgentByNodeName(nodeName string) (*Agent, error) {
-	row := s.DB.QueryRow("SELECT id, name, token_prefix, node_name, capabilities, created_at, last_seen, online FROM agents WHERE node_name = ?", nodeName)
+	row := s.DB.QueryRow("SELECT "+agentSelectColumns+" FROM agents WHERE node_name = ?", nodeName)
 	return scanAgent(row)
 }
 
@@ -2104,7 +2255,8 @@ func scanAgent(row *sql.Row) (*Agent, error) {
 	var online int
 	var caps []byte
 	var prefix sql.NullString
-	err := row.Scan(&a.ID, &a.Name, &prefix, &a.NodeName, &caps, &a.CreatedAt, &a.LastSeen, &online)
+	err := row.Scan(&a.ID, &a.Name, &prefix, &a.NodeName, &a.Mode, &a.ControlURL, &a.PublicURL,
+		&caps, &a.CreatedAt, &a.LastSeen, &online)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
@@ -2118,7 +2270,7 @@ func scanAgent(row *sql.Row) (*Agent, error) {
 }
 
 func (s *Store) ListAgents() ([]Agent, error) {
-	rows, err := s.DB.Query("SELECT id, name, token_prefix, node_name, capabilities, created_at, last_seen, online FROM agents ORDER BY id")
+	rows, err := s.DB.Query("SELECT " + agentSelectColumns + " FROM agents ORDER BY id")
 	if err != nil {
 		return nil, err
 	}
@@ -2130,7 +2282,8 @@ func (s *Store) ListAgents() ([]Agent, error) {
 		var online int
 		var caps []byte
 		var prefix sql.NullString
-		if err := rows.Scan(&a.ID, &a.Name, &prefix, &a.NodeName, &caps, &a.CreatedAt, &a.LastSeen, &online); err != nil {
+		if err := rows.Scan(&a.ID, &a.Name, &prefix, &a.NodeName, &a.Mode, &a.ControlURL, &a.PublicURL,
+			&caps, &a.CreatedAt, &a.LastSeen, &online); err != nil {
 			return nil, err
 		}
 		a.TokenPrefix = prefix.String
@@ -2177,6 +2330,21 @@ func (s *Store) UpdateAgent(a *Agent) error {
 	}
 	_, err := s.DB.Exec("UPDATE agents SET name = ?, node_name = ?, capabilities = ? WHERE id = ?",
 		a.Name, a.NodeName, string(a.Capabilities), a.ID)
+	return err
+}
+
+func (s *Store) UpdateAgentTransport(nodeName, mode, controlURL, publicURL string) error {
+	_, err := s.DB.Exec(`UPDATE agents SET mode=?,control_url=?,public_url=? WHERE node_name=?`,
+		mode, controlURL, publicURL, nodeName)
+	return err
+}
+
+func (s *Store) InitializeAgentTransport(nodeName, mode, controlURL, publicURL string) error {
+	_, err := s.DB.Exec(`UPDATE agents SET
+		mode=CASE WHEN mode='' THEN ? ELSE mode END,
+		control_url=CASE WHEN control_url='' THEN ? ELSE control_url END,
+		public_url=CASE WHEN public_url='' THEN ? ELSE public_url END
+		WHERE node_name=?`, mode, controlURL, publicURL, nodeName)
 	return err
 }
 

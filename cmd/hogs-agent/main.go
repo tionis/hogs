@@ -395,6 +395,15 @@ func readRCONResponse(conn net.Conn, requestID int32) (string, error) {
 			if gotResponse {
 				return response.String(), nil
 			}
+			// Several Minecraft commands legitimately return an empty response
+			// and close the request without a response packet. Authentication
+			// has already succeeded, so EOF here means the command was accepted.
+			if err == io.EOF {
+				return "", nil
+			}
+			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+				return "", nil
+			}
 			return "", err
 		}
 		if id == requestID {

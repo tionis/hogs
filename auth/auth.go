@@ -326,11 +326,6 @@ func (a *Authenticator) resolveRole(email string, groups []string) string {
 		}
 	}
 
-	user, err := a.Store.GetUserByEmail(email)
-	if err == nil && user != nil {
-		return user.Role
-	}
-
 	if userGroup == "" {
 		return "user"
 	}
@@ -352,8 +347,8 @@ func (a *Authenticator) provisionUser(email, role, externalID, displayName strin
 			return fmt.Errorf("CreateUser failed: %w", err)
 		}
 	}
-	if role == "admin" && user.Role != "admin" {
-		if err := a.Store.UpdateUserRole(user.ID, "admin"); err != nil {
+	if user.Role != role {
+		if err := a.Store.UpdateUserRole(user.ID, role); err != nil {
 			return fmt.Errorf("UpdateUserRole failed: %w", err)
 		}
 	}

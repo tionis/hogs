@@ -35,6 +35,12 @@ nodes:
 reaches it and is required for direct mode. A future tunneled node will use an
 HTTP `control_url` inside its tunnel and omit `public_url`.
 
+The secret file and initial worker identity are host-provisioned. Instance
+administrators can subsequently change the worker's display label, transport
+mode, control URL, browser-facing URL, and server assignments from the HOGS
+admin UI. These endpoint changes are stored in HOGS and take effect without a
+restart; credentials are never shown in the browser.
+
 ## Agent configuration
 
 Only `HOGS_AGENT_CONFIG` is required in the environment:

@@ -1,0 +1,74 @@
+{{define "title"}}Game Types{{end}}
+
+{{define "content"}}
+<nav aria-label="breadcrumb">
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="/admin">Admin</a></li>
+    <li class="breadcrumb-item active" aria-current="page">Game Types</li>
+  </ol>
+</nav>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div>
+    <h1 class="h2 mb-1">Game Types</h1>
+    <p class="text-muted mb-0">Control how games are named and presented throughout this instance.</p>
+  </div>
+</div>
+
+<div class="row g-3">
+  {{range .GameTypes}}
+  <div class="col-lg-6">
+    <div class="card h-100">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span class="game-badge" style="{{gameBadgeCSS .Slug}}">{{gameIcon .Slug}}{{gameDisplayName .Slug}}</span>
+        <code>{{.Slug}}</code>
+      </div>
+      <div class="card-body">
+        <form action="/admin/game-types/set" method="POST">
+          <input type="hidden" name="slug" value="{{.Slug}}">
+          <div class="row g-2">
+            <div class="col-md-6">
+              <label class="form-label">Display name</label>
+              <input class="form-control form-control-sm" name="display_name" value="{{.DisplayName}}" maxlength="64" required>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Player label</label>
+              <input class="form-control form-control-sm" name="player_noun" value="{{.PlayerNoun}}" maxlength="32" required>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Icon</label>
+              <input class="form-control form-control-sm" name="icon" value="{{.Icon}}" maxlength="8" placeholder="Emoji or short symbol">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Accent color</label>
+              <input class="form-control form-control-color w-100" type="color" name="accent_color" value="{{.AccentColor}}" required>
+            </div>
+          </div>
+          <button class="btn btn-sm btn-primary mt-3" type="submit">Save</button>
+        </form>
+        {{if not .Builtin}}
+        <form action="/admin/game-types/delete" method="POST" class="mt-2" onsubmit="return confirm('Remove this unused game type?');">
+          <input type="hidden" name="slug" value="{{.Slug}}">
+          <button class="btn btn-sm btn-outline-danger" type="submit">Remove</button>
+        </form>
+        {{end}}
+      </div>
+    </div>
+  </div>
+  {{end}}
+</div>
+
+<div class="card mt-4">
+  <div class="card-header">Add game type</div>
+  <div class="card-body">
+    <form action="/admin/game-types/set" method="POST" class="row g-2 align-items-end">
+      <div class="col-md-2"><label class="form-label">Slug</label><input class="form-control form-control-sm" name="slug" pattern="[a-z0-9][a-z0-9_-]{0,31}" required></div>
+      <div class="col-md-3"><label class="form-label">Display name</label><input class="form-control form-control-sm" name="display_name" maxlength="64" required></div>
+      <div class="col-md-2"><label class="form-label">Player label</label><input class="form-control form-control-sm" name="player_noun" value="Players" maxlength="32" required></div>
+      <div class="col-md-2"><label class="form-label">Icon</label><input class="form-control form-control-sm" name="icon" maxlength="8"></div>
+      <div class="col-md-2"><label class="form-label">Accent</label><input class="form-control form-control-color w-100" type="color" name="accent_color" value="#666666"></div>
+      <div class="col-md-1"><button class="btn btn-sm btn-primary w-100" type="submit">Add</button></div>
+    </form>
+  </div>
+</div>
+{{end}}

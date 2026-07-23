@@ -225,6 +225,9 @@ func ParseWeekday(name string) time.Weekday {
 
 func (e *Engine) EvaluateACL(link *database.PterodactylLink, server *database.Server, action string, user *UserEnv) (bool, error) {
 	if user != nil {
+		if user.Role == "admin" || user.Role == "system" {
+			return isActionAllowed(link.AllowedActions, action), nil
+		}
 		allowed, governed, err := e.Store.ServerAccessAllowed(server.ID, user.Email, user.Groups, action)
 		if err != nil {
 			return false, fmt.Errorf("evaluate structured access grants: %w", err)
@@ -232,9 +235,6 @@ func (e *Engine) EvaluateACL(link *database.PterodactylLink, server *database.Se
 		if governed {
 			if !isActionAllowed(link.AllowedActions, action) {
 				return false, nil
-			}
-			if user.Role == "admin" || user.Role == "system" {
-				return true, nil
 			}
 			return allowed, nil
 		}
@@ -264,6 +264,33 @@ func (e *Engine) EvaluateACL(link *database.PterodactylLink, server *database.Se
 	}
 
 	return isActionAllowed(link.AllowedActions, action), nil
+}
+
+// EvaluateACLRule evaluates only the optional legacy expression. Managed
+// capabilities have their own availability policy and must not be rejected
+// merely because they are absent from the power/RCON allowed-actions list.
+func (e *Engine) EvaluateACLRule(link *database.PterodactylLink, server *database.Server, action string, user *UserEnv) (bool, error) {
+	if link == nil || link.ACLRule == "" || (user != nil && (user.Role == "admin" || user.Role == "system")) {
+		return true, nil
+	}
+	env, err := e.buildEnv(server, user)
+	if err != nil {
+		return false, err
+	}
+	env["action"] = action
+	program, err := expr.Compile(link.ACLRule, expr.Env(env), expr.AllowUndefinedVariables())
+	if err != nil {
+		return false, fmt.Errorf("ACL rule compile error: %w", err)
+	}
+	result, err := expr.Run(program, env)
+	if err != nil {
+		return false, fmt.Errorf("ACL rule evaluation error: %w", err)
+	}
+	allowed, ok := result.(bool)
+	if !ok {
+		return false, fmt.Errorf("ACL rule must return boolean, got %T", result)
+	}
+	return allowed, nil
 }
 
 func (e *Engine) EvaluateConstraints(server *database.Server, action string, user *UserEnv) (*ActionResult, error) {

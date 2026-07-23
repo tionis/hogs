@@ -28,12 +28,14 @@ import (
 	"github.com/gorilla/mux"
 )
 
-func securityHeadersMiddleware(cfg *config.Config, agentOrigins []string) func(http.Handler) http.Handler {
-	connectSources := []string{"'self'", "https://cdn.jsdelivr.net"}
-	connectSources = append(connectSources, agentOrigins...)
-	connectPolicy := "connect-src " + strings.Join(connectSources, " ") + ";"
+func securityHeadersMiddleware(cfg *config.Config, agentOrigins func() []string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			connectSources := []string{"'self'", "https://cdn.jsdelivr.net"}
+			if agentOrigins != nil {
+				connectSources = append(connectSources, agentOrigins()...)
+			}
+			connectPolicy := "connect-src " + strings.Join(connectSources, " ") + ";"
 			scriptPolicy := "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net;"
 			if isMapProxyPath(r.URL.Path) {
 				// BlueMap's bundled vue-i18n runtime compiles locale messages in the
@@ -155,6 +157,8 @@ func main() {
 		}
 		defer agentManager.Close()
 		webHandler.AgentConnected = func(id int) bool { return agentManager.Connected(id, store) }
+		webHandler.AgentNodeInfo = agentManager.NodeSummary
+		webHandler.AgentNodeUpdate = agentManager.UpdateNodeTransport
 		agentService = agent.NewAgentService(store, agentManager)
 		agentManager.StartStatusPolling(store, cache)
 		agentHandler = api.NewAgentHandler(store, agentService, agentManager, authenticator, eng)
@@ -305,7 +309,12 @@ func main() {
 
 		router.Handle("/admin/users", authenticator.RequireRole("admin")(http.HandlerFunc(webHandler.Users))).Methods("GET")
 		router.Handle("/admin/users/update", authenticator.RequireRole("admin")(http.HandlerFunc(webHandler.HandleUserUpdate))).Methods("POST")
+		router.Handle("/admin/game-types", authenticator.RequireRole("admin")(http.HandlerFunc(webHandler.GameTypes))).Methods("GET")
+		router.Handle("/admin/game-types/set", authenticator.RequireRole("admin")(http.HandlerFunc(webHandler.HandleGameTypeSet))).Methods("POST")
+		router.Handle("/admin/game-types/delete", authenticator.RequireRole("admin")(http.HandlerFunc(webHandler.HandleGameTypeDelete))).Methods("POST")
 		router.Handle("/admin/agents", authenticator.RequireRole("admin")(http.HandlerFunc(webHandler.Agents))).Methods("GET")
+		router.Handle("/admin/agents/label", authenticator.RequireRole("admin")(http.HandlerFunc(webHandler.HandleAgentLabelUpdate))).Methods("POST")
+		router.Handle("/admin/agents/transport", authenticator.RequireRole("admin")(http.HandlerFunc(webHandler.HandleAgentTransportUpdate))).Methods("POST")
 		router.Handle("/admin/audit", authenticator.RequireRole("admin")(http.HandlerFunc(webHandler.AuditLog))).Methods("GET")
 		router.Handle("/admin/backups", authenticator.RequireRole("admin")(http.HandlerFunc(webHandler.Backups))).Methods("GET")
 
@@ -313,10 +322,12 @@ func main() {
 		router.Handle("/admin/pterodactyl/unlink", authenticator.RequireRole("admin")(http.HandlerFunc(pteroHandler.UnlinkServer))).Methods("POST")
 		router.Handle("/admin/pterodactyl/commands/add", authenticator.RequireRole("admin")(http.HandlerFunc(pteroHandler.AddCommand))).Methods("POST")
 		router.Handle("/admin/pterodactyl/commands/delete", authenticator.RequireRole("admin")(http.HandlerFunc(pteroHandler.DeleteCommand))).Methods("POST")
+		router.Handle("/admin/servers/{serverName}/whitelist", authenticator.RequireRole("admin")(http.HandlerFunc(pteroHandler.AdminWhitelist))).Methods("GET", "POST")
 
 		router.Handle("/api/pterodactyl/servers", authenticator.RequireRole("admin")(http.HandlerFunc(pteroHandler.ListPteroServers))).Methods("GET")
 
 		router.Handle("/my-servers", authenticator.RequireRole("admin", "user")(http.HandlerFunc(webHandler.MyServers))).Methods("GET")
+		router.Handle("/account/game-identities", authenticator.RequireRole("admin", "user")(http.HandlerFunc(webHandler.MyServers))).Methods("GET")
 		router.Handle("/account/game-identities/set", authenticator.RequireRole("admin", "user")(http.HandlerFunc(webHandler.HandleGameIdentitySet))).Methods("POST")
 		router.Handle("/account/game-identities/delete", authenticator.RequireRole("admin", "user")(http.HandlerFunc(webHandler.HandleGameIdentityDelete))).Methods("POST")
 
@@ -425,9 +436,9 @@ func main() {
 	router.HandleFunc("/{serverName}", webHandler.ServerDetail).Methods("GET")
 
 	// Add security headers middleware
-	var agentOrigins []string
+	var agentOrigins func() []string
 	if agentManager != nil {
-		agentOrigins = agentManager.PublicOrigins()
+		agentOrigins = agentManager.PublicOrigins
 	}
 	secureHandler := securityHeadersMiddleware(cfg, agentOrigins)(apiKeyRouter)
 
