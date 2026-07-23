@@ -28,7 +28,7 @@ func TestUserspacePeersExchangeTCP(t *testing.T) {
 		Address: "fd42:686f:6773::2", PrivateKey: clientPrivate,
 		Peers: []Peer{{
 			PublicKey: publicKey(t, serverPrivate), AllowedIP: "fd42:686f:6773::1/128",
-			Endpoint: net.JoinHostPort("127.0.0.1", itoa(serverPort)), PersistentKeepalive: 1,
+			Endpoint: net.JoinHostPort("localhost", itoa(serverPort)), PersistentKeepalive: 1,
 		}},
 	}, "test-client: ")
 	if err != nil {

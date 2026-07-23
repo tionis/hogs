@@ -73,7 +73,12 @@ func New(cfg Config, logPrefix string) (*Network, error) {
 		}
 		fmt.Fprintf(&ipc, "public_key=%s\nallowed_ip=%s\n", publicKey, allowed)
 		if peer.Endpoint != "" {
-			fmt.Fprintf(&ipc, "endpoint=%s\n", peer.Endpoint)
+			endpoint, err := net.ResolveUDPAddr("udp", peer.Endpoint)
+			if err != nil {
+				dev.Close()
+				return nil, fmt.Errorf("resolve peer endpoint %q: %w", peer.Endpoint, err)
+			}
+			fmt.Fprintf(&ipc, "endpoint=%s\n", endpoint.String())
 		}
 		if peer.PersistentKeepalive > 0 {
 			fmt.Fprintf(&ipc, "persistent_keepalive_interval=%d\n", peer.PersistentKeepalive)
