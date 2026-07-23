@@ -237,6 +237,15 @@ func TestBackupsRenders(t *testing.T) {
 	if !contains(w.Body.String(), "content-type") || !contains(w.Body.String(), "await resp.text()") {
 		t.Error("expected backups page to handle JSON and plain-text failures")
 	}
+	body := w.Body.String()
+	for _, expected := range []string{"aria-live=\"polite\"", "renderSnapshots", "Created", "Snapshot", "Tags", "Paths", "Copy full snapshot ID"} {
+		if !contains(body, expected) {
+			t.Errorf("expected human-readable snapshot UI to contain %q", expected)
+		}
+	}
+	if contains(body, "JSON.stringify(data") {
+		t.Error("snapshot responses must not be rendered as raw JSON")
+	}
 }
 
 func TestAgentsRendersConnectionState(t *testing.T) {

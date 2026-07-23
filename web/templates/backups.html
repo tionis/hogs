@@ -25,9 +25,7 @@
           <button class="btn btn-sm btn-outline-primary" onclick="backupAction('{{.Name}}', 'create', this)">Create Backup</button>
           <button class="btn btn-sm btn-outline-info" onclick="backupAction('{{.Name}}', 'list', this)">List Snapshots</button>
         </div>
-        <div id="backup-result-{{.Name}}" style="display:none;">
-          <pre class="small mb-0" style="background:var(--bg-input);padding:0.5rem;border-radius:4px;max-height:300px;overflow:auto;"><code id="backup-output-{{.Name}}"></code></pre>
-        </div>
+        <div id="backup-result-{{.Name}}" aria-live="polite" style="display:none;"></div>
       </div>
     </div>
   </div>
@@ -41,7 +39,6 @@
 async function backupAction(serverName, action, btn) {
   setButtonLoading(btn, true);
   const resultDiv = document.getElementById('backup-result-' + serverName);
-  const outputPre = document.getElementById('backup-output-' + serverName);
   try {
     const resp = await fetch('/api/agents/' + encodeURIComponent(serverName) + '/backup/' + action, {
       method: 'POST',
@@ -54,20 +51,120 @@ async function backupAction(serverName, action, btn) {
     if (!resp.ok || data.success === false) {
       throw new Error(data.error || ('HTTP ' + resp.status));
     }
-    outputPre.textContent = JSON.stringify(data, null, 2);
+    if (action === 'list') {
+      renderSnapshots(resultDiv, data.data && data.data.snapshots);
+    } else {
+      renderBackupMessage(resultDiv, 'success', 'Backup created successfully.');
+    }
     resultDiv.style.display = 'block';
   } catch (err) {
-    outputPre.textContent = 'Error: ' + err.message;
+    renderBackupMessage(resultDiv, 'danger', 'Error: ' + err.message);
     resultDiv.style.display = 'block';
   } finally {
     setButtonLoading(btn, false);
   }
 }
 
-function escapeHtml(text) {
-  const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
+function renderBackupMessage(output, level, message) {
+  output.replaceChildren();
+  const alert = document.createElement('div');
+  alert.className = 'alert alert-' + level + ' mb-0';
+  alert.textContent = message;
+  output.appendChild(alert);
+}
+
+function renderSnapshots(output, snapshots) {
+  output.replaceChildren();
+  if (!Array.isArray(snapshots)) {
+    renderBackupMessage(output, 'danger', 'The agent returned an invalid snapshot list.');
+    return;
+  }
+  if (snapshots.length === 0) {
+    renderBackupMessage(output, 'info', 'No snapshots found.');
+    return;
+  }
+
+  const wrapper = document.createElement('div');
+  wrapper.className = 'table-responsive';
+  const table = document.createElement('table');
+  table.className = 'table table-sm align-middle mb-0';
+  const head = document.createElement('thead');
+  const headerRow = document.createElement('tr');
+  for (const label of ['Created', 'Snapshot', 'Tags', 'Paths']) {
+    const th = document.createElement('th');
+    th.textContent = label;
+    headerRow.appendChild(th);
+  }
+  head.appendChild(headerRow);
+  table.appendChild(head);
+
+  const body = document.createElement('tbody');
+  for (const snapshot of snapshots) {
+    const row = document.createElement('tr');
+
+    const createdCell = document.createElement('td');
+    const time = document.createElement('time');
+    const parsed = new Date(snapshot.time || '');
+    time.textContent = Number.isNaN(parsed.getTime()) ? (snapshot.time || 'Unknown') : parsed.toLocaleString();
+    if (snapshot.time) {
+      time.dateTime = snapshot.time;
+      time.title = snapshot.time;
+    }
+    createdCell.appendChild(time);
+    row.appendChild(createdCell);
+
+    const idCell = document.createElement('td');
+    const id = String(snapshot.id || '');
+    const code = document.createElement('code');
+    code.textContent = id ? id.slice(0, 12) : 'Unknown';
+    code.title = id;
+    idCell.appendChild(code);
+    if (id) {
+      const copy = document.createElement('button');
+      copy.type = 'button';
+      copy.className = 'btn btn-sm btn-outline-secondary ms-2';
+      copy.textContent = 'Copy';
+      copy.setAttribute('aria-label', 'Copy full snapshot ID');
+      copy.addEventListener('click', () => copySnapshotId(id, copy));
+      idCell.appendChild(copy);
+    }
+    row.appendChild(idCell);
+
+    const tagsCell = document.createElement('td');
+    appendSnapshotValues(tagsCell, snapshot.tags, true);
+    row.appendChild(tagsCell);
+
+    const pathsCell = document.createElement('td');
+    appendSnapshotValues(pathsCell, snapshot.paths, false);
+    row.appendChild(pathsCell);
+    body.appendChild(row);
+  }
+  table.appendChild(body);
+  wrapper.appendChild(table);
+  output.appendChild(wrapper);
+}
+
+function appendSnapshotValues(cell, values, badges) {
+  if (!Array.isArray(values) || values.length === 0) {
+    cell.textContent = '—';
+    return;
+  }
+  for (const value of values) {
+    const item = document.createElement(badges ? 'span' : 'code');
+    item.textContent = String(value);
+    item.className = badges ? 'badge bg-secondary me-1' : 'd-block';
+    cell.appendChild(item);
+  }
+}
+
+async function copySnapshotId(id, button) {
+  try {
+    await navigator.clipboard.writeText(id);
+    button.textContent = 'Copied';
+  } catch (_) {
+    button.textContent = 'Copy failed';
+  }
+  setTimeout(() => { button.textContent = 'Copy'; }, 1500);
 }
 
 function setButtonLoading(btn, loading) {
