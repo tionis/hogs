@@ -3,30 +3,24 @@ package main
 import (
 	"bytes"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/tionis/hogs/internal/capability"
 )
 
 func testNodeConfig(root string) AgentConfig {
 	return AgentConfig{
 		Node: "node-a", ResticBin: "restic",
-		WireGuard: AgentWireGuardConfig{
-			Address:        "fd00::2",
-			PrivateKeyFile: "/run/credentials/hogs-agent.key",
-			APIPort:        8443,
-			Peer: struct {
-				PublicKey           string `yaml:"public_key"`
-				AllowedIP           string `yaml:"allowed_ip"`
-				Endpoint            string `yaml:"endpoint"`
-				PersistentKeepalive int    `yaml:"persistent_keepalive"`
-			}{
-				PublicKey: "test-public-key",
-				AllowedIP: "fd00::1/128",
-				Endpoint:  "[2001:db8::1]:51820",
-			},
+		API: AgentAPIConfig{
+			Listen:         "127.0.0.1:9081",
+			SecretFile:     "/run/credentials/hogs-agent.secret",
+			AllowedOrigins: []string{"https://games.example.test"},
 		},
 		Servers: map[string]ServerConfig{
 			"alpha": {Unit: "game-alpha.service", GameType: "minecraft", DataDir: filepath.Join(root, "alpha")},
@@ -187,6 +181,51 @@ func TestValidateConfigAcceptsNodeScopedServerAllowlist(t *testing.T) {
 	cfg := testNodeConfig(t.TempDir())
 	if err := validateConfig(cfg); err != nil {
 		t.Fatalf("valid config rejected: %v", err)
+	}
+}
+
+func TestAgentAPIAuthorizesScopedCapabilitiesAndCORS(t *testing.T) {
+	agentConfig = testNodeConfig(t.TempDir())
+	agentSecret = []byte("0123456789abcdef0123456789abcdef")
+	handler := agentAPI()
+
+	claims := capability.NewClaims("node-a", "hogs-control", http.MethodGet,
+		"/v1/health", "", 0, time.Minute)
+	token, err := capability.Sign(agentSecret, claims)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/v1/health", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("authorized health status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/v1/servers/alpha/status", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("cross-route capability status=%d, want forbidden", recorder.Code)
+	}
+
+	req = httptest.NewRequest(http.MethodOptions, "/v1/servers/alpha/file", nil)
+	req.Header.Set("Origin", "https://games.example.test")
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusNoContent ||
+		recorder.Header().Get("Access-Control-Allow-Origin") != "https://games.example.test" {
+		t.Fatalf("allowed preflight status=%d headers=%v", recorder.Code, recorder.Header())
+	}
+
+	req = httptest.NewRequest(http.MethodOptions, "/v1/servers/alpha/file", nil)
+	req.Header.Set("Origin", "https://attacker.example.test")
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("foreign origin preflight status=%d, want forbidden", recorder.Code)
 	}
 }
 

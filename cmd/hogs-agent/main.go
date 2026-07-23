@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"crypto/tls"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
@@ -13,7 +12,6 @@ import (
 	"log"
 	"net"
 	"net/http"
-	"net/netip"
 	"net/url"
 	"os"
 	"os/exec"
@@ -27,74 +25,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/gorilla/websocket"
-	"github.com/tionis/hogs/internal/wgnet"
 	"gopkg.in/yaml.v3"
 )
-
-type Envelope struct {
-	Type      string          `json:"type"`
-	RequestID string          `json:"requestId,omitempty"`
-	Data      json.RawMessage `json:"data"`
-}
-
-type RegisterData struct {
-	NodeName     string   `json:"nodeName"`
-	Capabilities []string `json:"capabilities"`
-	Servers      []string `json:"servers"`
-}
-
-type ActionRequestData struct {
-	ServerName string `json:"serverName"`
-	Action     string `json:"action"`
-}
-
-type CommandRequestData struct {
-	ServerName string `json:"serverName"`
-	Command    string `json:"command"`
-}
-
-type FileListRequestData struct {
-	ServerName string `json:"serverName"`
-	Path       string `json:"path"`
-}
-
-type FileReadRequestData struct {
-	ServerName string `json:"serverName"`
-	Path       string `json:"path"`
-}
-
-type FileWriteRequestData struct {
-	ServerName string `json:"serverName"`
-	Path       string `json:"path"`
-	Content    string `json:"content"`
-}
-
-type FileDeleteRequestData struct {
-	ServerName string `json:"serverName"`
-	Path       string `json:"path"`
-}
-
-type MkdirRequestData struct {
-	ServerName string `json:"serverName"`
-	Path       string `json:"path"`
-}
-
-type BackupRequestData struct {
-	ServerName string   `json:"serverName"`
-	Paths      []string `json:"paths"`
-	Tags       []string `json:"tags"`
-}
-
-type BackupRestoreRequestData struct {
-	ServerName string `json:"serverName"`
-	Snapshot   string `json:"snapshot"`
-	Target     string `json:"target"`
-}
-
-type BackupListRequestData struct {
-	ServerName string `json:"serverName"`
-}
 
 type StatusReportData struct {
 	ServerName   string          `json:"serverName"`
@@ -181,24 +113,18 @@ func parsePlayerStatus(gameType, output string) (players, maxPlayers int, known 
 
 type AgentConfig struct {
 	Node       string                  `yaml:"node"`
-	ServerURL  string                  `yaml:"-"`
 	ResticBin  string                  `yaml:"restic_bin"`
 	HealthAddr string                  `yaml:"health_addr"`
-	WireGuard  AgentWireGuardConfig    `yaml:"wireguard"`
+	API        AgentAPIConfig          `yaml:"api"`
 	Servers    map[string]ServerConfig `yaml:"servers"`
 }
 
-type AgentWireGuardConfig struct {
-	Address        string `yaml:"address"`
-	PrivateKeyFile string `yaml:"private_key_file"`
-	ListenPort     int    `yaml:"listen_port"`
-	APIPort        uint16 `yaml:"api_port"`
-	Peer           struct {
-		PublicKey           string `yaml:"public_key"`
-		AllowedIP           string `yaml:"allowed_ip"`
-		Endpoint            string `yaml:"endpoint"`
-		PersistentKeepalive int    `yaml:"persistent_keepalive"`
-	} `yaml:"peer"`
+type AgentAPIConfig struct {
+	Listen         string   `yaml:"listen"`
+	SecretFile     string   `yaml:"secret_file"`
+	TLSCertFile    string   `yaml:"tls_cert_file"`
+	TLSKeyFile     string   `yaml:"tls_key_file"`
+	AllowedOrigins []string `yaml:"allowed_origins"`
 }
 
 type ServerConfig struct {
@@ -223,8 +149,7 @@ type BackupConfig struct {
 }
 
 var agentConfig AgentConfig
-var agentToken string
-var websocketWriteMu sync.Mutex
+var agentSecret []byte
 
 func main() {
 	configPath := envOr("HOGS_AGENT_CONFIG", "/etc/hogs-agent/config.yaml")
@@ -256,28 +181,14 @@ func main() {
 		}
 	}()
 
-	privateKey, err := os.ReadFile(agentConfig.WireGuard.PrivateKeyFile)
+	agentSecret, err = os.ReadFile(agentConfig.API.SecretFile)
 	if err != nil {
-		log.Fatalf("Read WireGuard private key: %v", err)
+		log.Fatalf("Read agent API secret: %v", err)
 	}
-	network, err := wgnet.New(wgnet.Config{
-		Address:    agentConfig.WireGuard.Address,
-		PrivateKey: strings.TrimSpace(string(privateKey)),
-		ListenPort: agentConfig.WireGuard.ListenPort,
-		Peers: []wgnet.Peer{{
-			PublicKey:           agentConfig.WireGuard.Peer.PublicKey,
-			AllowedIP:           agentConfig.WireGuard.Peer.AllowedIP,
-			Endpoint:            agentConfig.WireGuard.Peer.Endpoint,
-			PersistentKeepalive: agentConfig.WireGuard.Peer.PersistentKeepalive,
-		}},
-	}, "hogs-agent: ")
+	agentSecret = bytes.TrimSpace(agentSecret)
+	listener, err := net.Listen("tcp", agentConfig.API.Listen)
 	if err != nil {
-		log.Fatalf("Start embedded WireGuard: %v", err)
-	}
-	defer network.Close()
-	listener, err := network.ListenTCP(agentConfig.WireGuard.APIPort)
-	if err != nil {
-		log.Fatalf("Listen on private agent API: %v", err)
+		log.Fatalf("Listen on agent API: %v", err)
 	}
 	apiServer := &http.Server{
 		Handler:           agentAPI(),
@@ -285,9 +196,15 @@ func main() {
 		IdleTimeout:       2 * time.Minute,
 	}
 	go func() {
-		log.Printf("Private agent API listening on %s:%d", agentConfig.WireGuard.Address, agentConfig.WireGuard.APIPort)
-		if err := apiServer.Serve(listener); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("Private agent API: %v", err)
+		log.Printf("Agent API listening on %s", agentConfig.API.Listen)
+		var serveErr error
+		if agentConfig.API.TLSCertFile != "" {
+			serveErr = apiServer.ServeTLS(listener, agentConfig.API.TLSCertFile, agentConfig.API.TLSKeyFile)
+		} else {
+			serveErr = apiServer.Serve(listener)
+		}
+		if serveErr != nil && serveErr != http.ErrServerClosed {
+			log.Fatalf("Agent API: %v", serveErr)
 		}
 	}()
 
@@ -311,15 +228,23 @@ func validateConfig(cfg AgentConfig) error {
 	if cfg.Node == "" || len(cfg.Servers) == 0 {
 		return fmt.Errorf("node and at least one server are required")
 	}
-	if _, err := netip.ParseAddr(cfg.WireGuard.Address); err != nil {
-		return fmt.Errorf("wireguard.address must be an IP address")
+	if cfg.API.Listen == "" {
+		return fmt.Errorf("api.listen is required")
 	}
-	if cfg.WireGuard.PrivateKeyFile == "" || !filepath.IsAbs(cfg.WireGuard.PrivateKeyFile) {
-		return fmt.Errorf("wireguard.private_key_file must be absolute")
+	if cfg.API.SecretFile == "" || !filepath.IsAbs(cfg.API.SecretFile) {
+		return fmt.Errorf("api.secret_file must be absolute")
 	}
-	if cfg.WireGuard.APIPort == 0 || cfg.WireGuard.Peer.PublicKey == "" ||
-		cfg.WireGuard.Peer.AllowedIP == "" || cfg.WireGuard.Peer.Endpoint == "" {
-		return fmt.Errorf("wireguard api_port and peer public_key, allowed_ip, and endpoint are required")
+	if (cfg.API.TLSCertFile == "") != (cfg.API.TLSKeyFile == "") {
+		return fmt.Errorf("api.tls_cert_file and api.tls_key_file must be configured together")
+	}
+	if cfg.API.TLSCertFile != "" && (!filepath.IsAbs(cfg.API.TLSCertFile) || !filepath.IsAbs(cfg.API.TLSKeyFile)) {
+		return fmt.Errorf("agent API TLS paths must be absolute")
+	}
+	for _, origin := range cfg.API.AllowedOrigins {
+		parsed, err := url.Parse(origin)
+		if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.Path != "" {
+			return fmt.Errorf("api.allowed_origins must contain HTTPS origins")
+		}
 	}
 	for name, server := range cfg.Servers {
 		if name == "" || server.Unit == "" || !filepath.IsAbs(server.DataDir) || strings.Contains(server.Unit, "/") {
@@ -354,350 +279,12 @@ func agentCapabilities() []string {
 	return capabilities
 }
 
-func connectAndServe(interrupt chan os.Signal) error {
-	u, err := url.Parse(agentConfig.ServerURL)
-	if err != nil {
-		return fmt.Errorf("invalid server URL: %w", err)
-	}
-	log.Printf("Connecting to %s://%s%s...", u.Scheme, u.Host, u.Path)
-
-	dialer := websocket.DefaultDialer
-	tlsCert, tlsKey := envOr("HOGS_AGENT_TLS_CERT", ""), envOr("HOGS_AGENT_TLS_KEY", "")
-	if tlsCert != "" && tlsKey != "" {
-		cert, err := tls.LoadX509KeyPair(tlsCert, tlsKey)
-		if err != nil {
-			return fmt.Errorf("failed to load TLS cert/key: %w", err)
-		}
-		dialer = &websocket.Dialer{
-			TLSClientConfig: &tls.Config{
-				Certificates: []tls.Certificate{cert},
-			},
-		}
-	}
-
-	header := http.Header{}
-	header.Set("Authorization", "Bearer "+agentToken)
-	c, _, err := dialer.Dial(u.String(), header)
-	if err != nil {
-		return fmt.Errorf("dial failed: %w", err)
-	}
-	defer c.Close()
-
-	register := Envelope{
-		Type: "register",
-		Data: mustMarshal(RegisterData{
-			NodeName:     agentConfig.Node,
-			Capabilities: agentCapabilities(),
-			Servers:      sortedServerNames(),
-		}),
-	}
-	if err := writeJSON(c, register); err != nil {
-		return fmt.Errorf("register failed: %w", err)
-	}
-	log.Println("Registered with server")
-
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		for {
-			_, message, err := c.ReadMessage()
-			if err != nil {
-				log.Printf("Read error: %v", err)
-				return
-			}
-			handleMessage(message, c)
-		}
-	}()
-
-	ticker := time.NewTicker(15 * time.Second)
-	statusTicker := time.NewTicker(30 * time.Second)
-	defer ticker.Stop()
-	defer statusTicker.Stop()
-
-	for {
-		select {
-		case <-done:
-			return nil
-		case <-ticker.C:
-			if err := c.WriteMessage(websocket.PingMessage, nil); err != nil {
-				return err
-			}
-		case <-statusTicker.C:
-			reportStatus(c)
-		case <-interrupt:
-			c.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
-			select {
-			case <-done:
-			case <-time.After(time.Second):
-			}
-			return nil
-		}
-	}
-}
-
-func handleMessage(message []byte, c *websocket.Conn) {
-	var env Envelope
-	if err := json.Unmarshal(message, &env); err != nil {
-		log.Printf("Invalid message: %v", err)
-		return
-	}
-
-	switch env.Type {
-	case "action":
-		var data ActionRequestData
-		json.Unmarshal(env.Data, &data)
-		log.Printf("Received action: %s", data.Action)
-		server, err := serverConfig(data.ServerName)
-		if err != nil {
-			sendResult(c, "action_result", env.RequestID, map[string]interface{}{"success": false, "error": err.Error()})
-			return
-		}
-		result := executeAction(server, data.Action)
-		sendResult(c, "action_result", env.RequestID, result)
-
-	case "command":
-		var data CommandRequestData
-		json.Unmarshal(env.Data, &data)
-		log.Printf("Received command: %s", data.Command)
-		server, err := serverConfig(data.ServerName)
-		if err != nil {
-			sendResult(c, "command_result", env.RequestID, map[string]interface{}{"success": false, "error": err.Error()})
-			return
-		}
-		output, err := executeCommand(server, data.Command)
-		sendResult(c, "command_result", env.RequestID, map[string]interface{}{
-			"success": err == nil,
-			"output":  output,
-			"error":   errStr(err),
-		})
-
-	case "file_list":
-		var data FileListRequestData
-		json.Unmarshal(env.Data, &data)
-		server, err := serverConfig(data.ServerName)
-		if err != nil {
-			sendResult(c, "file_list_result", env.RequestID, map[string]interface{}{"success": false, "error": err.Error()})
-			return
-		}
-		result := filelist(server, data.Path)
-		sendResult(c, "file_list_result", env.RequestID, result)
-
-	case "file_read":
-		var data FileReadRequestData
-		json.Unmarshal(env.Data, &data)
-		server, err := serverConfig(data.ServerName)
-		if err != nil {
-			sendResult(c, "file_read_result", env.RequestID, map[string]interface{}{"success": false, "error": err.Error()})
-			return
-		}
-		result := fileRead(server, data.Path)
-		sendResult(c, "file_read_result", env.RequestID, result)
-
-	case "file_write":
-		var data FileWriteRequestData
-		json.Unmarshal(env.Data, &data)
-		server, err := serverConfig(data.ServerName)
-		if err != nil {
-			sendResult(c, "file_write_result", env.RequestID, map[string]interface{}{"success": false, "error": err.Error()})
-			return
-		}
-		result := fileWrite(server, data.Path, data.Content)
-		sendResult(c, "file_write_result", env.RequestID, result)
-
-	case "file_delete":
-		var data FileDeleteRequestData
-		json.Unmarshal(env.Data, &data)
-		server, err := serverConfig(data.ServerName)
-		if err != nil {
-			sendResult(c, "file_delete_result", env.RequestID, map[string]interface{}{"success": false, "error": err.Error()})
-			return
-		}
-		result := fileDelete(server, data.Path)
-		sendResult(c, "file_delete_result", env.RequestID, result)
-
-	case "mkdir":
-		var data MkdirRequestData
-		json.Unmarshal(env.Data, &data)
-		server, err := serverConfig(data.ServerName)
-		if err != nil {
-			sendResult(c, "mkdir_result", env.RequestID, map[string]interface{}{"success": false, "error": err.Error()})
-			return
-		}
-		result := mkdir(server, data.Path)
-		sendResult(c, "mkdir_result", env.RequestID, result)
-
-	case "backup_create":
-		var data BackupRequestData
-		json.Unmarshal(env.Data, &data)
-		server, err := serverConfig(data.ServerName)
-		if err != nil {
-			sendResult(c, "backup_create_result", env.RequestID, map[string]interface{}{"success": false, "error": err.Error()})
-			return
-		}
-		result := backupCreate(server, data.Paths, data.Tags)
-		sendResult(c, "backup_create_result", env.RequestID, result)
-
-	case "backup_restore":
-		var data BackupRestoreRequestData
-		json.Unmarshal(env.Data, &data)
-		server, err := serverConfig(data.ServerName)
-		if err != nil {
-			sendResult(c, "backup_restore_result", env.RequestID, map[string]interface{}{"success": false, "error": err.Error()})
-			return
-		}
-		result := backupRestore(server, data.Snapshot, data.Target)
-		sendResult(c, "backup_restore_result", env.RequestID, result)
-
-	case "backup_list":
-		var data BackupListRequestData
-		json.Unmarshal(env.Data, &data)
-		server, err := serverConfig(data.ServerName)
-		if err != nil {
-			sendResult(c, "backup_list_result", env.RequestID, map[string]interface{}{"success": false, "error": err.Error()})
-			return
-		}
-		result := backupList(server)
-		sendResult(c, "backup_list_result", env.RequestID, result)
-
-	case "console_subscribe":
-		var data struct {
-			ServerName string `json:"serverName"`
-		}
-		json.Unmarshal(env.Data, &data)
-		server, err := serverConfig(data.ServerName)
-		if err != nil {
-			return
-		}
-		startConsoleStreaming(c, data.ServerName, server)
-
-	case "console_input":
-		var data struct {
-			ServerName string `json:"serverName"`
-			Input      string `json:"input"`
-		}
-		json.Unmarshal(env.Data, &data)
-		server, err := serverConfig(data.ServerName)
-		if err != nil {
-			return
-		}
-		executeConsoleInput(c, data.ServerName, server, data.Input)
-
-	default:
-		log.Printf("Unknown message type: %s", env.Type)
-	}
-}
-
-var (
-	consoleCancels  = make(map[string]chan struct{})
-	consoleCancelMu sync.Mutex
-)
-
-func startConsoleStreaming(c *websocket.Conn, serverName string, server *ServerConfig) {
-	unit := server.Unit
-	if unit == "" {
-		log.Println("Console subscribe: no service name configured")
-		return
-	}
-
-	consoleCancelMu.Lock()
-	if previous := consoleCancels[serverName]; previous != nil {
-		close(previous)
-	}
-	cancel := make(chan struct{})
-	consoleCancels[serverName] = cancel
-	consoleCancelMu.Unlock()
-
-	go func() {
-		// Tail journalctl for this unit
-		cmd := exec.Command("journalctl", "-u", unit, "-f", "-n", "100", "--no-hostname", "-o", "cat")
-		stdout, err := cmd.StdoutPipe()
-		if err != nil {
-			log.Printf("journalctl stdout pipe failed: %v", err)
-			return
-		}
-		stderr, err := cmd.StderrPipe()
-		if err != nil {
-			log.Printf("journalctl stderr pipe failed: %v", err)
-			return
-		}
-		if err := cmd.Start(); err != nil {
-			log.Printf("journalctl start failed: %v", err)
-			return
-		}
-
-		reader := io.MultiReader(stdout, stderr)
-		scanner := bufio.NewScanner(reader)
-		for scanner.Scan() {
-			select {
-			case <-cancel:
-				cmd.Process.Kill()
-				return
-			default:
-				line := scanner.Text()
-				if isRoutineRCONConnectionLine(line) {
-					continue
-				}
-				if err := sendConsoleLine(c, serverName, line); err != nil {
-					log.Printf("console write failed: %v", err)
-					cmd.Process.Kill()
-					return
-				}
-			}
-		}
-		if err := cmd.Wait(); err != nil {
-			log.Printf("journalctl exited: %v", err)
-		}
-	}()
-}
-
 func isRoutineRCONConnectionLine(line string) bool {
 	minecraftConnection := strings.Contains(line, "Thread RCON Client /") &&
 		(strings.Contains(line, " started") || strings.Contains(line, " shutting down"))
 	factorioConnection := strings.Contains(line, "RemoteCommandProcessor.cpp:") &&
 		strings.Contains(line, "New RCON connection from IP ADDR:")
 	return minecraftConnection || factorioConnection
-}
-
-func sendConsoleLine(c *websocket.Conn, serverName, line string) error {
-	env := Envelope{
-		Type: "console",
-		Data: mustMarshal(map[string]string{
-			"serverName": serverName,
-			"line":       line,
-			"timestamp":  time.Now().UTC().Format(time.RFC3339),
-		}),
-	}
-	return writeJSON(c, env)
-}
-
-func executeConsoleInput(c *websocket.Conn, serverName string, server *ServerConfig, input string) {
-	_ = sendConsoleLine(c, serverName, "> "+input)
-	out, err := executeCommand(server, input)
-	if err != nil {
-		_ = sendConsoleLine(c, serverName, "Error: "+err.Error())
-	} else if out != "" {
-		for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
-			_ = sendConsoleLine(c, serverName, line)
-		}
-	}
-}
-
-func sendResult(c *websocket.Conn, resultType string, requestID string, data interface{}) {
-	resp := Envelope{Type: resultType, RequestID: requestID, Data: mustMarshal(data)}
-	_ = writeJSON(c, resp)
-}
-
-func writeJSON(c *websocket.Conn, value interface{}) error {
-	websocketWriteMu.Lock()
-	defer websocketWriteMu.Unlock()
-	return c.WriteJSON(value)
-}
-
-func errStr(err error) string {
-	if err == nil {
-		return ""
-	}
-	return err.Error()
 }
 
 // ── Systemd / Podman Quadlet Process Management ──
@@ -1287,36 +874,6 @@ func backupList(server *ServerConfig) map[string]interface{} {
 		"success":   true,
 		"snapshots": result,
 	}
-}
-
-// ── Status Reporting ──
-
-func reportStatus(c *websocket.Conn) {
-	for _, name := range sortedServerNames() {
-		server := agentConfig.Servers[name]
-		online, _ := getServiceStatus(server.Unit)
-		players, maxPlayers, playersKnown := 0, 0, false
-		version := ""
-		if online {
-			players, maxPlayers, playersKnown = playerStatus(&server)
-			version = serverVersion(&server)
-		}
-		status := StatusReportData{
-			ServerName:   name,
-			Online:       online,
-			Players:      players,
-			MaxPlayers:   maxPlayers,
-			PlayersKnown: playersKnown,
-			Version:      version,
-		}
-		env := Envelope{Type: "status", Data: mustMarshal(status)}
-		_ = writeJSON(c, env)
-	}
-}
-
-func mustMarshal(v interface{}) json.RawMessage {
-	b, _ := json.Marshal(v)
-	return json.RawMessage(b)
 }
 
 func envOr(key, fallback string) string {

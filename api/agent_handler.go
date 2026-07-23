@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -111,6 +112,64 @@ func (h *AgentHandler) AgentResources(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resources)
+}
+
+func (h *AgentHandler) AgentFileAccess(w http.ResponseWriter, r *http.Request) {
+	serverName := mux.Vars(r)["serverName"]
+	filePath := r.URL.Query().Get("path")
+	if filePath == "" || !isValidAgentPath(filePath) {
+		http.Error(w, "valid path is required", http.StatusBadRequest)
+		return
+	}
+	if status, err := authorizeManagedPath(h.Store, h.Engine, h.Auth, r, serverName, filePath); err != nil {
+		http.Error(w, err.Error(), status)
+		return
+	}
+	backendType, node := agent.ResolveBackend(serverName, h.Store)
+	if backendType != "agent" || node == "" || h.Manager == nil {
+		http.Error(w, "managed agent is unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
+	operation := r.URL.Query().Get("operation")
+	method, route, maxBytes := "", "", int64(0)
+	switch operation {
+	case "list":
+		method = http.MethodGet
+		route = "/v1/servers/" + url.PathEscape(serverName) + "/files?path=" + url.QueryEscape(filePath)
+	case "read", "download":
+		method = http.MethodGet
+		route = "/v1/servers/" + url.PathEscape(serverName) + "/file?path=" + url.QueryEscape(filePath)
+	case "write":
+		method = http.MethodPut
+		route = "/v1/servers/" + url.PathEscape(serverName) + "/file?path=" + url.QueryEscape(filePath)
+		maxBytes = 16 << 30
+		if requested, err := strconv.ParseInt(r.URL.Query().Get("size"), 10, 64); err == nil && requested > 0 {
+			if requested > maxBytes {
+				http.Error(w, "file exceeds the 16 GiB transfer limit", http.StatusRequestEntityTooLarge)
+				return
+			}
+			maxBytes = requested
+		}
+	case "delete":
+		method = http.MethodDelete
+		route = "/v1/servers/" + url.PathEscape(serverName) + "/file?path=" + url.QueryEscape(filePath)
+	case "mkdir":
+		method = http.MethodPost
+		route = "/v1/servers/" + url.PathEscape(serverName) + "/directories?path=" + url.QueryEscape(filePath)
+	default:
+		http.Error(w, "unsupported file operation", http.StatusBadRequest)
+		return
+	}
+
+	user := userEnvFromRequest(h.Store, h.Auth, r)
+	access, err := h.Manager.DirectAccess(node, user.Email, method, route, filePath, maxBytes)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(access)
 }
 
 func (h *AgentHandler) CreateAgent(w http.ResponseWriter, r *http.Request) {

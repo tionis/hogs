@@ -8,7 +8,7 @@ tags:
 # HOGS Roadmap
 
 > [!info] Current State
-> HOGS is a Go web application that serves as a landing page and management panel for game servers. It features OIDC auth with role-based access control, an HTTP/2 agent API over embedded userspace WireGuard, an automation engine, SCIM 2.0 provisioning, and an admin UI.
+> HOGS is a Go web application that serves as a landing page and management panel for game servers. It features OIDC auth with role-based access control, a capability-authenticated HTTP agent API, an automation engine, SCIM 2.0 provisioning, and an admin UI.
 
 ## Design Philosophy: Manage, Don't Provision
 
@@ -62,7 +62,7 @@ Design reference: see `docs/DESIGN_AUTOMATION.md` for the full data model, archi
 ### Phase 5: Agent System ✅
 
 - **ServerBackend interface** (`backend/`): `PterodactylBackend` and `AgentBackend` implementations
-- **Private agent manager** (`agent/`): WireGuard peers, HTTP/2 multiplexing, health/status polling, and streamed operations
+- **Agent manager** (`agent/`): direct and tunneled transport modes, scoped capabilities, health/status polling, and streamed operations
 - **hogs-agent binary** (`cmd/hogs-agent/`): connects outbound to HOGS, systemd/podman quadlet process management (start/stop/restart via systemctl, commands via podman exec), file operations (list/read/write/delete/mkdir with base64 over WS), restic backup integration (create/restore/list snapshots)
 - **Agent service** (`agent/`): AgentService with file and backup dispatch methods
 - **Admin API**: agent CRUD, file management, backup endpoints
@@ -104,7 +104,7 @@ All action paths (user-triggered, cron-triggered, API-triggered) go through the 
 | Templates | Go html/template (embedded in binary) |
 | Frontend | Bootstrap 5, vanilla JS |
 | Auth | OIDC via gorilla/sessions (DB-backed) |
-| Agent | HTTP/2 over embedded wireguard-go netstack |
+| Agent | Capability-authenticated HTTP; HTTPS for direct nodes |
 | Container | Podman/Docker via Containerfile |
 
 ### Key Packages

@@ -24,8 +24,8 @@ deployment may instead supply the same vaulted credential through
 `BOOTSTRAP_ADMIN_API_KEY` and optionally set `BOOTSTRAP_ADMIN_API_KEY_NAME`
 (default `gandalf`). HOGS creates or rotates only that named identity at startup
 and stores only its hash. Do not put the key in inventory source, logs, or
-command-line arguments. Agent WireGuard identities are deployed separately and
-are not part of this API.
+command-line arguments. Agent endpoint configuration and node secrets are
+deployed separately and are not part of this API.
 
 ## Endpoints
 
@@ -128,9 +128,9 @@ A Pterodactyl backend uses `type: "pterodactyl"` and requires `externalId`; a
 display-only server uses `type: "none"`.
 
 `desiredCapabilities` is policy intent. Agent reachability and capabilities are
-observed over the private network and are never overwritten by the manifest.
-Peer addition, rotation, and revocation happen by deploying the HOGS
-WireGuard configuration through Gandalf.
+observed through the configured node transport and are never overwritten by the
+manifest. Endpoint addition, credential rotation, and revocation happen through
+the installation's deployment system.
 
 Ordinary readback redacts webhook secrets, notification URLs, secret-like
 settings, and secret-like server metadata. It never returns API keys.

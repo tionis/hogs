@@ -146,9 +146,9 @@ func main() {
 	var consoleHandler *api.ConsoleHandler
 	if cfg.AgentEnabled {
 		var err error
-		agentManager, err = agent.NewManager(cfg.AgentNetworkConfig, store)
+		agentManager, err = agent.NewManager(cfg.AgentConfigPath, store)
 		if err != nil {
-			log.Fatalf("Initialize private agent network: %v", err)
+			log.Fatalf("Initialize agent manager: %v", err)
 		}
 		defer agentManager.Close()
 		webHandler.AgentConnected = func(id int) bool { return agentManager.Connected(id, store) }
@@ -156,7 +156,7 @@ func main() {
 		agentManager.StartStatusPolling(store, cache)
 		agentHandler = api.NewAgentHandler(store, agentService, agentManager, authenticator, eng)
 		consoleHandler = api.NewConsoleHandler(agentService, authenticator, store, eng)
-		log.Println("Private agent HTTP/2 network enabled")
+		log.Println("Agent management API enabled")
 	}
 
 	pteroHandler := api.NewPterodactylHandler(store, cfg, eng, agentManager, authenticator)
@@ -365,6 +365,7 @@ func main() {
 
 		router.Handle("/api/agents/{serverName}/files", authenticator.RequireRole("admin", "user")(http.HandlerFunc(agentHandler.AgentFileList))).Methods("GET")
 		router.Handle("/api/agents/{serverName}/files/roots", authenticator.RequireRole("admin", "user")(http.HandlerFunc(agentHandler.AgentFileRoots))).Methods("GET")
+		router.Handle("/api/agents/{serverName}/files/access", authenticator.RequireRole("admin", "user")(http.HandlerFunc(agentHandler.AgentFileAccess))).Methods("GET")
 		router.Handle("/api/agents/{serverName}/files/read", authenticator.RequireRole("admin", "user")(http.HandlerFunc(agentHandler.AgentFileRead))).Methods("GET")
 		router.Handle("/api/agents/{serverName}/files/write", authenticator.RequireRole("admin", "user")(http.HandlerFunc(agentHandler.AgentFileWrite))).Methods("POST")
 		router.Handle("/api/agents/{serverName}/files/delete", authenticator.RequireRole("admin", "user")(http.HandlerFunc(agentHandler.AgentFileDelete))).Methods("POST")

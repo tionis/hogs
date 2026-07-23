@@ -9,7 +9,7 @@ OIDC-protected operator UI.
 
 *   **Multi-Game Support:** Query Minecraft, Satisfactory, Factorio, and Valheim servers with game-specific status protocols. New games can be added via the querier registry.
 *   **Declarative Inventory API:** Transactional plan/apply/readback and cursor events let Gandalf or another inventory system manage nodes, servers, policies, schedules, and integrations. See [the inventory API contract](docs/INVENTORY_API.md).
-*   **Node-Scoped Agent:** One outbound agent manages an explicit local allowlist of units and data roots without exposing its hosts directly. See [the agent contract](docs/AGENT.md).
+*   **Node-Scoped Agent:** One agent manages an explicit local allowlist of units and data roots through a capability-authenticated HTTP API. Direct agents use public HTTPS so browsers can stream large files without relaying them through HOGS; tunneled agents can use the same API over a private transport. See [the agent contract](docs/AGENT.md).
 *   **Real-time Server Status:** Live player counts, version info, and online status using efficient caching (60s TTL).
 *   **Role-Based Access Control:** OIDC groups map to admin/user roles. Admins get full dashboard access; users can interact with servers based on per-server permissions.
 *   **Pterodactyl Integration:** Link servers to a Pterodactyl panel for start/stop/restart and approved command execution — all configurable per-server via `allowed_actions`.

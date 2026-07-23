@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -16,8 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"golang.org/x/net/http2"
-	"golang.org/x/net/http2/h2c"
+	"github.com/tionis/hogs/internal/capability"
 )
 
 func agentAPI() http.Handler {
@@ -36,32 +34,53 @@ func agentAPI() http.Handler {
 	mux.HandleFunc("POST /v1/servers/{server}/backups", withServer(handleBackupCreate))
 	mux.HandleFunc("POST /v1/servers/{server}/restore", withServer(handleBackupRestore))
 	authenticated := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		peer, err := netipFromRemote(r.RemoteAddr)
-		if err != nil {
-			http.Error(w, "invalid peer address", http.StatusForbidden)
-			return
-		}
-		_, allowed, err := net.ParseCIDR(agentConfig.WireGuard.Peer.AllowedIP)
-		if err != nil || !allowed.Contains(peer) {
-			http.Error(w, "peer is not authorized", http.StatusForbidden)
-			return
+		origin := r.Header.Get("Origin")
+		if origin != "" {
+			if !allowedOrigin(origin) {
+				http.Error(w, "origin is not allowed", http.StatusForbidden)
+				return
+			}
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Methods", "GET, PUT, POST, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, If-Match, Range")
+			w.Header().Set("Access-Control-Expose-Headers", "Accept-Ranges, Content-Disposition, Content-Length, Content-Range, ETag, Last-Modified")
+			w.Header().Set("Access-Control-Max-Age", "600")
+			w.Header().Set("Vary", "Origin")
 		}
 		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("Cache-Control", "no-store")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+		if token == "" {
+			token = r.URL.Query().Get("access_token")
+		}
+		claims, err := capability.Verify(agentSecret, token, time.Now())
+		if err != nil {
+			http.Error(w, "invalid or expired capability", http.StatusUnauthorized)
+			return
+		}
+		if err := capability.Authorize(claims, agentConfig.Node, r.Method, r.URL.Path, r.URL.Query().Get("path")); err != nil {
+			http.Error(w, "capability does not authorize this request", http.StatusForbidden)
+			return
+		}
+		if claims.MaxBytes > 0 && r.Body != nil {
+			r.Body = http.MaxBytesReader(w, r.Body, claims.MaxBytes)
+		}
 		mux.ServeHTTP(w, r)
 	})
-	return h2c.NewHandler(authenticated, &http2.Server{})
+	return authenticated
 }
 
-func netipFromRemote(remote string) (net.IP, error) {
-	host, _, err := net.SplitHostPort(remote)
-	if err != nil {
-		return nil, err
+func allowedOrigin(origin string) bool {
+	for _, allowed := range agentConfig.API.AllowedOrigins {
+		if origin == allowed {
+			return true
+		}
 	}
-	ip := net.ParseIP(host)
-	if ip == nil {
-		return nil, fmt.Errorf("not an IP address")
-	}
-	return ip, nil
+	return false
 }
 
 type serverHTTPHandler func(http.ResponseWriter, *http.Request, *ServerConfig)
@@ -242,8 +261,11 @@ func handleMkdir(w http.ResponseWriter, r *http.Request, server *ServerConfig) {
 	var request struct {
 		Path string `json:"path"`
 	}
-	if !decodeJSON(w, r, &request) {
-		return
+	request.Path = r.URL.Query().Get("path")
+	if request.Path == "" {
+		if !decodeJSON(w, r, &request) {
+			return
+		}
 	}
 	writeOperationResult(w, mkdir(server, request.Path))
 }

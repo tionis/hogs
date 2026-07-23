@@ -1,14 +1,41 @@
 # Node Agent
 
 `hogs-agent` is one node-scoped process with an explicit allowlist of game
-servers. It does not provision units or data. Gandalf renders the configuration,
-private identity, and systemd sandbox.
+servers. It manages already-provisioned systemd units, data roots, consoles,
+and backups. It does not install games, allocate ports, or provision hosts.
 
-The agent and control plane each embed `wireguard-go` with the userspace
-netstack. No host TUN interface, route, network namespace, or `CAP_NET_ADMIN`
-is required. Agents initiate the encrypted UDP session to the control plane and
-expose an HTTP/2 API only on their dedicated overlay address. WireGuard peer
-identity and `/128` AllowedIPs replace agent enrollment tokens.
+## Transport model
+
+The agent exposes one HTTP API. HOGS supports two transport modes around that
+same contract:
+
+- `direct`: the agent is available at a public HTTPS URL. HOGS uses that URL
+  for control operations and gives an authenticated browser a short-lived,
+  narrowly scoped capability for direct file operations.
+- `tunneled`: the agent API is reached over a private HTTP transport. HOGS
+  proxies browser file operations because the browser cannot reach the private
+  address. This mode is reserved for a future userspace WireGuard transport.
+
+Direct mode is the current deployment mode. TLS may terminate in a local
+reverse proxy or in the agent itself. HOGS refuses non-HTTPS direct URLs.
+
+The HOGS-side configuration is separate from inventory reconciliation because
+it contains transport credentials:
+
+```yaml
+nodes:
+  - node: destiny
+    mode: direct
+    control_url: https://agent-destiny.example.test
+    public_url: https://agent-destiny.example.test
+    secret_file: /etc/hogs/agent-secrets/destiny
+```
+
+`control_url` is where HOGS reaches the agent. `public_url` is where a browser
+reaches it and is required for direct mode. A future tunneled node will use an
+HTTP `control_url` inside its tunnel and omit `public_url`.
+
+## Agent configuration
 
 Only `HOGS_AGENT_CONFIG` is required in the environment:
 
@@ -16,16 +43,11 @@ Only `HOGS_AGENT_CONFIG` is required in the environment:
 node: destiny
 restic_bin: /usr/bin/restic
 health_addr: 127.0.0.1:9080
-wireguard:
-  address: "fd42:686f:6773::2"
-  private_key_file: /etc/hogs-agent/wireguard.key
-  listen_port: 0
-  api_port: 9081
-  peer:
-    public_key: "<control-plane-public-key>"
-    allowed_ip: "fd42:686f:6773::1/128"
-    endpoint: "hogs.example.test:51829"
-    persistent_keepalive: 25
+api:
+  listen: 127.0.0.1:9081
+  secret_file: /etc/hogs-agent/control.secret
+  allowed_origins:
+    - https://games.example.test
 servers:
   cog:
     unit: minecraft-cog.service
@@ -40,6 +62,33 @@ servers:
       environment_file: /etc/restic/restic.env
 ```
 
+For native TLS, set both `api.tls_cert_file` and `api.tls_key_file` and bind
+the agent to the public listener. When a reverse proxy owns TLS, bind the agent
+to loopback and proxy the complete path and query string without changing the
+HTTP method.
+
+## Authentication and browser access
+
+Each node shares a random secret with HOGS. HOGS signs short-lived HMAC-SHA256
+capabilities containing the exact node, subject, HTTP method, route, optional
+file path, upload-size limit, and expiry. The agent verifies every field before
+dispatching a request. Capabilities are not reusable for a different node,
+operation, or file.
+
+HOGS performs its normal session and role checks before issuing browser
+capabilities. File management remains restricted to HOGS administrators.
+Direct browser requests must also have an origin listed in
+`api.allowed_origins`; the agent returns a specific CORS origin rather than a
+wildcard. Download links may carry their short-lived capability in the query
+string so native browser downloads work. Other requests use a bearer header.
+
+Rotate a node by deploying a new random secret to HOGS and that one agent.
+Removing the node from HOGS revokes its control-plane access immediately;
+rotating the agent secret invalidates capabilities that have already been
+issued.
+
+## Local confinement and streaming
+
 Every request carries a server name. Unknown names are rejected locally.
 Systemd actions use only the configured unit, and file and restore targets are
 confined to the selected server's `data_dir`. Symlink path components are
@@ -48,9 +97,10 @@ rejected.
 File downloads stream and support HTTP ranges. Uploads stream into a temporary
 file on the destination filesystem, sync it, then rename it atomically.
 Conditional writes use `If-Match` and the ETag returned by reads so an editor
-cannot silently overwrite a concurrently changed file.
+cannot silently overwrite a concurrently changed file. Large payloads therefore
+do not need to be buffered by HOGS, and independent HTTP requests can proceed
+concurrently.
 
-Console output is an NDJSON HTTP/2 stream backed by the systemd journal.
+Console output is an NDJSON HTTP stream backed by the systemd journal.
 Commands, status queries, backups, file transfers, and console streams use
-independent HTTP/2 streams rather than sharing a serialized message channel.
-RCON and restic credentials remain in node-local files.
+independent requests. RCON and restic credentials remain in node-local files.

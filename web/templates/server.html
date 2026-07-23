@@ -527,19 +527,36 @@ async function initManagedFiles(serverName) {
         feedback.className = `small mb-2 ${error ? 'text-danger' : 'text-success'}`;
         feedback.textContent = message;
     };
-    const request = async (url, options) => {
-        const response = await fetch(url, options);
+    const parseResult = async response => {
         const text = await response.text();
         if (!response.ok) throw new Error(text.trim() || response.statusText);
         const result = text ? JSON.parse(text) : {};
         if (result.success === false) throw new Error(result.error || 'Agent operation failed');
         return result.data || {};
     };
+    const proxyRequest = async (url, options) => parseResult(await fetch(url, options));
+    const access = async (operation, path, size = 0) => {
+        const query = new URLSearchParams({operation, path});
+        if (size > 0) query.set('size', String(size));
+        const response = await fetch(endpoint(`/access?${query}`));
+        if (!response.ok) throw new Error((await response.text()).trim() || response.statusText);
+        return response.json();
+    };
+    const directRequest = async (operation, path, options = {}, size = 0) => {
+        const descriptor = await access(operation, path, size);
+        if (descriptor.mode !== 'direct') return null;
+        const headers = new Headers(options.headers || {});
+        headers.set('Authorization', `Bearer ${descriptor.token}`);
+        return fetch(descriptor.url, {...options, headers});
+    };
     async function loadFiles(path) {
         browser.textContent = 'Loading files…';
         feedback.textContent = '';
         try {
-            const data = await request(endpoint(`?path=${encodeURIComponent(path)}`));
+            const direct = await directRequest('list', path);
+            const data = direct
+                ? await parseResult(direct)
+                : await proxyRequest(endpoint(`?path=${encodeURIComponent(path)}`));
             currentPath = path;
             pathLabel.textContent = '/' + currentPath;
             document.getElementById('file-up').disabled = currentPath === root;
@@ -589,7 +606,8 @@ async function initManagedFiles(serverName) {
     }
 
     async function readFile(path) {
-        const response = await fetch(endpoint(`/read?path=${encodeURIComponent(path)}`));
+        const response = await directRequest('read', path)
+            || await fetch(endpoint(`/read?path=${encodeURIComponent(path)}`));
         if (!response.ok) throw new Error((await response.text()) || `HTTP ${response.status}`);
         return {content: await response.text(), etag: response.headers.get('ETag')};
     }
@@ -606,15 +624,25 @@ async function initManagedFiles(serverName) {
         }
     }
     async function downloadFile(path, name) {
+        const descriptor = await access('download', path);
         const link = document.createElement('a');
-        link.href = endpoint(`/read?path=${encodeURIComponent(path)}`);
+        if (descriptor.mode === 'direct') {
+            const directURL = new URL(descriptor.url);
+            directURL.searchParams.set('access_token', descriptor.token);
+            link.href = directURL.toString();
+        } else {
+            link.href = endpoint(`/read?path=${encodeURIComponent(path)}`);
+        }
         link.download = name;
+        link.rel = 'noreferrer';
         link.click();
     }
     async function deleteFile(path) {
         if (!confirm(`Delete ${path}?`)) return;
         try {
-            await request(endpoint(`/delete?path=${encodeURIComponent(path)}`), {method: 'POST'});
+            const direct = await directRequest('delete', path, {method: 'DELETE'});
+            if (direct) await parseResult(direct);
+            else await proxyRequest(endpoint(`/delete?path=${encodeURIComponent(path)}`), {method: 'POST'});
             showFeedback('File deleted.');
             await loadFiles(currentPath);
         } catch (error) {
@@ -628,7 +656,10 @@ async function initManagedFiles(serverName) {
         const name = prompt('New folder name');
         if (!name || name.includes('/') || name === '.' || name === '..') return;
         try {
-            await request(endpoint(`/mkdir?path=${encodeURIComponent(joinPath(currentPath, name))}`), {method: 'POST'});
+            const path = joinPath(currentPath, name);
+            const direct = await directRequest('mkdir', path, {method: 'POST'});
+            if (direct) await parseResult(direct);
+            else await proxyRequest(endpoint(`/mkdir?path=${encodeURIComponent(path)}`), {method: 'POST'});
             showFeedback('Folder created.');
             await loadFiles(currentPath);
         } catch (error) { showFeedback(error.message, true); }
@@ -637,7 +668,15 @@ async function initManagedFiles(serverName) {
         const file = event.target.files[0];
         if (!file) return;
         try {
-            await request(endpoint(`/write?path=${encodeURIComponent(joinPath(currentPath, file.name))}`), {
+            const path = joinPath(currentPath, file.name);
+            const options = {
+                method: 'PUT',
+                headers: {'Content-Type': file.type || 'application/octet-stream'},
+                body: file
+            };
+            const direct = await directRequest('write', path, options, file.size);
+            if (direct) await parseResult(direct);
+            else await proxyRequest(endpoint(`/write?path=${encodeURIComponent(path)}`), {
                 method: 'POST',
                 headers: {'Content-Type': file.type || 'application/octet-stream'},
                 body: file
@@ -652,10 +691,17 @@ async function initManagedFiles(serverName) {
             const content = document.getElementById('file-editor-content').value;
             const headers = {'Content-Type': 'text/plain; charset=utf-8'};
             if (editingETag) headers['If-Match'] = editingETag;
-            await request(endpoint(`/write?path=${encodeURIComponent(editingPath)}`), {
-                method: 'POST',
+            const options = {
+                method: 'PUT',
                 headers,
                 body: content
+            };
+            const size = new TextEncoder().encode(content).length;
+            const direct = await directRequest('write', editingPath, options, size);
+            if (direct) await parseResult(direct);
+            else await proxyRequest(endpoint(`/write?path=${encodeURIComponent(editingPath)}`), {
+                ...options,
+                method: 'POST'
             });
             bootstrap.Modal.getInstance(document.getElementById('fileEditorModal')).hide();
             showFeedback('File saved.');
@@ -664,7 +710,7 @@ async function initManagedFiles(serverName) {
     });
 
     try {
-        const data = await request(endpoint('/roots'));
+        const data = await proxyRequest(endpoint('/roots'));
         if (!data.roots || !data.roots.length) throw new Error('No writable paths are configured.');
         for (const value of data.roots) {
             const option = document.createElement('option');

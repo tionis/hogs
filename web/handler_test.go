@@ -232,6 +232,9 @@ func TestServerDetailRendersAuthenticatedResourceUsage(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	if err := store.CreateAgent(&database.Agent{Name: "managed-node", NodeName: "managed-node"}); err != nil {
+		t.Fatal(err)
+	}
 
 	req := httptest.NewRequest(http.MethodGet, "/ManagedSrv", nil)
 	req = mux.SetURLVars(req, map[string]string{"serverName": "ManagedSrv"})
@@ -245,6 +248,8 @@ func TestServerDetailRendersAuthenticatedResourceUsage(t *testing.T) {
 	for _, expected := range []string{
 		"Resource Usage", "/resources", "No systemd limit",
 		"CPU usage uses 100% per processor core",
+		"/access?", "descriptor.mode !== 'direct'",
+		"Authorization", "access_token", "method: 'PUT'",
 	} {
 		if !contains(w.Body.String(), expected) {
 			t.Errorf("expected resource UI to contain %q", expected)

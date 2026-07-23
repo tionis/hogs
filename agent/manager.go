@@ -3,11 +3,9 @@ package agent
 import (
 	"bytes"
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -16,24 +14,29 @@ import (
 	"time"
 
 	"github.com/tionis/hogs/database"
-	"github.com/tionis/hogs/internal/wgnet"
+	"github.com/tionis/hogs/internal/capability"
 	"github.com/tionis/hogs/query"
-	"golang.org/x/net/http2"
 	"gopkg.in/yaml.v3"
 )
 
 type ManagerConfig struct {
-	Address        string        `yaml:"address"`
-	PrivateKeyFile string        `yaml:"private_key_file"`
-	ListenPort     int           `yaml:"listen_port"`
-	APIPort        uint16        `yaml:"api_port"`
-	Peers          []ManagedPeer `yaml:"peers"`
+	Nodes []ManagedNode `yaml:"nodes"`
 }
 
-type ManagedPeer struct {
-	Node      string `yaml:"node"`
-	Address   string `yaml:"address"`
-	PublicKey string `yaml:"public_key"`
+type ManagedNode struct {
+	Node       string `yaml:"node"`
+	Mode       string `yaml:"mode"`
+	ControlURL string `yaml:"control_url"`
+	PublicURL  string `yaml:"public_url"`
+	SecretFile string `yaml:"secret_file"`
+	secret     []byte
+}
+
+type DirectAccess struct {
+	Mode      string    `json:"mode"`
+	URL       string    `json:"url"`
+	Token     string    `json:"token,omitempty"`
+	ExpiresAt time.Time `json:"expiresAt,omitempty"`
 }
 
 type ResourceStatus struct {
@@ -47,10 +50,8 @@ type ResourceStatus struct {
 }
 
 type Manager struct {
-	network   *wgnet.Network
 	client    *http.Client
-	apiPort   uint16
-	peers     map[string]ManagedPeer
+	nodes     map[string]ManagedNode
 	mu        sync.RWMutex
 	seen      map[string]time.Time
 	resources map[string]ResourceStatus
@@ -62,58 +63,77 @@ type Manager struct {
 func NewManager(configPath string, store *database.Store) (*Manager, error) {
 	raw, err := os.ReadFile(configPath)
 	if err != nil {
-		return nil, fmt.Errorf("read agent network config: %w", err)
+		return nil, fmt.Errorf("read agent configuration: %w", err)
 	}
 	var cfg ManagerConfig
 	if err := yaml.Unmarshal(raw, &cfg); err != nil {
-		return nil, fmt.Errorf("parse agent network config: %w", err)
+		return nil, fmt.Errorf("parse agent configuration: %w", err)
 	}
-	if cfg.APIPort == 0 {
-		return nil, fmt.Errorf("agent network api_port is required")
-	}
-	privateKey, err := os.ReadFile(cfg.PrivateKeyFile)
-	if err != nil {
-		return nil, fmt.Errorf("read agent network private key: %w", err)
-	}
-	peers := make(map[string]ManagedPeer, len(cfg.Peers))
-	wireGuardPeers := make([]wgnet.Peer, 0, len(cfg.Peers))
-	for _, peer := range cfg.Peers {
-		if peer.Node == "" || peer.Address == "" || peer.PublicKey == "" {
-			return nil, fmt.Errorf("each agent network peer requires node, address, and public_key")
+	nodes := make(map[string]ManagedNode, len(cfg.Nodes))
+	for _, node := range cfg.Nodes {
+		if node.Mode == "" {
+			node.Mode = "direct"
 		}
-		if _, exists := peers[peer.Node]; exists {
-			return nil, fmt.Errorf("duplicate agent network peer %q", peer.Node)
+		if err := validateManagedNode(node); err != nil {
+			return nil, err
 		}
-		peers[peer.Node] = peer
-		wireGuardPeers = append(wireGuardPeers, wgnet.Peer{
-			PublicKey: peer.PublicKey,
-			AllowedIP: peer.Address + "/128",
-		})
+		if _, exists := nodes[node.Node]; exists {
+			return nil, fmt.Errorf("duplicate agent node %q", node.Node)
+		}
+		secret, err := os.ReadFile(node.SecretFile)
+		if err != nil {
+			return nil, fmt.Errorf("read secret for agent %q: %w", node.Node, err)
+		}
+		node.secret = bytes.TrimSpace(secret)
+		if len(node.secret) < 32 {
+			return nil, fmt.Errorf("secret for agent %q must contain at least 32 bytes", node.Node)
+		}
+		node.ControlURL = strings.TrimRight(node.ControlURL, "/")
+		node.PublicURL = strings.TrimRight(node.PublicURL, "/")
+		nodes[node.Node] = node
 	}
-	network, err := wgnet.New(wgnet.Config{
-		Address: cfg.Address, PrivateKey: strings.TrimSpace(string(privateKey)),
-		ListenPort: cfg.ListenPort, Peers: wireGuardPeers,
-	}, "hogs: ")
-	if err != nil {
-		return nil, err
+	if len(nodes) == 0 {
+		return nil, fmt.Errorf("at least one agent node is required")
 	}
-	transport := &http2.Transport{
-		AllowHTTP: true,
-		DialTLSContext: func(ctx context.Context, networkType, address string, _ *tls.Config) (net.Conn, error) {
-			return network.DialContext(ctx, networkType, address)
-		},
-		ReadIdleTimeout: 15 * time.Second,
-		PingTimeout:     5 * time.Second,
-	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	manager := &Manager{
-		network: network, client: &http.Client{Transport: transport},
-		apiPort: cfg.APIPort, peers: peers, seen: make(map[string]time.Time),
+		client: &http.Client{Transport: &http.Transport{
+			ForceAttemptHTTP2:     true,
+			MaxIdleConns:          100,
+			MaxIdleConnsPerHost:   20,
+			IdleConnTimeout:       90 * time.Second,
+			ResponseHeaderTimeout: 30 * time.Second,
+		}},
+		nodes: nodes, seen: make(map[string]time.Time),
 		resources: make(map[string]ResourceStatus), cancel: cancel,
 		ctx: ctx, store: store,
 	}
 	go manager.healthLoop(ctx)
 	return manager, nil
+}
+
+func validateManagedNode(node ManagedNode) error {
+	if node.Node == "" || node.ControlURL == "" || node.SecretFile == "" {
+		return fmt.Errorf("each agent requires node, control_url, and secret_file")
+	}
+	if node.Mode != "direct" && node.Mode != "tunneled" {
+		return fmt.Errorf("agent %q has unsupported mode %q", node.Node, node.Mode)
+	}
+	control, err := url.Parse(node.ControlURL)
+	if err != nil || control.Host == "" || (control.Scheme != "https" && control.Scheme != "http") {
+		return fmt.Errorf("agent %q has invalid control_url", node.Node)
+	}
+	if node.Mode == "direct" {
+		public, err := url.Parse(node.PublicURL)
+		if control.Scheme != "https" {
+			return fmt.Errorf("direct agent %q control_url must use HTTPS", node.Node)
+		}
+		if err != nil || public.Scheme != "https" || public.Host == "" {
+			return fmt.Errorf("direct agent %q requires an HTTPS public_url", node.Node)
+		}
+	}
+	return nil
 }
 
 func (m *Manager) Close() {
@@ -122,7 +142,6 @@ func (m *Manager) Close() {
 	}
 	m.cancel()
 	m.client.CloseIdleConnections()
-	m.network.Close()
 }
 
 func (m *Manager) ConnectedNode(node string) bool {
@@ -218,7 +237,7 @@ func (m *Manager) pollStatuses(ctx context.Context, store *database.Store, cache
 }
 
 func (m *Manager) pollHealth(ctx context.Context) {
-	for node := range m.peers {
+	for node := range m.nodes {
 		node := node
 		go func() {
 			requestCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
@@ -247,8 +266,8 @@ func (m *Manager) pollHealth(ctx context.Context) {
 func (m *Manager) Connected(agentID int, store interface {
 	GetAgent(int) (*database.Agent, error)
 }) bool {
-	agent, err := store.GetAgent(agentID)
-	return err == nil && agent != nil && m.ConnectedNode(agent.NodeName)
+	managedAgent, err := store.GetAgent(agentID)
+	return err == nil && managedAgent != nil && m.ConnectedNode(managedAgent.NodeName)
 }
 
 func (m *Manager) JSON(ctx context.Context, node, method, endpoint string, requestBody interface{}) (*GenericResultData, error) {
@@ -299,19 +318,39 @@ func (m *Manager) StreamHeaders(ctx context.Context, node, method, endpoint stri
 	return nil, fmt.Errorf("%s", result.Error)
 }
 
-func (m *Manager) endpoint(node, endpoint string) (string, error) {
-	peer, ok := m.peers[node]
+func (m *Manager) DirectAccess(node, subject, method, endpoint, filePath string, maxBytes int64) (*DirectAccess, error) {
+	managedNode, ok := m.nodes[node]
 	if !ok {
-		return "", fmt.Errorf("node %q has no private agent peer", node)
+		return nil, fmt.Errorf("node %q has no agent configuration", node)
 	}
-	base := (&url.URL{
-		Scheme: "http",
-		Host:   net.JoinHostPort(peer.Address, fmt.Sprintf("%d", m.apiPort)),
-	}).String()
+	if managedNode.Mode != "direct" {
+		return &DirectAccess{Mode: managedNode.Mode}, nil
+	}
+	route, err := url.Parse(endpoint)
+	if err != nil || !strings.HasPrefix(route.Path, "/v1/") {
+		return nil, fmt.Errorf("invalid agent capability endpoint")
+	}
+	expires := time.Now().UTC().Add(capability.DefaultLifetime)
+	claims := capability.NewClaims(node, subject, method, route.Path, filePath, maxBytes, capability.DefaultLifetime)
+	token, err := capability.Sign(managedNode.secret, claims)
+	if err != nil {
+		return nil, err
+	}
+	return &DirectAccess{
+		Mode: "direct", URL: managedNode.PublicURL + endpoint,
+		Token: token, ExpiresAt: expires,
+	}, nil
+}
+
+func (m *Manager) endpoint(node, endpoint string) (ManagedNode, string, error) {
+	managedNode, ok := m.nodes[node]
+	if !ok {
+		return ManagedNode{}, "", fmt.Errorf("node %q has no agent configuration", node)
+	}
 	if !strings.HasPrefix(endpoint, "/") {
 		endpoint = "/" + endpoint
 	}
-	return base + endpoint, nil
+	return managedNode, managedNode.ControlURL + endpoint, nil
 }
 
 func (m *Manager) do(ctx context.Context, node, method, endpoint string, body io.Reader) (*http.Response, error) {
@@ -319,7 +358,7 @@ func (m *Manager) do(ctx context.Context, node, method, endpoint string, body io
 }
 
 func (m *Manager) doHeaders(ctx context.Context, node, method, endpoint string, body io.Reader, headers http.Header) (*http.Response, error) {
-	target, err := m.endpoint(node, endpoint)
+	managedNode, target, err := m.endpoint(node, endpoint)
 	if err != nil {
 		return nil, err
 	}
@@ -335,6 +374,13 @@ func (m *Manager) doHeaders(ctx context.Context, node, method, endpoint string, 
 			request.Header.Add(key, value)
 		}
 	}
-	request.Header.Set("X-Hogs-Request-ID", fmt.Sprintf("%d", time.Now().UnixNano()))
+	claims := capability.NewClaims(node, "hogs-control", method, request.URL.Path,
+		request.URL.Query().Get("path"), 0, capability.DefaultLifetime)
+	token, err := capability.Sign(managedNode.secret, claims)
+	if err != nil {
+		return nil, err
+	}
+	request.Header.Set("Authorization", "Bearer "+token)
+	request.Header.Set("X-Hogs-Request-ID", claims.ID)
 	return m.client.Do(request)
 }
