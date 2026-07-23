@@ -144,6 +144,9 @@ func main() {
 
 	serverHandler := api.NewServerHandler(store, cfg, cache, authenticator)
 	webHandler := web.NewWebHandler(store, cfg, authenticator, eng)
+	if authenticator != nil {
+		authenticator.SetForbiddenHandler(http.HandlerFunc(webHandler.Forbidden))
+	}
 
 	var agentManager *agent.Manager
 	var agentHandler *api.AgentHandler

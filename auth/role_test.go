@@ -37,3 +37,20 @@ func TestOIDCRoleIsDerivedFromCurrentGroupsAndCanDemote(t *testing.T) {
 		t.Fatalf("demoted user=%#v err=%v", user, err)
 	}
 }
+
+func TestLoginDestinationUsesRoleAppropriateLandingPage(t *testing.T) {
+	tests := []struct {
+		role string
+		want string
+	}{
+		{role: "admin", want: "/admin"},
+		{role: "user", want: "/my-servers"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.role, func(t *testing.T) {
+			if got := loginDestination(tt.role); got != tt.want {
+				t.Fatalf("loginDestination(%q)=%q, want %q", tt.role, got, tt.want)
+			}
+		})
+	}
+}

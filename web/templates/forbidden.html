@@ -1,0 +1,33 @@
+{{define "title"}}Access denied{{end}}
+
+{{define "content"}}
+<div class="row justify-content-center py-5">
+  <div class="col-lg-7 col-xl-6">
+    <div class="card text-center">
+      <div class="card-body p-4 p-md-5">
+        <div class="d-inline-flex align-items-center justify-content-center rounded-circle mb-4"
+             style="width:4.5rem;height:4.5rem;background:color-mix(in srgb, var(--danger), transparent 85%);color:var(--danger);font-size:2rem;"
+             aria-hidden="true">&#128274;</div>
+        <div class="text-uppercase text-muted small fw-semibold mb-2">403 &middot; Access denied</div>
+        <h1 class="h2 mb-3">You don&rsquo;t have access to this page</h1>
+        <p class="text-muted mb-2">
+          This area is restricted to instance administrators.
+        </p>
+        {{if .UserEmail}}
+        <p class="small text-muted mb-4">
+          You are signed in as <strong>{{.UserEmail}}</strong> with the
+          <strong>{{.UserRole}}</strong> role.
+        </p>
+        {{end}}
+        <div class="d-flex flex-column flex-sm-row gap-2 justify-content-center">
+          <a href="/my-servers" class="btn btn-primary">Go to My Servers</a>
+          <a href="/" class="btn btn-outline-primary">Browse Game Servers</a>
+        </div>
+        <p class="small text-muted mt-4 mb-0">
+          If you believe you should have access, contact an instance administrator.
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+{{end}}

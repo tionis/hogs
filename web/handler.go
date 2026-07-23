@@ -235,6 +235,44 @@ func (h *WebHandler) ServeAssets(w http.ResponseWriter, r *http.Request) {
 	http.FileServer(http.FS(templateFS)).ServeHTTP(w, r)
 }
 
+// Forbidden renders a useful HTML response for authenticated users who lack
+// the role required by a page.
+func (h *WebHandler) Forbidden(w http.ResponseWriter, r *http.Request) {
+	data := struct {
+		Authenticated  bool
+		UserRole       string
+		UserEmail      string
+		SiteName       string
+		BackgroundURLs BackgroundURLs
+	}{
+		Authenticated:  true,
+		UserRole:       h.Auth.GetUserRole(r),
+		UserEmail:      h.Auth.GetUserEmail(r),
+		SiteName:       h.siteName(),
+		BackgroundURLs: h.pickBackgrounds([]string{"home"}),
+	}
+
+	tmpl, err := template.New("base.html").Funcs(sharedFuncMap(h.Store)).ParseFS(
+		templateFS,
+		"templates/base.html",
+		"templates/forbidden.html",
+	)
+	if err != nil {
+		http.Error(w, "Template error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, data); err != nil {
+		http.Error(w, "Render error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusForbidden)
+	_, _ = buf.WriteTo(w)
+}
+
 // ... (existing Create/Update/Delete handlers) ...
 
 // Home renders the main server list page.

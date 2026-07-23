@@ -28,6 +28,7 @@ type Authenticator struct {
 	Store          *database.Store
 	Cfg            *config.Config
 	cookieStore    *sessions.CookieStore
+	forbidden      http.Handler
 }
 
 func NewAuthenticator(cfg *config.Config, store *database.Store) (*Authenticator, error) {
@@ -192,7 +193,14 @@ func (a *Authenticator) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	session.Values["state"] = ""
 	a.saveSession(session, r, w)
 
-	http.Redirect(w, r, "/admin", http.StatusFound)
+	http.Redirect(w, r, loginDestination(role), http.StatusFound)
+}
+
+func loginDestination(role string) string {
+	if role == "admin" {
+		return "/admin"
+	}
+	return "/my-servers"
 }
 
 func (a *Authenticator) HandleLogout(w http.ResponseWriter, r *http.Request) {
@@ -405,12 +413,27 @@ func (a *Authenticator) RequireRole(roles ...string) func(http.Handler) http.Han
 				return
 			}
 			if !roleSet[dbSession.UserRole] {
-				http.Error(w, "Forbidden", http.StatusForbidden)
+				a.writeForbidden(w, r)
 				return
 			}
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// SetForbiddenHandler configures the branded HTML response used when an
+// authenticated user does not have the required role. API responses remain
+// plain HTTP errors for machine clients.
+func (a *Authenticator) SetForbiddenHandler(handler http.Handler) {
+	a.forbidden = handler
+}
+
+func (a *Authenticator) writeForbidden(w http.ResponseWriter, r *http.Request) {
+	if !strings.HasPrefix(r.URL.Path, "/api/") && a.forbidden != nil {
+		a.forbidden.ServeHTTP(w, r)
+		return
+	}
+	http.Error(w, "Forbidden", http.StatusForbidden)
 }
 
 func (a *Authenticator) IsAuthenticated(r *http.Request) bool {

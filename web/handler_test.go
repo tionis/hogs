@@ -136,6 +136,32 @@ func TestAdminRenders(t *testing.T) {
 	}
 }
 
+func TestAdminRoleFailureRendersForbiddenPage(t *testing.T) {
+	handler, store, authenticator := testWebHandler(t)
+	authenticator.SetForbiddenHandler(http.HandlerFunc(handler.Forbidden))
+
+	req := httptest.NewRequest(http.MethodGet, "/admin", nil)
+	req.AddCookie(createTestSession(t, store, authenticator, "player@test.com", "user"))
+	w := httptest.NewRecorder()
+
+	authenticator.RequireRole("admin")(http.HandlerFunc(handler.Admin)).ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected status 403, got %d: %s", w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+	for _, want := range []string{
+		"You don&rsquo;t have access to this page",
+		"player@test.com",
+		"Go to My Servers",
+		"Browse Game Servers",
+	} {
+		if !contains(body, want) {
+			t.Errorf("expected forbidden page to contain %q", want)
+		}
+	}
+}
+
 func TestHomeRenders(t *testing.T) {
 	handler, store, _ := testWebHandler(t)
 	store.CreateServer(&database.Server{Name: "PublicSrv", GameType: "minecraft", State: "online"})
