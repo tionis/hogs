@@ -1060,7 +1060,8 @@ func (h *WebHandler) Agents(w http.ResponseWriter, r *http.Request) {
 
 	type agentView struct {
 		database.Agent
-		Connected bool
+		Connected        bool
+		CapabilityLabels []string
 	}
 	views := make([]agentView, 0, len(agents))
 	for _, current := range agents {
@@ -1068,7 +1069,16 @@ func (h *WebHandler) Agents(w http.ResponseWriter, r *http.Request) {
 		if h.AgentConnected != nil {
 			connected = h.AgentConnected(current.ID)
 		}
-		views = append(views, agentView{Agent: current, Connected: connected})
+		var capabilities []string
+		if err := json.Unmarshal(current.Capabilities, &capabilities); err != nil {
+			capabilities = nil
+		}
+		sort.Strings(capabilities)
+		views = append(views, agentView{
+			Agent:            current,
+			Connected:        connected,
+			CapabilityLabels: capabilities,
+		})
 	}
 
 	data := struct {

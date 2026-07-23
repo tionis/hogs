@@ -1,6 +1,7 @@
 package web
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -240,7 +241,11 @@ func TestBackupsRenders(t *testing.T) {
 
 func TestAgentsRendersConnectionState(t *testing.T) {
 	handler, store, _ := testWebHandler(t)
-	agent := &database.Agent{Name: "node-agent", NodeName: "node-a"}
+	agent := &database.Agent{
+		Name:         "node-agent",
+		NodeName:     "node-a",
+		Capabilities: json.RawMessage(`["stop","backup","start"]`),
+	}
 	if err := store.CreateAgent(agent); err != nil {
 		t.Fatalf("create agent: %v", err)
 	}
@@ -255,6 +260,15 @@ func TestAgentsRendersConnectionState(t *testing.T) {
 	}
 	if !contains(w.Body.String(), "node-agent") || !contains(w.Body.String(), "Reachable") {
 		t.Error("expected agent page to render the live connection state")
+	}
+	body := w.Body.String()
+	for _, capability := range []string{"backup", "start", "stop"} {
+		if !contains(body, ">"+capability+"</span>") {
+			t.Errorf("expected capability %q to be rendered as a label", capability)
+		}
+	}
+	if contains(body, "[91 34") {
+		t.Error("capabilities must not be rendered as raw JSON bytes")
 	}
 }
 

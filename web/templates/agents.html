@@ -27,7 +27,9 @@
           {{if .Connected}}<span class="badge bg-success">Reachable</span>{{else}}<span class="badge bg-secondary">Unreachable</span>{{end}}
         </td>
         <td class="text-muted small">{{if .LastSeen}}{{.LastSeen}}{{else}}not yet observed{{end}}</td>
-        <td><code>{{.Capabilities}}</code></td>
+        <td>
+          {{range .CapabilityLabels}}<span class="badge bg-secondary me-1">{{.}}</span>{{else}}<span class="text-muted">None reported</span>{{end}}
+        </td>
       </tr>
       {{end}}
     </tbody>
