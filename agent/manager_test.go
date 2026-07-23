@@ -37,7 +37,7 @@ func TestDirectAccessUsesPublicURLAndExactScope(t *testing.T) {
 		},
 	}}
 	access, err := manager.DirectAccess("worker-a", "admin@example.test", http.MethodGet,
-		"/v1/servers/alpha/file?path=world%2Fdata.bin", "world/data.bin", 0)
+		"/v1/servers/alpha/file?path=world%2Fdata.bin", "world/data.bin", "", 0)
 	if err != nil {
 		t.Fatal(err)
 	}

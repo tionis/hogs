@@ -132,6 +132,7 @@ func (h *AgentHandler) AgentFileAccess(w http.ResponseWriter, r *http.Request) {
 	}
 
 	operation := r.URL.Query().Get("operation")
+	targetPath := r.URL.Query().Get("target")
 	method, route, maxBytes := "", "", int64(0)
 	switch operation {
 	case "list":
@@ -157,13 +158,29 @@ func (h *AgentHandler) AgentFileAccess(w http.ResponseWriter, r *http.Request) {
 	case "mkdir":
 		method = http.MethodPost
 		route = "/v1/servers/" + url.PathEscape(serverName) + "/directories?path=" + url.QueryEscape(filePath)
+	case "rename", "copy", "move":
+		if targetPath == "" || !isValidAgentPath(targetPath) {
+			http.Error(w, "valid target path is required", http.StatusBadRequest)
+			return
+		}
+		if status, err := authorizeManagedPath(h.Store, h.Engine, h.Auth, r, serverName, targetPath); err != nil {
+			http.Error(w, err.Error(), status)
+			return
+		}
+		method = http.MethodPost
+		query := url.Values{
+			"operation": []string{operation},
+			"path":      []string{filePath},
+			"target":    []string{targetPath},
+		}
+		route = "/v1/servers/" + url.PathEscape(serverName) + "/file-operations?" + query.Encode()
 	default:
 		http.Error(w, "unsupported file operation", http.StatusBadRequest)
 		return
 	}
 
 	user := userEnvFromRequest(h.Store, h.Auth, r)
-	access, err := h.Manager.DirectAccess(node, user.Email, method, route, filePath, maxBytes)
+	access, err := h.Manager.DirectAccess(node, user.Email, method, route, filePath, targetPath, maxBytes)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return
@@ -510,6 +527,43 @@ func (h *AgentHandler) AgentMkdir(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(result)
+}
+
+func (h *AgentHandler) AgentFileOperation(w http.ResponseWriter, r *http.Request) {
+	serverName := mux.Vars(r)["serverName"]
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	var request struct {
+		Operation string `json:"operation"`
+		Path      string `json:"path"`
+		Target    string `json:"target"`
+	}
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&request); err != nil {
+		http.Error(w, "invalid file operation", http.StatusBadRequest)
+		return
+	}
+	if request.Operation != "rename" && request.Operation != "copy" && request.Operation != "move" {
+		http.Error(w, "unsupported file operation", http.StatusBadRequest)
+		return
+	}
+	if !isValidAgentPath(request.Path) || !isValidAgentPath(request.Target) {
+		http.Error(w, "valid source and target paths are required", http.StatusBadRequest)
+		return
+	}
+	for _, path := range []string{request.Path, request.Target} {
+		if status, err := authorizeManagedPath(h.Store, h.Engine, h.Auth, r, serverName, path); err != nil {
+			http.Error(w, err.Error(), status)
+			return
+		}
+	}
+	result, err := h.Service.FileOperation(serverName, request.Operation, request.Path, request.Target)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(result)
 }
 
 func (h *AgentHandler) AgentBackupCreate(w http.ResponseWriter, r *http.Request) {

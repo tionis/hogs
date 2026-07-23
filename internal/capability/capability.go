@@ -19,15 +19,16 @@ const DefaultLifetime = 90 * time.Second
 var fallbackIDCounter atomic.Uint64
 
 type Claims struct {
-	Audience string `json:"aud"`
-	Subject  string `json:"sub"`
-	Method   string `json:"method"`
-	Path     string `json:"path"`
-	FilePath string `json:"filePath,omitempty"`
-	MaxBytes int64  `json:"maxBytes,omitempty"`
-	IssuedAt int64  `json:"iat"`
-	Expires  int64  `json:"exp"`
-	ID       string `json:"jti"`
+	Audience   string `json:"aud"`
+	Subject    string `json:"sub"`
+	Method     string `json:"method"`
+	Path       string `json:"path"`
+	FilePath   string `json:"filePath,omitempty"`
+	TargetPath string `json:"targetPath,omitempty"`
+	MaxBytes   int64  `json:"maxBytes,omitempty"`
+	IssuedAt   int64  `json:"iat"`
+	Expires    int64  `json:"exp"`
+	ID         string `json:"jti"`
 }
 
 func NewClaims(audience, subject, method, path, filePath string, maxBytes int64, lifetime time.Duration) Claims {
@@ -100,6 +101,12 @@ func Verify(secret []byte, token string, now time.Time) (Claims, error) {
 }
 
 func Authorize(claims Claims, audience, method, path, filePath string) error {
+	return AuthorizePaths(claims, audience, method, path, filePath, "")
+}
+
+// AuthorizePaths verifies a capability whose operation can be scoped to both a
+// source file path and a destination path.
+func AuthorizePaths(claims Claims, audience, method, path, filePath, targetPath string) error {
 	if claims.Audience != audience {
 		return fmt.Errorf("capability audience does not match")
 	}
@@ -111,6 +118,9 @@ func Authorize(claims Claims, audience, method, path, filePath string) error {
 	}
 	if claims.FilePath != filePath {
 		return fmt.Errorf("capability file path does not match")
+	}
+	if claims.TargetPath != targetPath {
+		return fmt.Errorf("capability target path does not match")
 	}
 	return nil
 }

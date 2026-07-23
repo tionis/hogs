@@ -229,7 +229,7 @@
       .btn-secondary { background: var(--text-secondary); }
 
       /* ── Tables ── */
-      .table-responsive { border-radius: 12px; overflow: hidden; }
+      .table-responsive { border-radius: 12px; overflow-x: auto; overflow-y: hidden; }
       .table {
         color: var(--text-primary);
         border-color: var(--border-color);
@@ -240,6 +240,45 @@
       }
       .table th { color: var(--text-heading); border-bottom: 2px solid var(--border-color); background: var(--table-header-bg); }
       .table td { color: var(--text-primary); vertical-align: middle; }
+      .table th, .table td, code, .metadata-value, .file-entry-name {
+        overflow-wrap: anywhere;
+        word-break: break-word;
+      }
+      pre code { overflow-wrap: normal; word-break: normal; }
+      .card, .card-body, .list-group-item, .table-responsive,
+      .metadata-value, .metadata-value-with-action, .file-entry-name {
+        min-width: 0;
+      }
+      .metadata-list-item {
+        display: grid !important;
+        grid-template-columns: minmax(7.5rem, auto) minmax(0, 1fr);
+        gap: .75rem;
+        align-items: start !important;
+      }
+      .metadata-list-item > :last-child {
+        justify-self: end;
+        max-width: 100%;
+        min-width: 0;
+        text-align: right;
+      }
+      .metadata-value-with-action {
+        display: flex;
+        align-items: flex-start;
+        justify-content: flex-end;
+        gap: .5rem;
+      }
+      .metadata-badge {
+        max-width: 100%;
+        white-space: normal;
+        overflow-wrap: anywhere;
+        word-break: break-word;
+        text-align: left;
+      }
+      @media (max-width: 575.98px) {
+        .metadata-list-item { grid-template-columns: minmax(0, 1fr); }
+        .metadata-list-item > :last-child { justify-self: stretch; text-align: left; }
+        .metadata-value-with-action { justify-content: space-between; }
+      }
 
       /* ── Forms ── */
       .form-control, .form-select {

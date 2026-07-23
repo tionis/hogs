@@ -141,33 +141,33 @@
         Server Info
       </div>
       <ul class="list-group list-group-flush">
-         {{if .Server.Address}}<li class="list-group-item d-flex justify-content-between align-items-center">
+         {{if .Server.Address}}<li class="list-group-item metadata-list-item">
             <strong>Connect address</strong>
-            <span class="d-flex align-items-center gap-2">
-              <code id="connect-address">{{.Server.Address}}</code>
+            <span class="metadata-value-with-action">
+              <code id="connect-address" class="metadata-value">{{.Server.Address}}</code>
               <button type="button" class="btn btn-sm btn-outline-secondary py-0"
                       data-copy-target="connect-address" onclick="copyServerAddress(this)">Copy</button>
             </span>
          </li>{{end}}
          {{with index .Server.Metadata "directAddress"}}
-         <li class="list-group-item d-flex justify-content-between align-items-center">
+         <li class="list-group-item metadata-list-item">
            <strong>Direct fallback</strong>
-           <span class="d-flex align-items-center gap-2">
-             <code id="direct-address">{{.}}</code>
+           <span class="metadata-value-with-action">
+             <code id="direct-address" class="metadata-value">{{.}}</code>
              <button type="button" class="btn btn-sm btn-outline-secondary py-0"
                      data-copy-target="direct-address" onclick="copyServerAddress(this)">Copy</button>
            </span>
          </li>
          {{end}}
-         <li class="list-group-item d-flex justify-content-between align-items-center">
+         <li class="list-group-item metadata-list-item">
             <strong>Game</strong> <span class="game-badge" style="{{gameBadgeCSS .Server.GameType}}">{{.Server.GameType | gameIcon}}{{.Server.GameType | gameDisplayName}}</span>
          </li>
          {{range $k, $v := .Server.Metadata}}
          {{if ne $k "api_token"}}
          {{if ne $k "rcon_password"}}
          {{if ne $k "directAddress"}}
-         <li class="list-group-item d-flex justify-content-between align-items-center">
-            <strong>{{$k}}</strong> <span>{{$v}}</span>
+         <li class="list-group-item metadata-list-item">
+            <strong class="metadata-value">{{$k}}</strong> <span class="metadata-value">{{$v}}</span>
          </li>
          {{end}}
          {{end}}
@@ -583,15 +583,16 @@ async function initManagedFiles(serverName) {
         return result.data || {};
     };
     const proxyRequest = async (url, options) => parseResult(await fetch(url, options));
-    const access = async (operation, path, size = 0) => {
+    const access = async (operation, path, size = 0, target = '') => {
         const query = new URLSearchParams({operation, path});
         if (size > 0) query.set('size', String(size));
+        if (target) query.set('target', target);
         const response = await fetch(endpoint(`/access?${query}`));
         if (!response.ok) throw new Error((await response.text()).trim() || response.statusText);
         return response.json();
     };
-    const directRequest = async (operation, path, options = {}, size = 0) => {
-        const descriptor = await access(operation, path, size);
+    const directRequest = async (operation, path, options = {}, size = 0, target = '') => {
+        const descriptor = await access(operation, path, size, target);
         if (descriptor.mode !== 'direct') return null;
         const headers = new Headers(options.headers || {});
         headers.set('Authorization', `Bearer ${descriptor.token}`);
@@ -621,29 +622,54 @@ async function initManagedFiles(serverName) {
                 const row = document.createElement('div');
                 row.className = 'list-group-item d-flex align-items-center gap-2';
                 const name = document.createElement(entry.isDir ? 'button' : 'span');
-                name.className = entry.isDir ? 'btn btn-link text-start p-0 flex-grow-1' : 'flex-grow-1';
+                name.className = entry.isDir
+                    ? 'btn btn-link text-start p-0 flex-grow-1 file-entry-name'
+                    : 'flex-grow-1 file-entry-name';
                 name.textContent = `${entry.isDir ? '📁' : '📄'} ${entry.name}`;
                 const entryPath = joinPath(currentPath, entry.name);
                 if (entry.isDir) name.addEventListener('click', () => loadFiles(entryPath));
                 row.appendChild(name);
                 if (!entry.isDir) {
                     const size = document.createElement('span');
-                    size.className = 'text-muted small';
+                    size.className = 'text-muted small flex-shrink-0';
                     size.textContent = formatBytes(entry.size);
                     row.appendChild(size);
-                    for (const [label, handler, style] of [
-                        ['Edit', () => editFile(entryPath), 'outline-secondary'],
-                        ['Download', () => downloadFile(entryPath, entry.name), 'outline-primary'],
-                        ['Delete', () => deleteFile(entryPath), 'outline-danger']
-                    ]) {
-                        const button = document.createElement('button');
-                        button.type = 'button';
-                        button.className = `btn btn-sm btn-${style}`;
-                        button.textContent = label;
-                        button.addEventListener('click', handler);
-                        row.appendChild(button);
-                    }
                 }
+                const actions = document.createElement('div');
+                actions.className = 'dropdown flex-shrink-0';
+                const toggle = document.createElement('button');
+                toggle.type = 'button';
+                toggle.className = 'btn btn-sm btn-outline-secondary dropdown-toggle';
+                toggle.dataset.bsToggle = 'dropdown';
+                toggle.setAttribute('aria-expanded', 'false');
+                toggle.textContent = 'Actions';
+                const menu = document.createElement('ul');
+                menu.className = 'dropdown-menu dropdown-menu-end';
+                const addAction = (label, handler, danger = false) => {
+                    const item = document.createElement('li');
+                    const button = document.createElement('button');
+                    button.type = 'button';
+                    button.className = `dropdown-item${danger ? ' text-danger' : ''}`;
+                    button.textContent = label;
+                    button.addEventListener('click', handler);
+                    item.appendChild(button);
+                    menu.appendChild(item);
+                };
+                if (!entry.isDir) {
+                    addAction('Edit', () => editFile(entryPath));
+                    addAction('Download', () => downloadFile(entryPath, entry.name));
+                }
+                addAction('Rename', () => renameEntry(entryPath, entry.name));
+                if (!entry.isDir) addAction('Copy', () => copyEntry(entryPath));
+                addAction('Move', () => moveEntry(entryPath));
+                if (!entry.isDir) {
+                    const divider = document.createElement('li');
+                    divider.innerHTML = '<hr class="dropdown-divider">';
+                    menu.appendChild(divider);
+                    addAction('Delete', () => deleteFile(entryPath), true);
+                }
+                actions.append(toggle, menu);
+                row.appendChild(actions);
                 list.appendChild(row);
             }
             browser.appendChild(list);
@@ -696,6 +722,45 @@ async function initManagedFiles(serverName) {
         } catch (error) {
             showFeedback(error.message, true);
         }
+    }
+    const validTargetPath = path => {
+        if (!path || path.startsWith('/') || path.split('/').some(part => part === '..')) {
+            showFeedback('Enter a relative path inside a managed file root.', true);
+            return false;
+        }
+        return true;
+    };
+    async function runFileOperation(operation, path, target) {
+        if (!validTargetPath(target)) return;
+        try {
+            const direct = await directRequest(operation, path, {method: 'POST'}, 0, target);
+            if (direct) {
+                await parseResult(direct);
+            } else {
+                await proxyRequest(endpoint('/operations'), {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({operation, path, target})
+                });
+            }
+            showFeedback(`${operation[0].toUpperCase()}${operation.slice(1)} completed.`);
+            await loadFiles(currentPath);
+        } catch (error) {
+            showFeedback(error.message, true);
+        }
+    }
+    function renameEntry(path, currentName) {
+        const name = prompt('New name', currentName);
+        if (!name || name === currentName || name.includes('/') || name === '.' || name === '..') return;
+        runFileOperation('rename', path, joinPath(parentPath(path), name));
+    }
+    function copyEntry(path) {
+        const target = prompt('Copy to path (relative to the server root)', `${path}.copy`);
+        if (target && target !== path) runFileOperation('copy', path, target);
+    }
+    function moveEntry(path) {
+        const target = prompt('Move to path (relative to the server root)', path);
+        if (target && target !== path) runFileOperation('move', path, target);
     }
 
     document.getElementById('file-up').addEventListener('click', () => loadFiles(parentPath(currentPath)));

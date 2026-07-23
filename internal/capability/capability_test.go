@@ -47,3 +47,26 @@ func TestCapabilityRejectsTamperingAndExpiry(t *testing.T) {
 		t.Fatal("expired capability was accepted")
 	}
 }
+
+func TestCapabilityBindsFileOperationDestination(t *testing.T) {
+	secret := []byte("0123456789abcdef0123456789abcdef")
+	claims := NewClaims("worker-a", "admin@example.test", http.MethodPost,
+		"/v1/servers/alpha/file-operations", "config/source.txt", 0, time.Minute)
+	claims.TargetPath = "config/target.txt"
+	token, err := Sign(secret, claims)
+	if err != nil {
+		t.Fatal(err)
+	}
+	verified, err := Verify(secret, token, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := AuthorizePaths(verified, "worker-a", http.MethodPost,
+		"/v1/servers/alpha/file-operations", "config/source.txt", "config/target.txt"); err != nil {
+		t.Fatal(err)
+	}
+	if err := AuthorizePaths(verified, "worker-a", http.MethodPost,
+		"/v1/servers/alpha/file-operations", "config/source.txt", "world/escaped.txt"); err == nil {
+		t.Fatal("capability authorized a different destination")
+	}
+}

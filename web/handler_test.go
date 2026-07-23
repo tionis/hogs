@@ -232,6 +232,7 @@ func TestServerDetailRenders(t *testing.T) {
 	for _, expected := range []string{
 		"Connect address", "Direct fallback", `data-copy-target="connect-address"`,
 		`data-copy-target="direct-address"`, "copyServerAddress",
+		"metadata-list-item", "runFileOperation", "Rename", "Copy", "Move",
 	} {
 		if !contains(body, expected) {
 			t.Errorf("expected address UI to contain %q", expected)

@@ -239,6 +239,45 @@ func TestAgentAPIAuthorizesScopedCapabilitiesAndCORS(t *testing.T) {
 	}
 }
 
+func TestAgentAPIFileOperationCapabilityBindsDestination(t *testing.T) {
+	root := t.TempDir()
+	agentConfig = testNodeConfig(root)
+	agentSecret = []byte("0123456789abcdef0123456789abcdef")
+	configDir := filepath.Join(agentConfig.Servers["alpha"].DataDir, "config")
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, "source.txt"), []byte("content"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	claims := capability.NewClaims("node-a", "admin@example.test", http.MethodPost,
+		"/v1/servers/alpha/file-operations", "config/source.txt", 0, time.Minute)
+	claims.TargetPath = "config/copy.txt"
+	token, err := capability.Sign(agentSecret, claims)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := agentAPI()
+	req := httptest.NewRequest(http.MethodPost,
+		"/v1/servers/alpha/file-operations?operation=copy&path=config%2Fsource.txt&target=config%2Fcopy.txt", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("file operation status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodPost,
+		"/v1/servers/alpha/file-operations?operation=copy&path=config%2Fsource.txt&target=config%2Fother.txt", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("changed destination status=%d, want forbidden", recorder.Code)
+	}
+}
+
 func TestServerConfigRejectsUnknownServer(t *testing.T) {
 	agentConfig = testNodeConfig(t.TempDir())
 	if _, err := serverConfig("not-allowed"); err == nil {
@@ -267,6 +306,43 @@ func TestResolvePathStaysInsideSelectedServer(t *testing.T) {
 	}
 	if _, err := resolvePath(&server, "escape/secret"); err == nil {
 		t.Fatal("symlink escaped the selected server")
+	}
+}
+
+func TestFileOperationsRenameCopyAndMoveWithoutOverwrite(t *testing.T) {
+	root := t.TempDir()
+	server := ServerConfig{DataDir: filepath.Join(root, "alpha")}
+	for _, dir := range []string{"config", "world"} {
+		if err := os.MkdirAll(filepath.Join(server.DataDir, dir), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(server.DataDir, "config", "source.txt"), []byte("managed data"), 0640); err != nil {
+		t.Fatal(err)
+	}
+
+	if result := fileOperation(&server, "rename", "config/source.txt", "config/renamed.txt"); result["success"] != true {
+		t.Fatalf("rename failed: %#v", result)
+	}
+	if result := fileOperation(&server, "copy", "config/renamed.txt", "config/copied.txt"); result["success"] != true {
+		t.Fatalf("copy failed: %#v", result)
+	}
+	copied, err := os.ReadFile(filepath.Join(server.DataDir, "config", "copied.txt"))
+	if err != nil || string(copied) != "managed data" {
+		t.Fatalf("copied content=%q err=%v", copied, err)
+	}
+	if result := fileOperation(&server, "move", "config/copied.txt", "world/copied.txt"); result["success"] != true {
+		t.Fatalf("move failed: %#v", result)
+	}
+	if _, err := os.Stat(filepath.Join(server.DataDir, "config", "copied.txt")); !os.IsNotExist(err) {
+		t.Fatalf("move left source behind: %v", err)
+	}
+
+	if result := fileOperation(&server, "copy", "config/renamed.txt", "world/copied.txt"); result["success"] == true {
+		t.Fatal("copy overwrote an existing destination")
+	}
+	if result := fileOperation(&server, "rename", "config/renamed.txt", "world/renamed.txt"); result["success"] == true {
+		t.Fatal("rename crossed directories")
 	}
 }
 

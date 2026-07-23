@@ -654,6 +654,91 @@ func fileDelete(server *ServerConfig, p string) map[string]interface{} {
 	return map[string]interface{}{"success": true, "path": path}
 }
 
+func fileOperation(server *ServerConfig, operation, sourcePath, targetPath string) map[string]interface{} {
+	if operation != "rename" && operation != "copy" && operation != "move" {
+		return map[string]interface{}{"success": false, "error": "unsupported file operation"}
+	}
+	source, err := resolvePath(server, sourcePath)
+	if err != nil {
+		return map[string]interface{}{"success": false, "error": err.Error()}
+	}
+	target, err := resolvePath(server, targetPath)
+	if err != nil {
+		return map[string]interface{}{"success": false, "error": err.Error()}
+	}
+	dataDir := filepath.Clean(server.DataDir)
+	if source == dataDir || target == dataDir || source == target {
+		return map[string]interface{}{"success": false, "error": "source and destination must identify different entries"}
+	}
+	sourceInfo, err := os.Lstat(source)
+	if err != nil {
+		return map[string]interface{}{"success": false, "error": err.Error()}
+	}
+	if sourceInfo.Mode()&os.ModeSymlink != 0 {
+		return map[string]interface{}{"success": false, "error": "symbolic links are not supported"}
+	}
+	if _, err := os.Lstat(target); err == nil {
+		return map[string]interface{}{"success": false, "error": "destination already exists"}
+	} else if !os.IsNotExist(err) {
+		return map[string]interface{}{"success": false, "error": err.Error()}
+	}
+	parentInfo, err := os.Stat(filepath.Dir(target))
+	if err != nil || !parentInfo.IsDir() {
+		return map[string]interface{}{"success": false, "error": "destination directory does not exist"}
+	}
+
+	switch operation {
+	case "rename":
+		if filepath.Dir(source) != filepath.Dir(target) {
+			return map[string]interface{}{"success": false, "error": "rename must stay in the same directory"}
+		}
+		err = os.Rename(source, target)
+	case "move":
+		if sourceInfo.IsDir() {
+			relative, relErr := filepath.Rel(source, target)
+			if relErr == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+				return map[string]interface{}{"success": false, "error": "cannot move a directory into itself"}
+			}
+		}
+		err = os.Rename(source, target)
+	case "copy":
+		if !sourceInfo.Mode().IsRegular() {
+			return map[string]interface{}{"success": false, "error": "only regular files can be copied"}
+		}
+		err = copyFileExclusive(source, target, sourceInfo.Mode().Perm())
+	}
+	if err != nil {
+		return map[string]interface{}{"success": false, "error": err.Error()}
+	}
+	return map[string]interface{}{
+		"success": true, "operation": operation, "path": sourcePath, "target": targetPath,
+	}
+}
+
+func copyFileExclusive(source, target string, mode os.FileMode) (resultErr error) {
+	input, err := os.Open(source)
+	if err != nil {
+		return err
+	}
+	defer input.Close()
+	output, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if closeErr := output.Close(); resultErr == nil {
+			resultErr = closeErr
+		}
+		if resultErr != nil {
+			_ = os.Remove(target)
+		}
+	}()
+	if _, err := io.Copy(output, input); err != nil {
+		return err
+	}
+	return output.Sync()
+}
+
 func mkdir(server *ServerConfig, p string) map[string]interface{} {
 	path, err := resolvePath(server, p)
 	if err != nil {

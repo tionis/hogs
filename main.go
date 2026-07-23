@@ -398,6 +398,7 @@ func main() {
 		router.Handle("/api/agents/{serverName}/files/write", authenticator.RequireRole("admin", "user")(http.HandlerFunc(agentHandler.AgentFileWrite))).Methods("POST")
 		router.Handle("/api/agents/{serverName}/files/delete", authenticator.RequireRole("admin", "user")(http.HandlerFunc(agentHandler.AgentFileDelete))).Methods("POST")
 		router.Handle("/api/agents/{serverName}/files/mkdir", authenticator.RequireRole("admin", "user")(http.HandlerFunc(agentHandler.AgentMkdir))).Methods("POST")
+		router.Handle("/api/agents/{serverName}/files/operations", authenticator.RequireRole("admin", "user")(http.HandlerFunc(agentHandler.AgentFileOperation))).Methods("POST")
 
 		router.Handle("/api/agents/{serverName}/backup/create", authenticator.RequireRole("admin", "user")(http.HandlerFunc(agentHandler.AgentBackupCreate))).Methods("POST")
 		router.Handle("/api/agents/{serverName}/backup/restore", authenticator.RequireRole("admin")(http.HandlerFunc(agentHandler.AgentBackupRestore))).Methods("POST")

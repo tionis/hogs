@@ -31,8 +31,8 @@
         </td>
         <td>
           {{if .Connected}}<span class="badge bg-success">Reachable</span>{{else}}<span class="badge bg-secondary">Unreachable</span>{{end}}
-          {{if .WorkerAPI}}<div class="small mt-1"><code>{{.WorkerAPI}}</code></div>{{end}}
-          <details class="mt-2" style="min-width:20rem">
+          {{if .WorkerAPI}}<div class="small mt-1 metadata-value"><code>{{.WorkerAPI}}</code></div>{{end}}
+          <details class="mt-2" style="min-width:min(20rem, 100%)">
             <summary class="small">Manage transport</summary>
             <form action="/admin/agents/transport" method="POST" class="mt-2">
               <input type="hidden" name="node" value="{{.NodeName}}">

@@ -29,6 +29,7 @@ func agentAPI() http.Handler {
 	mux.HandleFunc("GET /v1/servers/{server}/file", withServer(handleFileRead))
 	mux.HandleFunc("PUT /v1/servers/{server}/file", withServer(handleFileWrite))
 	mux.HandleFunc("DELETE /v1/servers/{server}/file", withServer(handleFileDelete))
+	mux.HandleFunc("POST /v1/servers/{server}/file-operations", withServer(handleFileOperation))
 	mux.HandleFunc("POST /v1/servers/{server}/directories", withServer(handleMkdir))
 	mux.HandleFunc("GET /v1/servers/{server}/backups", withServer(handleBackupList))
 	mux.HandleFunc("POST /v1/servers/{server}/backups", withServer(handleBackupCreate))
@@ -62,7 +63,14 @@ func agentAPI() http.Handler {
 			http.Error(w, "invalid or expired capability", http.StatusUnauthorized)
 			return
 		}
-		if err := capability.Authorize(claims, agentConfig.Node, r.Method, r.URL.Path, r.URL.Query().Get("path")); err != nil {
+		if err := capability.AuthorizePaths(
+			claims,
+			agentConfig.Node,
+			r.Method,
+			r.URL.Path,
+			r.URL.Query().Get("path"),
+			r.URL.Query().Get("target"),
+		); err != nil {
 			http.Error(w, "capability does not authorize this request", http.StatusForbidden)
 			return
 		}
@@ -257,6 +265,15 @@ func handleFileWrite(w http.ResponseWriter, r *http.Request, server *ServerConfi
 
 func handleFileDelete(w http.ResponseWriter, r *http.Request, server *ServerConfig) {
 	writeOperationResult(w, fileDelete(server, r.URL.Query().Get("path")))
+}
+
+func handleFileOperation(w http.ResponseWriter, r *http.Request, server *ServerConfig) {
+	writeOperationResult(w, fileOperation(
+		server,
+		r.URL.Query().Get("operation"),
+		r.URL.Query().Get("path"),
+		r.URL.Query().Get("target"),
+	))
 }
 
 func handleMkdir(w http.ResponseWriter, r *http.Request, server *ServerConfig) {

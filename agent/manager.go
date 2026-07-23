@@ -415,7 +415,7 @@ func (m *Manager) StreamHeaders(ctx context.Context, node, method, endpoint stri
 	return nil, fmt.Errorf("%s", result.Error)
 }
 
-func (m *Manager) DirectAccess(node, subject, method, endpoint, filePath string, maxBytes int64) (*DirectAccess, error) {
+func (m *Manager) DirectAccess(node, subject, method, endpoint, filePath, targetPath string, maxBytes int64) (*DirectAccess, error) {
 	m.mu.RLock()
 	managedNode, ok := m.nodes[node]
 	m.mu.RUnlock()
@@ -431,6 +431,7 @@ func (m *Manager) DirectAccess(node, subject, method, endpoint, filePath string,
 	}
 	expires := time.Now().UTC().Add(capability.DefaultLifetime)
 	claims := capability.NewClaims(node, subject, method, route.Path, filePath, maxBytes, capability.DefaultLifetime)
+	claims.TargetPath = targetPath
 	token, err := capability.Sign(managedNode.secret, claims)
 	if err != nil {
 		return nil, err
@@ -477,6 +478,7 @@ func (m *Manager) doHeaders(ctx context.Context, node, method, endpoint string, 
 	}
 	claims := capability.NewClaims(node, "hogs-control", method, request.URL.Path,
 		request.URL.Query().Get("path"), 0, capability.DefaultLifetime)
+	claims.TargetPath = request.URL.Query().Get("target")
 	token, err := capability.Sign(managedNode.secret, claims)
 	if err != nil {
 		return nil, err

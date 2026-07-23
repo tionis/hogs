@@ -211,6 +211,17 @@ func (s *AgentService) Mkdir(serverName, filePath string) (*GenericResultData, e
 	return s.operation(ctx, serverName, http.MethodPost, "directories", map[string]string{"path": filePath})
 }
 
+func (s *AgentService) FileOperation(serverName, operation, sourcePath, targetPath string) (*GenericResultData, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	query := url.Values{
+		"operation": []string{operation},
+		"path":      []string{sourcePath},
+		"target":    []string{targetPath},
+	}
+	return s.operation(ctx, serverName, http.MethodPost, "file-operations?"+query.Encode(), nil)
+}
+
 func (s *AgentService) BackupCreate(serverName string, paths, tags []string) (*GenericResultData, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
