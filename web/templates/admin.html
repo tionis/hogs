@@ -144,6 +144,14 @@
             <input type="url" class="form-control" id="addMapURL" name="map_url">
             <div class="form-text">e.g. internal BlueMap URL for Minecraft</div>
           </div>
+          <div class="mb-3" id="add-map-lifecycle-group">
+            <label for="addMapLifecycle" class="form-label">Map service lifecycle</label>
+            <select class="form-select" id="addMapLifecycle" name="map_lifecycle">
+              <option value="game" selected>Runs with the game server</option>
+              <option value="independent">Runs independently</option>
+            </select>
+            <div class="form-text">Used to explain map outages without assuming every map stops with its game.</div>
+          </div>
           <div class="mb-3" id="add-modurl-group">
             <label for="addModURL" class="form-label">Mod Pack URL</label>
             <input type="text" class="form-control" id="addModURL" name="mod_url">

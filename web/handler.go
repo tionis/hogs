@@ -562,6 +562,11 @@ func (h *WebHandler) parseMetadata(r *http.Request) map[string]string {
 			meta[k] = v
 		}
 	}
+	lifecycle := r.FormValue("map_lifecycle")
+	if lifecycle != "independent" {
+		lifecycle = "game"
+	}
+	meta["map_lifecycle"] = lifecycle
 	return meta
 }
 

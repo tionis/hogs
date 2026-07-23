@@ -36,6 +36,13 @@ type Server struct {
 	Metadata    map[string]string `json:"metadata"`
 }
 
+func (s *Server) MapLifecycle() string {
+	if strings.EqualFold(s.Metadata["map_lifecycle"], "independent") {
+		return "independent"
+	}
+	return "game"
+}
+
 var sensitiveMetadataKeys = map[string]bool{
 	"api_token":     true,
 	"rcon_password": true,

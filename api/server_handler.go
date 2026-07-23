@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"html/template"
 	"io"
 	"log"
 	"net"
@@ -27,19 +28,26 @@ import (
 
 // ServerHandler holds dependencies for API handlers.
 type ServerHandler struct {
-	Store  *database.Store
-	Config *config.Config
-	Cache  *query.ServerStatusCache
-	Auth   *auth.Authenticator
+	Store        *database.Store
+	Config       *config.Config
+	Cache        *query.ServerStatusCache
+	Auth         *auth.Authenticator
+	MapCache     *mapCache
+	MapTransport http.RoundTripper
 }
 
 // NewServerHandler creates a new ServerHandler.
 func NewServerHandler(store *database.Store, cfg *config.Config, cache *query.ServerStatusCache, auth *auth.Authenticator) *ServerHandler {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.ResponseHeaderTimeout = 20 * time.Second
 	return &ServerHandler{
-		Store:  store,
-		Config: cfg,
-		Cache:  cache,
-		Auth:   auth,
+		Store: store, Config: cfg, Cache: cache, Auth: auth,
+		MapCache: newMapCache(
+			cfg.MapCacheDir, cfg.MapCacheMaxBytes, cfg.MapCacheMaxItemBytes,
+			time.Duration(cfg.MapCacheDefaultTTL)*time.Second,
+			time.Duration(cfg.MapCacheStaleTTL)*time.Second,
+		),
+		MapTransport: transport,
 	}
 }
 
@@ -241,7 +249,7 @@ func (h *ServerHandler) MapProxy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	targetURL, err := url.Parse(server.MapURL)
-	if err != nil {
+	if err != nil || targetURL.Host == "" || (targetURL.Scheme != "http" && targetURL.Scheme != "https") {
 		log.Printf("Invalid map URL for server %s: %v", serverName, err)
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
@@ -253,28 +261,240 @@ func (h *ServerHandler) MapProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	proxy := httputil.NewSingleHostReverseProxy(targetURL)
-
-	// Custom director to rewrite the request to the target
-	originalDirector := proxy.Director
-	proxy.Director = func(req *http.Request) {
-		originalDirector(req)
-		// Set the Host header to the target host
-		req.Host = targetURL.Host
-		req.URL.Scheme = targetURL.Scheme
-		req.URL.Host = targetURL.Host
-
-		// Rewrite the path to remove the /<serverName>/map prefix
-		prefix := fmt.Sprintf("/%s/map", serverName)
-		req.URL.Path = strings.TrimPrefix(req.URL.Path, prefix)
-		req.URL.RawPath = strings.TrimPrefix(req.URL.RawPath, prefix)
-		if req.URL.Path == "" {
-			req.URL.Path = "/"
-			req.URL.RawPath = "/"
-		}
+	target := mapTargetURL(targetURL, r.URL, serverName)
+	if r.Method == http.MethodGet || r.Method == http.MethodHead {
+		h.serveCachedMap(w, r, server, target)
+		return
 	}
 
+	proxy := httputil.NewSingleHostReverseProxy(targetURL)
+	proxy.Director = func(req *http.Request) {
+		req.URL = mapTargetURL(targetURL, req.URL, serverName)
+		req.Host = targetURL.Host
+		req.Header.Del("Authorization")
+		req.Header.Del("Cookie")
+	}
+	proxy.ModifyResponse = func(response *http.Response) error {
+		if response.StatusCode >= http.StatusInternalServerError {
+			return fmt.Errorf("map origin returned %s", response.Status)
+		}
+		for _, header := range []string{"Content-Security-Policy", "Permissions-Policy", "Set-Cookie", "X-Frame-Options"} {
+			response.Header.Del(header)
+		}
+		return nil
+	}
+	proxy.ErrorHandler = func(rw http.ResponseWriter, request *http.Request, proxyErr error) {
+		log.Printf("Map origin unavailable for server %s: %v", serverName, proxyErr)
+		h.writeMapUnavailable(rw, request, server)
+	}
 	proxy.ServeHTTP(w, r)
+}
+
+func mapTargetURL(base, request *url.URL, serverName string) *url.URL {
+	target := *base
+	prefix := "/" + serverName + "/map"
+	relative := strings.TrimPrefix(request.Path, prefix)
+	if relative == "" {
+		relative = "/"
+	}
+	target.Path = strings.TrimRight(base.Path, "/") + "/" + strings.TrimLeft(relative, "/")
+	if target.Path == "" {
+		target.Path = "/"
+	}
+	target.RawPath = ""
+	target.RawQuery = request.RawQuery
+	if base.RawQuery != "" {
+		if target.RawQuery != "" {
+			target.RawQuery = base.RawQuery + "&" + target.RawQuery
+		} else {
+			target.RawQuery = base.RawQuery
+		}
+	}
+	return &target
+}
+
+func (h *ServerHandler) serveCachedMap(w http.ResponseWriter, r *http.Request, server *database.Server, target *url.URL) {
+	key := mapCacheKey(target.String())
+	if entry, found := h.MapCache.lookup(key); found && entry.fresh {
+		if err := h.MapCache.serve(w, r, entry, "HIT"); err == nil {
+			return
+		}
+		h.MapCache.remove(key)
+	}
+
+	release := h.MapCache.acquire(key)
+	defer release()
+	if entry, found := h.MapCache.lookup(key); found && entry.fresh {
+		if err := h.MapCache.serve(w, r, entry, "HIT"); err == nil {
+			return
+		}
+		h.MapCache.remove(key)
+	}
+	stale, hasStale := h.MapCache.lookup(key)
+
+	outbound := r.Clone(r.Context())
+	outbound.URL = target
+	outbound.RequestURI = ""
+	outbound.Host = target.Host
+	outbound.Header = r.Header.Clone()
+	outbound.Header.Del("Authorization")
+	outbound.Header.Del("Cookie")
+	outbound.Header.Del("Accept-Encoding")
+	if hasStale {
+		if outbound.Header.Get("If-None-Match") == "" {
+			if etag := stale.meta.Header.Get("ETag"); etag != "" {
+				outbound.Header.Set("If-None-Match", etag)
+			}
+		}
+		if outbound.Header.Get("If-Modified-Since") == "" {
+			if modified := stale.meta.Header.Get("Last-Modified"); modified != "" {
+				outbound.Header.Set("If-Modified-Since", modified)
+			}
+		}
+	}
+	response, err := h.MapTransport.RoundTrip(outbound)
+	if err != nil {
+		log.Printf("Map origin request failed for server %s: %v", server.Name, err)
+		if hasStale && h.MapCache.serve(w, r, stale, "STALE") == nil {
+			return
+		}
+		h.writeMapUnavailable(w, r, server)
+		return
+	}
+	defer response.Body.Close()
+	if response.StatusCode == http.StatusNotModified && hasStale {
+		ttl, cacheable := mapCacheTTL(response.Header, h.MapCache.defaultTTL)
+		if !cacheable {
+			ttl, cacheable = mapCacheTTL(stale.meta.Header, h.MapCache.defaultTTL)
+		}
+		if cacheable {
+			stale.meta.FreshUntil = time.Now().UTC().Add(ttl)
+			for _, header := range []string{"Cache-Control", "ETag", "Expires", "Last-Modified"} {
+				if value := response.Header.Get(header); value != "" {
+					stale.meta.Header.Set(header, value)
+				}
+			}
+			if err := h.MapCache.writeMetadata(key, stale.meta); err != nil {
+				log.Printf("Refresh map cache metadata for server %s: %v", server.Name, err)
+			}
+			stale.fresh = true
+			if h.MapCache.serve(w, r, stale, "REVALIDATED") == nil {
+				return
+			}
+		}
+	}
+	if response.StatusCode >= http.StatusInternalServerError {
+		log.Printf("Map origin returned %s for server %s", response.Status, server.Name)
+		if hasStale && h.MapCache.serve(w, r, stale, "STALE") == nil {
+			return
+		}
+		h.writeMapUnavailable(w, r, server)
+		return
+	}
+
+	copyMapResponseHeaders(w.Header(), response.Header)
+	ttl, cacheable := cacheableMapResponse(
+		outbound, response, h.MapCache.maxItemBytes, h.MapCache.defaultTTL,
+	)
+	cacheState := "BYPASS"
+	var writer *mapCacheWriter
+	if cacheable {
+		writer, err = h.MapCache.begin(key)
+		if err == nil {
+			cacheState = "MISS"
+			if w.Header().Get("Cache-Control") == "" {
+				w.Header().Set("Cache-Control", "public, max-age="+strconv.FormatInt(int64(ttl.Seconds()), 10))
+			}
+		} else {
+			log.Printf("Map cache unavailable for server %s: %v", server.Name, err)
+		}
+	}
+	w.Header().Set("X-HOGS-Map-Cache", cacheState)
+	w.WriteHeader(response.StatusCode)
+	if r.Method == http.MethodHead {
+		return
+	}
+	if err := copyMapBody(w, response.Body, writer); err != nil {
+		if writer != nil {
+			writer.abort()
+		}
+		return
+	}
+	if writer != nil {
+		headers := w.Header().Clone()
+		headers.Del("Content-Length")
+		headers.Del("X-Hogs-Map-Cache")
+		now := time.Now().UTC()
+		if err := writer.commit(mapCacheMetadata{
+			Status: response.StatusCode, Header: headers,
+			StoredAt: now, FreshUntil: now.Add(ttl),
+		}); err != nil && !writer.exceeded {
+			log.Printf("Store map cache response for server %s: %v", server.Name, err)
+		}
+	}
+}
+
+var mapUnavailableTemplate = template.Must(template.New("map-unavailable").Parse(`<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Map temporarily unavailable</title>
+  <style>
+    :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #111827; color: #f3f4f6; }
+    main { width: min(34rem, calc(100% - 2rem)); padding: 2rem; border: 1px solid #374151; border-radius: 1rem; background: #1f2937; box-shadow: 0 1rem 3rem #0006; }
+    h1 { margin-top: 0; font-size: 1.5rem; }
+    p { color: #d1d5db; line-height: 1.55; }
+    .actions { display: flex; gap: .75rem; flex-wrap: wrap; margin-top: 1.5rem; }
+    a, button { border: 1px solid #60a5fa; border-radius: .5rem; padding: .65rem 1rem; background: #2563eb; color: white; text-decoration: none; cursor: pointer; font: inherit; }
+    a { background: transparent; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>{{.ServerName}} map is temporarily unavailable</h1>
+    <p>{{.Explanation}}</p>
+    <p>HOGS will continue retrying the map service. No cached copy was available for this request.</p>
+    <div class="actions">
+      <button type="button" onclick="location.reload()">Try again</button>
+      <a href="/{{.ServerPath}}">Back to server</a>
+    </div>
+  </main>
+</body>
+</html>`))
+
+func (h *ServerHandler) writeMapUnavailable(w http.ResponseWriter, r *http.Request, server *database.Server) {
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Retry-After", "15")
+	w.Header().Set("X-HOGS-Map-Cache", "ERROR")
+	if !mapRequestWantsHTML(r) {
+		http.Error(w, "Map service temporarily unavailable", http.StatusBadGateway)
+		return
+	}
+	explanation := "The map service is not responding. It may still be starting or updating."
+	lifecycle := server.MapLifecycle()
+	status, known := h.Cache.Latest(server.Name)
+	if lifecycle == "independent" {
+		explanation = "This map runs independently from the game server, and its map service is not responding."
+	} else if known && !status.Online {
+		explanation = "The game server is currently offline. This map is configured to run with the game server and should return after it starts."
+	} else if known && status.Online {
+		explanation = "The game server is online, but its map service is not responding. The map may still be starting or rendering."
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusBadGateway)
+	_ = mapUnavailableTemplate.Execute(w, map[string]string{
+		"ServerName": server.Name, "ServerPath": url.PathEscape(server.Name),
+		"Explanation": explanation,
+	})
+}
+
+func mapRequestWantsHTML(r *http.Request) bool {
+	if strings.Contains(strings.ToLower(r.Header.Get("Accept")), "text/html") {
+		return true
+	}
+	return strings.HasSuffix(r.URL.Path, "/") || strings.HasSuffix(strings.ToLower(r.URL.Path), ".html")
 }
 
 // ServeModFiles serves static files from the mod directory for a given server.

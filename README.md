@@ -16,7 +16,7 @@ OIDC-protected operator UI.
 *   **Admin Dashboard:** Complete web-based management interface for adding, editing, and deleting servers without touching the database.
 *   **Background Images:** Customizable, theme-aware background images with hash-addressed caching for performance.
 *   **File Browser:** Automatically scans and serves mod files, modpacks, and documentation from a structured directory.
-*   **Map Proxy:** Securely proxies web map instances (e.g., BlueMap for Minecraft) through the main web server.
+*   **Map Proxy:** Proxies web maps (e.g., BlueMap), caches public responses on bounded local storage, supports cached range requests, and serves stale content or a contextual status page when the map backend is unavailable.
 *   **OIDC Authentication:** Secure login via OpenID Connect (e.g., Keycloak, Google) for administrative access.
 *   **Modern Architecture:**
     *   **Backend:** Go (1.24+) with `gorilla/mux` and `database/sql`.
@@ -139,6 +139,11 @@ The repository includes helper scripts for development/testing:
 | `PTERODACTYL_URL`      | *(Empty)*                       | Pterodactyl panel URL (e.g. `https://panel.example.com`). **Both this and `PTERODACTYL_APP_KEY` must be set to enable Pterodactyl features.** |
 | `PTERODACTYL_APP_KEY`  | *(Empty)*                       | Pterodactyl **Application** API key (starts with `ptla_`). Get it from your panel's Admin > API section. |
 | `PTERODACTYL_CLIENT_KEY` | *(Empty)*                     | Pterodactyl **Client** API key (starts with `ptlc_`). Required for commands and whitelisting. Get it from your panel's Settings > API section. |
+| `HOGS_MAP_CACHE_DIR` | `data/map-cache` | Directory for disposable map response cache data. |
+| `HOGS_MAP_CACHE_MAX_BYTES` | `2147483648` | Maximum aggregate cache size in bytes (2 GiB by default). |
+| `HOGS_MAP_CACHE_MAX_ITEM_BYTES` | `134217728` | Maximum size of one cached response in bytes (128 MiB by default). |
+| `HOGS_MAP_CACHE_DEFAULT_TTL_SEC` | `300` | Freshness used when the map backend supplies no cache lifetime. |
+| `HOGS_MAP_CACHE_STALE_TTL_SEC` | `86400` | How long an expired response may be retained and served when its backend fails. |
 
 ## Usage Guide
 
@@ -151,6 +156,7 @@ Servers are managed via the web-based Admin Dashboard at `/admin`.
     *   **Game Type:** `minecraft`, `satisfactory`, `factorio`, or `valheim`.
     *   **State:** Controls visibility (`online`, `offline`, `planned`, `maintenance`).
     *   **Map URL:** Internal URL for proxying maps (e.g., BlueMap for Minecraft).
+    *   **Map availability:** Whether the map normally runs with the game server or is an independent service. This changes the explanation shown when the map backend is unavailable.
     *   **Mod Pack URL:** Optional direct download link.
     *   **Metadata:** Custom key-value pairs. Satisfactory: add `api_token`; Factorio: add `rcon_password`.
 
@@ -185,7 +191,17 @@ data/game/
 To enable the map proxy:
 1.  Ensure your map backend is running (e.g., BlueMap at internal IP `10.0.0.5:8100`).
 2.  In the Admin Dashboard, set the **Map URL** for the server to `http://10.0.0.5:8100`.
-3.  The map will be accessible publicly at `http://your-site.com/Creative/map/`.
+3.  Select whether the map runs with the game server or independently.
+4.  The map will be accessible publicly at `http://your-site.com/Creative/map/`.
+
+GET responses are cached on disk using the backend's `Cache-Control`, `Expires`,
+`ETag`, and `Last-Modified` headers. HOGS coalesces concurrent cache misses,
+serves byte ranges from cached objects, and revalidates expired objects. If the
+backend fails, HOGS serves a retained stale response when possible. Otherwise it
+returns an informative error page based on the last known game-server state and
+the configured map availability. The cache is bounded by total and per-object
+limits and does not cache private, `no-store`, ranged, cookie-setting, or
+varying responses.
 
 ### 4. Pterodactyl Integration
 

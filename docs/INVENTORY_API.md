@@ -86,6 +86,7 @@ example a Gandalf Git commit. HOGS also returns a canonical SHA-256 digest.
       "address": "cog.internal:25565",
       "description": "Managed Minecraft server",
       "mapUrl": "",
+      "mapLifecycle": "game",
       "modUrl": "",
       "state": "online",
       "gameType": "minecraft",
@@ -118,6 +119,11 @@ example a Gandalf Git commit. HOGS also returns a canonical SHA-256 digest.
   "settings": {}
 }
 ```
+
+`mapLifecycle` accepts `game` (the default) or `independent`. It describes
+whether the map backend normally shares the game server's lifecycle, allowing
+HOGS to explain map failures without incorrectly claiming that every map
+requires its game server to be running.
 
 An agent backend requires a known node plus `unit` and an absolute `dataPath`.
 Writable paths must be absolute descendants of that data path. Schedules use

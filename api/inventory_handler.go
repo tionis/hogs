@@ -41,21 +41,22 @@ type InventoryNode struct {
 }
 
 type InventoryServer struct {
-	Name        string                `json:"name"`
-	Address     string                `json:"address"`
-	Description string                `json:"description"`
-	MapURL      string                `json:"mapUrl"`
-	ModURL      string                `json:"modUrl"`
-	State       string                `json:"state"`
-	GameType    string                `json:"gameType"`
-	ShowMOTD    bool                  `json:"showMotd"`
-	Metadata    map[string]string     `json:"metadata"`
-	Tags        []string              `json:"tags"`
-	Unit        string                `json:"unit"`
-	DataPath    string                `json:"dataPath"`
-	Backend     InventoryBackend      `json:"backend"`
-	Policy      InventoryServerPolicy `json:"policy"`
-	Commands    []InventoryCommand    `json:"commands"`
+	Name         string                `json:"name"`
+	Address      string                `json:"address"`
+	Description  string                `json:"description"`
+	MapURL       string                `json:"mapUrl"`
+	MapLifecycle string                `json:"mapLifecycle"`
+	ModURL       string                `json:"modUrl"`
+	State        string                `json:"state"`
+	GameType     string                `json:"gameType"`
+	ShowMOTD     bool                  `json:"showMotd"`
+	Metadata     map[string]string     `json:"metadata"`
+	Tags         []string              `json:"tags"`
+	Unit         string                `json:"unit"`
+	DataPath     string                `json:"dataPath"`
+	Backend      InventoryBackend      `json:"backend"`
+	Policy       InventoryServerPolicy `json:"policy"`
+	Commands     []InventoryCommand    `json:"commands"`
 }
 
 type InventoryBackend struct {
@@ -368,6 +369,12 @@ func validateManifest(m *InventoryManifest) error {
 		if server.GameType == "" {
 			return fmt.Errorf("server %q requires gameType", server.Name)
 		}
+		if server.MapLifecycle != "" && server.MapLifecycle != "game" && server.MapLifecycle != "independent" {
+			return fmt.Errorf("server %q mapLifecycle must be game or independent", server.Name)
+		}
+		if _, legacy := server.Metadata["map_lifecycle"]; legacy {
+			return fmt.Errorf("server %q must use mapLifecycle instead of metadata.map_lifecycle", server.Name)
+		}
 		if server.Backend.Type == "agent" && (strings.TrimSpace(server.Unit) == "" || strings.TrimSpace(server.DataPath) == "") {
 			return fmt.Errorf("server %q agent backend requires unit and dataPath", server.Name)
 		}
@@ -489,6 +496,11 @@ func normalizeManifest(m *InventoryManifest) {
 	}
 	if m.Servers == nil {
 		m.Servers = []InventoryServer{}
+	}
+	for i := range m.Servers {
+		if m.Servers[i].MapLifecycle == "" {
+			m.Servers[i].MapLifecycle = "game"
+		}
 	}
 	if m.Constraints == nil {
 		m.Constraints = []InventoryConstraint{}
@@ -841,7 +853,12 @@ func applyServers(tx *sql.Tx, servers []InventoryServer) error {
 	keep := make([]string, 0, len(servers))
 	for _, server := range servers {
 		keep = append(keep, server.Name)
-		metadata, _ := json.Marshal(server.Metadata)
+		metadataValues := make(map[string]string, len(server.Metadata)+1)
+		for key, value := range server.Metadata {
+			metadataValues[key] = value
+		}
+		metadataValues["map_lifecycle"] = server.MapLifecycle
+		metadata, _ := json.Marshal(metadataValues)
 		show := 0
 		if server.ShowMOTD {
 			show = 1

@@ -12,6 +12,13 @@ type Config struct {
 	GameDataPath  string
 	CacheDuration int // Seconds
 
+	// Map proxy cache
+	MapCacheDir          string
+	MapCacheMaxBytes     int64
+	MapCacheMaxItemBytes int64
+	MapCacheDefaultTTL   int
+	MapCacheStaleTTL     int
+
 	// OIDC Configuration
 	OIDCProviderURL  string
 	OIDCClientID     string
@@ -85,6 +92,12 @@ func LoadConfig() *Config {
 		GameDataPath:  gameDataPath,
 		CacheDuration: 60,
 
+		MapCacheDir:          getEnv("HOGS_MAP_CACHE_DIR", "data/map-cache"),
+		MapCacheMaxBytes:     mustAtoi64(getEnv("HOGS_MAP_CACHE_MAX_BYTES", "2147483648")),
+		MapCacheMaxItemBytes: mustAtoi64(getEnv("HOGS_MAP_CACHE_MAX_ITEM_BYTES", "134217728")),
+		MapCacheDefaultTTL:   mustAtoi(getEnv("HOGS_MAP_CACHE_DEFAULT_TTL_SEC", "300")),
+		MapCacheStaleTTL:     mustAtoi(getEnv("HOGS_MAP_CACHE_STALE_TTL_SEC", "86400")),
+
 		OIDCProviderURL:  getEnv("OIDC_PROVIDER_URL", ""),
 		OIDCClientID:     getEnv("OIDC_CLIENT_ID", ""),
 		OIDCClientSecret: getEnv("OIDC_CLIENT_SECRET", ""),
@@ -134,6 +147,14 @@ func LoadConfig() *Config {
 
 func mustAtoi(s string) int {
 	n, err := strconv.Atoi(s)
+	if err != nil {
+		return 0
+	}
+	return n
+}
+
+func mustAtoi64(s string) int64 {
+	n, err := strconv.ParseInt(s, 10, 64)
 	if err != nil {
 		return 0
 	}

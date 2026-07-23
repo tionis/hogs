@@ -58,6 +58,14 @@
             <input type="url" class="form-control" id="editMapURL" name="map_url" value="{{.Server.MapURL}}">
             <div class="form-text">e.g. internal BlueMap URL for Minecraft</div>
           </div>
+          <div class="mb-3" id="edit-map-lifecycle-group">
+            <label for="editMapLifecycle" class="form-label">Map service lifecycle</label>
+            <select class="form-select" id="editMapLifecycle" name="map_lifecycle">
+              <option value="game" {{if ne (.Server.MapLifecycle) "independent"}}selected{{end}}>Runs with the game server</option>
+              <option value="independent" {{if eq (.Server.MapLifecycle) "independent"}}selected{{end}}>Runs independently</option>
+            </select>
+            <div class="form-text">Used to explain map outages without assuming every map stops with its game.</div>
+          </div>
           <div class="mb-3" id="edit-modurl-group">
             <label for="editModURL" class="form-label">Mod Pack URL</label>
             <input type="text" class="form-control" id="editModURL" name="mod_url" value="{{.Server.ModURL}}">
@@ -101,11 +109,13 @@
             <label class="form-label">Metadata</label>
             <div id="editMetadataContainer">
               {{range $k, $v := .Server.Metadata}}
+              {{if ne $k "map_lifecycle"}}
               <div class="input-group mb-2">
                 <input type="text" class="form-control" name="meta_key" placeholder="Key" value="{{$k}}">
                 <input type="text" class="form-control" name="meta_value" placeholder="Value" value="{{$v}}">
                 <button type="button" class="btn btn-outline-danger" onclick="this.parentElement.remove()">X</button>
               </div>
+              {{end}}
               {{end}}
             </div>
             <button type="button" class="btn btn-sm btn-secondary mt-2" onclick="addMetadataRow()">+ Add Property</button>

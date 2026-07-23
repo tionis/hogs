@@ -56,6 +56,19 @@ func (c *ServerStatusCache) Get(serverName string) (*ServerStatus, bool) {
 	return nil, false
 }
 
+// Latest returns the most recent observation even if it is too old to satisfy
+// an ordinary status request. Error pages use it only as explanatory context.
+func (c *ServerStatusCache) Latest(serverName string) (*ServerStatus, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	entry, found := c.cache[serverName]
+	if !found || entry.Status == nil {
+		return nil, false
+	}
+	status := *entry.Status
+	return &status, true
+}
+
 func (c *ServerStatusCache) Set(serverName string, status *ServerStatus) {
 	c.mu.Lock()
 	oldEntry := c.cache[serverName]
