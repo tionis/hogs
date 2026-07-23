@@ -118,3 +118,13 @@ func TestPterodactylConfigFromEnv(t *testing.T) {
 		t.Errorf("PterodactylClientKey = %q, want %q", cfg.PterodactylClientKey, "ptlc_yyyyyyyy")
 	}
 }
+
+func TestMapProxyAllowedOriginsFromEnv(t *testing.T) {
+	t.Setenv("HOGS_MAP_PROXY_ALLOWED_ORIGINS", "http://10.0.0.1:8100, https://maps.example.test")
+	cfg := LoadConfig()
+	if len(cfg.MapProxyAllowedOrigins) != 2 ||
+		cfg.MapProxyAllowedOrigins[0] != "http://10.0.0.1:8100" ||
+		cfg.MapProxyAllowedOrigins[1] != "https://maps.example.test" {
+		t.Fatalf("MapProxyAllowedOrigins = %#v", cfg.MapProxyAllowedOrigins)
+	}
+}

@@ -101,6 +101,12 @@ cannot silently overwrite a concurrently changed file. Large payloads therefore
 do not need to be buffered by HOGS, and independent HTTP requests can proceed
 concurrently.
 
+This is a small HTTP capability API rather than WebDAV. HOGS authorizes the
+user, server, operation, path allowlist, and upload size before minting a
+short-lived token scoped to one exact agent request. The browser then streams
+directly to or from a direct agent. A tunneled agent exposes the same API
+privately and HOGS relays the request.
+
 Console output is an NDJSON HTTP stream backed by the systemd journal.
 Commands, status queries, backups, file transfers, and console streams use
 independent requests. RCON and restic credentials remain in node-local files.

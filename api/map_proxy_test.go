@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -247,5 +248,21 @@ func TestMapProxyDoesNotCacheNoStoreResponse(t *testing.T) {
 	}
 	if transport.count() != 2 {
 		t.Fatalf("origin requests = %d, want 2", transport.count())
+	}
+}
+
+func TestMapProxyPrivateOriginRequiresExactAllowlist(t *testing.T) {
+	target, err := url.Parse("http://10.0.0.8:8100")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isMapURLAllowed(target, nil) {
+		t.Fatal("private origin was allowed without an allowlist")
+	}
+	if !isMapURLAllowed(target, []string{"http://10.0.0.8:8100"}) {
+		t.Fatal("exactly allowlisted private origin was rejected")
+	}
+	if isMapURLAllowed(target, []string{"http://10.0.0.8:8101"}) {
+		t.Fatal("private origin with a different port was allowed")
 	}
 }

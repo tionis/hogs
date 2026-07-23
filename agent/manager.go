@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -142,6 +143,31 @@ func (m *Manager) Close() {
 	}
 	m.cancel()
 	m.client.CloseIdleConnections()
+}
+
+// PublicOrigins returns the browser origins used by direct agents. These URLs
+// came from the validated deployment configuration.
+func (m *Manager) PublicOrigins() []string {
+	if m == nil {
+		return nil
+	}
+	seen := make(map[string]struct{})
+	for _, node := range m.nodes {
+		if node.Mode != "direct" {
+			continue
+		}
+		public, err := url.Parse(node.PublicURL)
+		if err != nil || public.Scheme != "https" || public.Host == "" {
+			continue
+		}
+		seen[public.Scheme+"://"+public.Host] = struct{}{}
+	}
+	origins := make([]string, 0, len(seen))
+	for origin := range seen {
+		origins = append(origins, origin)
+	}
+	sort.Strings(origins)
+	return origins
 }
 
 func (m *Manager) ConnectedNode(node string) bool {

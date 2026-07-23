@@ -255,7 +255,7 @@ func (h *ServerHandler) MapProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if isPrivateURL(targetURL.String()) {
+	if !isMapURLAllowed(targetURL, h.Config.MapProxyAllowedOrigins) {
 		log.Printf("Blocked map proxy to private URL for server %s: %s", serverName, targetURL.String())
 		http.Error(w, "Invalid map URL", http.StatusBadRequest)
 		return
@@ -523,6 +523,17 @@ func isValidServerName(name string) bool {
 		}
 	}
 	return true
+}
+
+func isMapURLAllowed(target *url.URL, allowedOrigins []string) bool {
+	for _, rawOrigin := range allowedOrigins {
+		origin, err := url.Parse(rawOrigin)
+		if err == nil && strings.EqualFold(origin.Scheme, target.Scheme) &&
+			strings.EqualFold(origin.Host, target.Host) {
+			return true
+		}
+	}
+	return !isPrivateURL(target.String())
 }
 
 // isPrivateURL checks if a URL points to a private/internal address.

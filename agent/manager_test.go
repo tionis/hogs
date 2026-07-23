@@ -74,3 +74,15 @@ func TestManagedNodeModesAreValidated(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestPublicOriginsReturnsUniqueDirectAgentOrigins(t *testing.T) {
+	manager := &Manager{nodes: map[string]ManagedNode{
+		"a": {Mode: "direct", PublicURL: "https://agent.example.test:9443/path"},
+		"b": {Mode: "direct", PublicURL: "https://agent.example.test:9443"},
+		"c": {Mode: "tunneled", PublicURL: "https://tunnel.example.test"},
+	}}
+	origins := manager.PublicOrigins()
+	if len(origins) != 1 || origins[0] != "https://agent.example.test:9443" {
+		t.Fatalf("PublicOrigins() = %#v", origins)
+	}
+}

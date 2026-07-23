@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"strconv"
+	"strings"
 )
 
 // Config holds the application configuration.
@@ -13,11 +14,12 @@ type Config struct {
 	CacheDuration int // Seconds
 
 	// Map proxy cache
-	MapCacheDir          string
-	MapCacheMaxBytes     int64
-	MapCacheMaxItemBytes int64
-	MapCacheDefaultTTL   int
-	MapCacheStaleTTL     int
+	MapCacheDir            string
+	MapCacheMaxBytes       int64
+	MapCacheMaxItemBytes   int64
+	MapCacheDefaultTTL     int
+	MapCacheStaleTTL       int
+	MapProxyAllowedOrigins []string
 
 	// OIDC Configuration
 	OIDCProviderURL  string
@@ -92,11 +94,12 @@ func LoadConfig() *Config {
 		GameDataPath:  gameDataPath,
 		CacheDuration: 60,
 
-		MapCacheDir:          getEnv("HOGS_MAP_CACHE_DIR", "data/map-cache"),
-		MapCacheMaxBytes:     mustAtoi64(getEnv("HOGS_MAP_CACHE_MAX_BYTES", "2147483648")),
-		MapCacheMaxItemBytes: mustAtoi64(getEnv("HOGS_MAP_CACHE_MAX_ITEM_BYTES", "134217728")),
-		MapCacheDefaultTTL:   mustAtoi(getEnv("HOGS_MAP_CACHE_DEFAULT_TTL_SEC", "300")),
-		MapCacheStaleTTL:     mustAtoi(getEnv("HOGS_MAP_CACHE_STALE_TTL_SEC", "86400")),
+		MapCacheDir:            getEnv("HOGS_MAP_CACHE_DIR", "data/map-cache"),
+		MapCacheMaxBytes:       mustAtoi64(getEnv("HOGS_MAP_CACHE_MAX_BYTES", "2147483648")),
+		MapCacheMaxItemBytes:   mustAtoi64(getEnv("HOGS_MAP_CACHE_MAX_ITEM_BYTES", "134217728")),
+		MapCacheDefaultTTL:     mustAtoi(getEnv("HOGS_MAP_CACHE_DEFAULT_TTL_SEC", "300")),
+		MapCacheStaleTTL:       mustAtoi(getEnv("HOGS_MAP_CACHE_STALE_TTL_SEC", "86400")),
+		MapProxyAllowedOrigins: splitList(getEnv("HOGS_MAP_PROXY_ALLOWED_ORIGINS", "")),
 
 		OIDCProviderURL:  getEnv("OIDC_PROVIDER_URL", ""),
 		OIDCClientID:     getEnv("OIDC_CLIENT_ID", ""),
@@ -143,6 +146,16 @@ func LoadConfig() *Config {
 
 		TrustProxyHeaders: getEnv("TRUST_PROXY_HEADERS", "") == "true",
 	}
+}
+
+func splitList(value string) []string {
+	var result []string
+	for _, item := range strings.Split(value, ",") {
+		if item = strings.TrimSpace(item); item != "" {
+			result = append(result, item)
+		}
+	}
+	return result
 }
 
 func mustAtoi(s string) int {

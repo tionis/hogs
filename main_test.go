@@ -10,7 +10,7 @@ import (
 )
 
 func TestSecurityHeadersAllowSameOriginFrames(t *testing.T) {
-	handler := securityHeadersMiddleware(&config.Config{})(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	handler := securityHeadersMiddleware(&config.Config{}, nil)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 
@@ -26,7 +26,7 @@ func TestSecurityHeadersAllowSameOriginFrames(t *testing.T) {
 }
 
 func TestSecurityHeadersScopeUnsafeEvalToMapProxy(t *testing.T) {
-	handler := securityHeadersMiddleware(&config.Config{})(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	handler := securityHeadersMiddleware(&config.Config{}, nil)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 
@@ -48,5 +48,23 @@ func TestSecurityHeadersScopeUnsafeEvalToMapProxy(t *testing.T) {
 				t.Fatalf("unsafe-eval present = %v, want %v", got, test.wantUnsafeEval)
 			}
 		})
+	}
+}
+
+func TestSecurityHeadersAllowConfiguredDirectAgentOrigins(t *testing.T) {
+	handler := securityHeadersMiddleware(&config.Config{}, []string{
+		"https://agent-a.example.test:9443",
+		"https://agent-b.example.test",
+	})(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/server", nil))
+	policy := recorder.Header().Get("Content-Security-Policy")
+	for _, origin := range []string{"https://agent-a.example.test:9443", "https://agent-b.example.test"} {
+		if !strings.Contains(policy, origin) {
+			t.Fatalf("Content-Security-Policy = %q, want origin %q", policy, origin)
+		}
 	}
 }

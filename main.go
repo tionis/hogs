@@ -28,7 +28,10 @@ import (
 	"github.com/gorilla/mux"
 )
 
-func securityHeadersMiddleware(cfg *config.Config) func(http.Handler) http.Handler {
+func securityHeadersMiddleware(cfg *config.Config, agentOrigins []string) func(http.Handler) http.Handler {
+	connectSources := []string{"'self'", "https://cdn.jsdelivr.net"}
+	connectSources = append(connectSources, agentOrigins...)
+	connectPolicy := "connect-src " + strings.Join(connectSources, " ") + ";"
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			scriptPolicy := "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net;"
@@ -39,7 +42,7 @@ func securityHeadersMiddleware(cfg *config.Config) func(http.Handler) http.Handl
 			}
 			w.Header().Set("X-Content-Type-Options", "nosniff")
 			w.Header().Set("X-Frame-Options", "SAMEORIGIN")
-			w.Header().Set("Content-Security-Policy", "default-src 'self'; "+scriptPolicy+" style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://cdn.jsdelivr.net; frame-ancestors 'self';")
+			w.Header().Set("Content-Security-Policy", "default-src 'self'; "+scriptPolicy+" style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; "+connectPolicy+" frame-ancestors 'self';")
 			w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
 			if cfg.TLSCert != "" && cfg.TLSKey != "" {
 				w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
@@ -411,7 +414,11 @@ func main() {
 	router.HandleFunc("/{serverName}", webHandler.ServerDetail).Methods("GET")
 
 	// Add security headers middleware
-	secureHandler := securityHeadersMiddleware(cfg)(apiKeyRouter)
+	var agentOrigins []string
+	if agentManager != nil {
+		agentOrigins = agentManager.PublicOrigins()
+	}
+	secureHandler := securityHeadersMiddleware(cfg, agentOrigins)(apiKeyRouter)
 
 	srv := &http.Server{
 		Addr:    ":" + cfg.Port,

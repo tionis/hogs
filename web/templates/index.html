@@ -23,7 +23,7 @@
           <h5 class="card-title d-flex justify-content-between align-items-center">
             <a href="/{{.Name}}" class="text-decoration-none stretched-link">{{.Name}}</a>
             <div>
-              {{if eq .State "online"}}<span class="badge bg-success me-1">Online</span>{{end}}
+              {{if eq .State "online"}}<span class="badge bg-secondary me-1" id="status-badge-{{.Name}}">Checking...</span>{{end}}
               {{if eq .State "planned"}}<span class="badge bg-warning me-1">Planned</span>{{end}}
               {{if eq .State "maintenance"}}<span class="badge bg-warning me-1">Maintenance</span>{{end}}
               {{if eq .State "offline"}}<span class="badge bg-danger me-1">Offline</span>{{end}}

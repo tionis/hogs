@@ -144,6 +144,7 @@ The repository includes helper scripts for development/testing:
 | `HOGS_MAP_CACHE_MAX_ITEM_BYTES` | `134217728` | Maximum size of one cached response in bytes (128 MiB by default). |
 | `HOGS_MAP_CACHE_DEFAULT_TTL_SEC` | `300` | Freshness used when the map backend supplies no cache lifetime. |
 | `HOGS_MAP_CACHE_STALE_TTL_SEC` | `86400` | How long an expired response may be retained and served when its backend fails. |
+| `HOGS_MAP_PROXY_ALLOWED_ORIGINS` | *(Empty)* | Comma-separated exact origins that the map proxy may access even when they use private addresses. |
 
 ## Usage Guide
 
