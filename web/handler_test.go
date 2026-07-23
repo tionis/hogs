@@ -270,6 +270,12 @@ func TestAgentsRendersConnectionState(t *testing.T) {
 	if contains(body, "[91 34") {
 		t.Error("capabilities must not be rendered as raw JSON bytes")
 	}
+	if !contains(body, "A system administrator prepares a game server") {
+		t.Error("expected agents page to explain the generic management workflow")
+	}
+	if contains(body, "Gandalf") || contains(body, "No host tunnel interface") {
+		t.Error("agents page must not expose deployment-specific transport guidance")
+	}
 }
 
 func contains(s, substr string) bool {

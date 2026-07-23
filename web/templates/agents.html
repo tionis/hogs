@@ -10,8 +10,8 @@
 
 <h2>Agents</h2>
 <p class="text-muted">
-  Agent identities, WireGuard peers, and server assignments are managed by Gandalf.
-  This page reports observed reachability over the private HOGS network.
+  Agents connect prepared game-server hosts to HOGS and report their reachability
+  and management capabilities.
 </p>
 
 {{if .Agents}}
@@ -40,10 +40,13 @@
 {{end}}
 
 <div class="card mt-4">
-  <div class="card-header">Transport</div>
+  <div class="card-header">Management workflow</div>
   <div class="card-body">
-    <p class="mb-2">Each agent runs an embedded userspace WireGuard peer and an HTTP/2 API. No host tunnel interface, route, or agent enrollment token is used.</p>
-    <p class="mb-0 text-muted">Provision or change peers in Gandalf, then deploy the HOGS control plane and the affected worker together.</p>
+    <p class="mb-0 text-muted">
+      A system administrator prepares a game server, adds it to the agent running
+      on that host, and exposes it in this panel. Game administrators can then
+      manage the server according to their permissions.
+    </p>
   </div>
 </div>
 {{end}}
