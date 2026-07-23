@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func testNodeConfig(root string) AgentConfig {
@@ -138,6 +139,47 @@ func TestRoutineRCONConnectionLineFilter(t *testing.T) {
 	}
 	if isRoutineRCONConnectionLine("[Server thread/INFO] Player joined the game") {
 		t.Fatal("normal server output was filtered")
+	}
+}
+
+func TestParseSystemdResourceValues(t *testing.T) {
+	bytes := parseSystemdBytes("1073741824")
+	if bytes == nil || *bytes != 1073741824 {
+		t.Fatalf("memory value = %v", bytes)
+	}
+	for _, value := range []string{"", "[not set]", "infinity", "invalid"} {
+		if parsed := parseSystemdBytes(value); parsed != nil {
+			t.Fatalf("parseSystemdBytes(%q) = %d, want nil", value, *parsed)
+		}
+	}
+
+	duration := parseSystemdDuration("500ms")
+	if duration == nil || *duration != 500*time.Millisecond {
+		t.Fatalf("CPU quota = %v", duration)
+	}
+	for _, value := range []string{"", "[not set]", "infinity", "invalid"} {
+		if parsed := parseSystemdDuration(value); parsed != nil {
+			t.Fatalf("parseSystemdDuration(%q) = %v, want nil", value, *parsed)
+		}
+	}
+}
+
+func TestSampleCPUPercentUsesUsageDelta(t *testing.T) {
+	unit := "resource-test.service"
+	start := time.Date(2026, 7, 23, 10, 0, 0, 0, time.UTC)
+	resourceSampleMu.Lock()
+	delete(resourceSamples, unit)
+	resourceSampleMu.Unlock()
+
+	if first := sampleCPUPercent(unit, uint64(time.Second), start, true); first != nil {
+		t.Fatalf("first CPU sample = %v, want nil", *first)
+	}
+	percent := sampleCPUPercent(unit, uint64(2*time.Second), start.Add(2*time.Second), true)
+	if percent == nil || *percent != 50 {
+		t.Fatalf("CPU percent = %v, want 50", percent)
+	}
+	if stopped := sampleCPUPercent(unit, uint64(2*time.Second), start.Add(3*time.Second), false); stopped != nil {
+		t.Fatalf("inactive CPU sample = %v, want nil", *stopped)
 	}
 }
 

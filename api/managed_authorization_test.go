@@ -185,6 +185,15 @@ func TestManagedBackupAllowsOperatorWithoutGrantingRestore(t *testing.T) {
 	}
 }
 
+func TestManagedStatusAllowsConfiguredOperator(t *testing.T) {
+	store, authenticator, eng := managedAuthorizationFixture(t, []string{"game-moderators"}, `true`)
+	req := managedTestRequest(t, store, authenticator, "moderator@example.test", "user", "game-moderators")
+
+	if _, _, status, err := authorizeManagedCapability(store, eng, authenticator, req, "managed-test", managedStatus); err != nil || status != http.StatusOK {
+		t.Fatalf("status authorization status=%d err=%v", status, err)
+	}
+}
+
 func TestWhitelistStatusIgnoresCallerSuppliedIdentity(t *testing.T) {
 	store, authenticator, eng := managedAuthorizationFixture(t, nil, `true`)
 	server, _ := store.GetServerByName("managed-test")

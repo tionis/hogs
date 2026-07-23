@@ -171,6 +171,43 @@
        </ul>
      </div>
 
+     {{if and .Authenticated .PteroLink}}
+     {{if inList "status" .AllowedActions}}
+     <div class="card mb-4" id="resource-usage-card">
+       <div class="card-header">Resource Usage</div>
+       <ul class="list-group list-group-flush">
+         <li class="list-group-item d-flex justify-content-between align-items-center">
+           <strong>CPU usage</strong>
+           <span id="resource-cpu">Sampling…</span>
+         </li>
+         <li class="list-group-item d-flex justify-content-between align-items-center">
+           <strong>CPU limit</strong>
+           <span id="resource-cpu-limit">Loading…</span>
+         </li>
+         <li class="list-group-item d-flex justify-content-between align-items-center">
+           <strong>Memory usage</strong>
+           <span id="resource-memory">Loading…</span>
+         </li>
+         <li class="list-group-item d-flex justify-content-between align-items-center">
+           <strong>Memory peak</strong>
+           <span id="resource-memory-peak">Loading…</span>
+         </li>
+         <li class="list-group-item d-flex justify-content-between align-items-center">
+           <strong>Memory soft limit</strong>
+           <span id="resource-memory-high">Loading…</span>
+         </li>
+         <li class="list-group-item d-flex justify-content-between align-items-center">
+           <strong>Memory limit</strong>
+           <span id="resource-memory-limit">Loading…</span>
+         </li>
+       </ul>
+       <div class="card-footer small" style="color: var(--text-secondary);">
+         CPU usage uses 100% per processor core. Updated <time id="resource-sampled-at">—</time>.
+       </div>
+     </div>
+     {{end}}
+     {{end}}
+
      {{if .PteroLink}}
      <div class="card mb-4">
        <div class="card-header">Server Actions</div>
@@ -391,6 +428,48 @@ document.addEventListener("DOMContentLoaded", function() {
     {{end}}
 
     if (container) initManagedFiles(serverName);
+
+    {{if and .Authenticated .PteroLink}}
+    {{if inList "status" .AllowedActions}}
+    const formatBytes = value => {
+        if (value === null || value === undefined) return 'Unavailable';
+        const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
+        let amount = Number(value);
+        let unit = 0;
+        while (amount >= 1024 && unit < units.length - 1) {
+            amount /= 1024;
+            unit++;
+        }
+        const digits = unit === 0 || amount >= 10 ? 0 : 1;
+        return `${amount.toFixed(digits)} ${units[unit]}`;
+    };
+    const setResourceText = (id, value) => {
+        const element = document.getElementById(id);
+        if (element) element.textContent = value;
+    };
+    const loadResourceUsage = async () => {
+        try {
+            const response = await fetch(`/api/agents/${encodeURIComponent(serverName)}/resources`);
+            if (!response.ok) throw new Error(response.statusText);
+            const data = await response.json();
+            setResourceText('resource-cpu', data.cpuPercent == null ? 'Sampling…' : `${data.cpuPercent.toFixed(1)}%`);
+            setResourceText('resource-cpu-limit', data.cpuLimitPercent == null ? 'No systemd limit' : `${data.cpuLimitPercent.toFixed(0)}%`);
+            setResourceText('resource-memory', formatBytes(data.memoryCurrentBytes));
+            setResourceText('resource-memory-peak', formatBytes(data.memoryPeakBytes));
+            setResourceText('resource-memory-high', data.memoryHighBytes == null ? 'No systemd limit' : formatBytes(data.memoryHighBytes));
+            setResourceText('resource-memory-limit', data.memoryLimitBytes == null ? 'No systemd limit' : formatBytes(data.memoryLimitBytes));
+            setResourceText('resource-sampled-at', data.sampledAt ? new Date(data.sampledAt).toLocaleTimeString() : 'Unavailable');
+        } catch (_) {
+            for (const id of ['resource-cpu', 'resource-cpu-limit', 'resource-memory', 'resource-memory-peak', 'resource-memory-high', 'resource-memory-limit']) {
+                setResourceText(id, 'Unavailable');
+            }
+            setResourceText('resource-sampled-at', 'Unavailable');
+        }
+    };
+    loadResourceUsage();
+    window.setInterval(loadResourceUsage, 15000);
+    {{end}}
+    {{end}}
 
     if (userEmail) {
       fetch(`/servers/${serverName}/whitelist?user_email=${encodeURIComponent(userEmail)}`)

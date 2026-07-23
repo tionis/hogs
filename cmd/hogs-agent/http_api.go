@@ -87,7 +87,7 @@ func handleHealth(w http.ResponseWriter, _ *http.Request) {
 }
 
 func handleStatus(w http.ResponseWriter, r *http.Request, server *ServerConfig) {
-	active, substate := getServiceStatus(server.Unit)
+	active, substate, resources := getServiceStatusWithResources(server.Unit, time.Now())
 	players, maxPlayers, known := 0, 0, false
 	version := ""
 	if active {
@@ -97,7 +97,7 @@ func handleStatus(w http.ResponseWriter, r *http.Request, server *ServerConfig) 
 	writeJSONResponse(w, http.StatusOK, StatusReportData{
 		ServerName: r.PathValue("server"), Online: active, Players: players,
 		MaxPlayers: maxPlayers, PlayersKnown: known, Version: version,
-		Substate: substate,
+		Substate: substate, Resources: resources,
 	})
 }
 

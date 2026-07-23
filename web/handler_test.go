@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/tionis/hogs/auth"
@@ -54,7 +55,10 @@ func createTestSession(t *testing.T, store *database.Store, authenticator *auth.
 
 	// Create DB session
 	sessionID := "test-session-" + email
-	_, err = store.DB.Exec("INSERT INTO sessions (session_id, user_email, user_role, expires_at) VALUES (?, ?, ?, datetime('now', '+1 day'))", sessionID, email, role)
+	_, err = store.DB.Exec(
+		"INSERT INTO sessions (session_id, user_email, user_role, expires_at) VALUES (?, ?, ?, ?)",
+		sessionID, email, role, time.Now().UTC().Add(24*time.Hour).Format(time.RFC3339),
+	)
 	if err != nil {
 		t.Fatalf("failed to create test session: %v", err)
 	}
@@ -169,6 +173,43 @@ func TestServerDetailRenders(t *testing.T) {
 	}
 	if !contains(w.Body.String(), "play.example.test") || !contains(w.Body.String(), "node.example.test:25565") {
 		t.Error("expected server detail to contain discovery and fallback addresses")
+	}
+}
+
+func TestServerDetailRendersAuthenticatedResourceUsage(t *testing.T) {
+	handler, store, authenticator := testWebHandler(t)
+	if err := store.CreateServer(&database.Server{
+		Name: "ManagedSrv", GameType: "minecraft", State: "online",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	server, err := store.GetServerByName("ManagedSrv")
+	if err != nil || server == nil {
+		t.Fatalf("load server: %v", err)
+	}
+	if err := store.CreatePterodactylLink(&database.PterodactylLink{
+		ServerID: server.ID, PteroServerID: "agent:ManagedSrv",
+		AllowedActions: `["status"]`, Node: "managed-node",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/ManagedSrv", nil)
+	req = mux.SetURLVars(req, map[string]string{"serverName": "ManagedSrv"})
+	req.AddCookie(createTestSession(t, store, authenticator, "admin@test.com", "admin"))
+	w := httptest.NewRecorder()
+	handler.ServerDetail(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", w.Code, w.Body.String())
+	}
+	for _, expected := range []string{
+		"Resource Usage", "/resources", "No systemd limit",
+		"CPU usage uses 100% per processor core",
+	} {
+		if !contains(w.Body.String(), expected) {
+			t.Errorf("expected resource UI to contain %q", expected)
+		}
 	}
 }
 

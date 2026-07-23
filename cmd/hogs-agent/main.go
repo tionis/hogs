@@ -97,14 +97,35 @@ type BackupListRequestData struct {
 }
 
 type StatusReportData struct {
-	ServerName   string `json:"serverName"`
-	Online       bool   `json:"online"`
-	Substate     string `json:"substate"`
-	Players      int    `json:"players"`
-	MaxPlayers   int    `json:"maxPlayers"`
-	PlayersKnown bool   `json:"playersKnown"`
-	Version      string `json:"version"`
+	ServerName   string          `json:"serverName"`
+	Online       bool            `json:"online"`
+	Substate     string          `json:"substate"`
+	Players      int             `json:"players"`
+	MaxPlayers   int             `json:"maxPlayers"`
+	PlayersKnown bool            `json:"playersKnown"`
+	Version      string          `json:"version"`
+	Resources    *ResourceStatus `json:"resources,omitempty"`
 }
+
+type ResourceStatus struct {
+	CPUPercent      *float64  `json:"cpuPercent,omitempty"`
+	CPULimitPercent *float64  `json:"cpuLimitPercent,omitempty"`
+	MemoryCurrent   *uint64   `json:"memoryCurrentBytes,omitempty"`
+	MemoryPeak      *uint64   `json:"memoryPeakBytes,omitempty"`
+	MemoryHigh      *uint64   `json:"memoryHighBytes,omitempty"`
+	MemoryLimit     *uint64   `json:"memoryLimitBytes,omitempty"`
+	SampledAt       time.Time `json:"sampledAt"`
+}
+
+type resourceCPUSample struct {
+	usage uint64
+	at    time.Time
+}
+
+var (
+	resourceSampleMu sync.Mutex
+	resourceSamples  = map[string]resourceCPUSample{}
+)
 
 var minecraftPlayerCount = regexp.MustCompile(`(?i)there are\s+(\d+)\s+of a max of\s+(\d+)\s+players online`)
 
@@ -830,16 +851,74 @@ func readRCONPacket(r io.Reader) (int32, int32, string, error) {
 }
 
 func getServiceStatus(unit string) (active bool, substate string) {
-	out, err := exec.Command("systemctl", "show", unit, "--property=ActiveState,SubState", "--value").Output()
-	if err != nil {
-		return false, "unknown"
-	}
-	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
-	active = len(lines) > 0 && lines[0] == "active"
-	if len(lines) > 1 {
-		substate = lines[1]
-	}
+	active, substate, _ = getServiceStatusWithResources(unit, time.Now())
 	return
+}
+
+func getServiceStatusWithResources(unit string, sampledAt time.Time) (active bool, substate string, resources *ResourceStatus) {
+	properties := "ActiveState,SubState,CPUUsageNSec,CPUQuotaPerSecUSec,MemoryCurrent,MemoryPeak,MemoryHigh,MemoryMax"
+	out, err := exec.Command("systemctl", "show", unit, "--property="+properties).Output()
+	if err != nil {
+		return false, "unknown", nil
+	}
+	values := map[string]string{}
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		key, value, found := strings.Cut(line, "=")
+		if found {
+			values[key] = value
+		}
+	}
+	active = values["ActiveState"] == "active"
+	substate = values["SubState"]
+	resources = &ResourceStatus{
+		MemoryCurrent: parseSystemdBytes(values["MemoryCurrent"]),
+		MemoryPeak:    parseSystemdBytes(values["MemoryPeak"]),
+		MemoryHigh:    parseSystemdBytes(values["MemoryHigh"]),
+		MemoryLimit:   parseSystemdBytes(values["MemoryMax"]),
+		SampledAt:     sampledAt,
+	}
+	if quota := parseSystemdDuration(values["CPUQuotaPerSecUSec"]); quota != nil {
+		percent := float64(*quota) / float64(time.Second) * 100
+		resources.CPULimitPercent = &percent
+	}
+	if usage, parseErr := strconv.ParseUint(values["CPUUsageNSec"], 10, 64); parseErr == nil {
+		resources.CPUPercent = sampleCPUPercent(unit, usage, sampledAt, active)
+	}
+	return active, substate, resources
+}
+
+func parseSystemdBytes(value string) *uint64 {
+	if value == "" || value == "infinity" || value == "[not set]" {
+		return nil
+	}
+	parsed, err := strconv.ParseUint(value, 10, 64)
+	if err != nil {
+		return nil
+	}
+	return &parsed
+}
+
+func parseSystemdDuration(value string) *time.Duration {
+	if value == "" || value == "infinity" || value == "[not set]" {
+		return nil
+	}
+	parsed, err := time.ParseDuration(value)
+	if err != nil {
+		return nil
+	}
+	return &parsed
+}
+
+func sampleCPUPercent(unit string, usage uint64, sampledAt time.Time, active bool) *float64 {
+	resourceSampleMu.Lock()
+	previous, exists := resourceSamples[unit]
+	resourceSamples[unit] = resourceCPUSample{usage: usage, at: sampledAt}
+	resourceSampleMu.Unlock()
+	if !active || !exists || usage < previous.usage || !sampledAt.After(previous.at) {
+		return nil
+	}
+	percent := float64(usage-previous.usage) / float64(sampledAt.Sub(previous.at)) * 100
+	return &percent
 }
 
 // ── File Management ──

@@ -36,16 +36,27 @@ type ManagedPeer struct {
 	PublicKey string `yaml:"public_key"`
 }
 
+type ResourceStatus struct {
+	CPUPercent      *float64  `json:"cpuPercent,omitempty"`
+	CPULimitPercent *float64  `json:"cpuLimitPercent,omitempty"`
+	MemoryCurrent   *uint64   `json:"memoryCurrentBytes,omitempty"`
+	MemoryPeak      *uint64   `json:"memoryPeakBytes,omitempty"`
+	MemoryHigh      *uint64   `json:"memoryHighBytes,omitempty"`
+	MemoryLimit     *uint64   `json:"memoryLimitBytes,omitempty"`
+	SampledAt       time.Time `json:"sampledAt"`
+}
+
 type Manager struct {
-	network *wgnet.Network
-	client  *http.Client
-	apiPort uint16
-	peers   map[string]ManagedPeer
-	mu      sync.RWMutex
-	seen    map[string]time.Time
-	ctx     context.Context
-	cancel  context.CancelFunc
-	store   *database.Store
+	network   *wgnet.Network
+	client    *http.Client
+	apiPort   uint16
+	peers     map[string]ManagedPeer
+	mu        sync.RWMutex
+	seen      map[string]time.Time
+	resources map[string]ResourceStatus
+	ctx       context.Context
+	cancel    context.CancelFunc
+	store     *database.Store
 }
 
 func NewManager(configPath string, store *database.Store) (*Manager, error) {
@@ -97,7 +108,8 @@ func NewManager(configPath string, store *database.Store) (*Manager, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	manager := &Manager{
 		network: network, client: &http.Client{Transport: transport},
-		apiPort: cfg.APIPort, peers: peers, seen: make(map[string]time.Time), cancel: cancel,
+		apiPort: cfg.APIPort, peers: peers, seen: make(map[string]time.Time),
+		resources: make(map[string]ResourceStatus), cancel: cancel,
 		ctx: ctx, store: store,
 	}
 	go manager.healthLoop(ctx)
@@ -118,6 +130,13 @@ func (m *Manager) ConnectedNode(node string) bool {
 	last := m.seen[node]
 	m.mu.RUnlock()
 	return !last.IsZero() && time.Since(last) < 30*time.Second
+}
+
+func (m *Manager) ServerResources(serverName string) (ResourceStatus, bool) {
+	m.mu.RLock()
+	resources, found := m.resources[serverName]
+	m.mu.RUnlock()
+	return resources, found && time.Since(resources.SampledAt) < 30*time.Second
 }
 
 func (m *Manager) healthLoop(ctx context.Context) {
@@ -175,14 +194,20 @@ func (m *Manager) pollStatuses(ctx context.Context, store *database.Store, cache
 			}
 			defer response.Body.Close()
 			var status struct {
-				Online       bool   `json:"online"`
-				Players      int    `json:"players"`
-				MaxPlayers   int    `json:"maxPlayers"`
-				PlayersKnown bool   `json:"playersKnown"`
-				Version      string `json:"version"`
+				Online       bool            `json:"online"`
+				Players      int             `json:"players"`
+				MaxPlayers   int             `json:"maxPlayers"`
+				PlayersKnown bool            `json:"playersKnown"`
+				Version      string          `json:"version"`
+				Resources    *ResourceStatus `json:"resources"`
 			}
 			if response.StatusCode != http.StatusOK || json.NewDecoder(response.Body).Decode(&status) != nil {
 				return
+			}
+			if status.Resources != nil {
+				m.mu.Lock()
+				m.resources[server.Name] = *status.Resources
+				m.mu.Unlock()
 			}
 			cache.SetAgentObservation(server.Name, &query.ServerStatus{
 				Online: status.Online, Players: status.Players, MaxPlayers: status.MaxPlayers,

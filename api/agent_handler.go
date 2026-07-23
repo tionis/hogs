@@ -94,6 +94,25 @@ func (h *AgentHandler) GetAgent(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (h *AgentHandler) AgentResources(w http.ResponseWriter, r *http.Request) {
+	serverName := mux.Vars(r)["serverName"]
+	if _, _, status, err := authorizeManagedCapability(h.Store, h.Engine, h.Auth, r, serverName, managedStatus); err != nil {
+		http.Error(w, err.Error(), status)
+		return
+	}
+	if h.Manager == nil {
+		http.Error(w, "agent manager is unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	resources, found := h.Manager.ServerResources(serverName)
+	if !found {
+		http.Error(w, "resource observation is not available", http.StatusServiceUnavailable)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resources)
+}
+
 func (h *AgentHandler) CreateAgent(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "Invalid form data", http.StatusBadRequest)

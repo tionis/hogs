@@ -18,6 +18,7 @@ const (
 	managedFile    managedCapability = "file"
 	managedBackup  managedCapability = "backup"
 	managedRestore managedCapability = "restore"
+	managedStatus  managedCapability = "status"
 )
 
 func userEnvFromRequest(store *database.Store, authenticator *auth.Authenticator, r *http.Request) *engine.UserEnv {
@@ -82,6 +83,8 @@ func authorizeManagedCapability(store *database.Store, eng *engine.Engine, authe
 		if !management.RestoreEnabled {
 			return nil, nil, http.StatusForbidden, fmt.Errorf("restore access is disabled")
 		}
+	case managedStatus:
+		// Status is available for every managed server, subject to operator and ACL checks below.
 	}
 
 	user := userEnvFromRequest(store, authenticator, r)
