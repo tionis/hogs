@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"crypto/tls"
 	"encoding/base64"
 	"encoding/binary"
@@ -12,6 +13,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"os"
 	"os/exec"
@@ -22,9 +24,11 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/tionis/hogs/internal/wgnet"
 	"gopkg.in/yaml.v3"
 )
 
@@ -95,6 +99,7 @@ type BackupListRequestData struct {
 type StatusReportData struct {
 	ServerName   string `json:"serverName"`
 	Online       bool   `json:"online"`
+	Substate     string `json:"substate"`
 	Players      int    `json:"players"`
 	MaxPlayers   int    `json:"maxPlayers"`
 	PlayersKnown bool   `json:"playersKnown"`
@@ -155,10 +160,24 @@ func parsePlayerStatus(gameType, output string) (players, maxPlayers int, known 
 
 type AgentConfig struct {
 	Node       string                  `yaml:"node"`
-	ServerURL  string                  `yaml:"server_url"`
+	ServerURL  string                  `yaml:"-"`
 	ResticBin  string                  `yaml:"restic_bin"`
 	HealthAddr string                  `yaml:"health_addr"`
+	WireGuard  AgentWireGuardConfig    `yaml:"wireguard"`
 	Servers    map[string]ServerConfig `yaml:"servers"`
+}
+
+type AgentWireGuardConfig struct {
+	Address        string `yaml:"address"`
+	PrivateKeyFile string `yaml:"private_key_file"`
+	ListenPort     int    `yaml:"listen_port"`
+	APIPort        uint16 `yaml:"api_port"`
+	Peer           struct {
+		PublicKey           string `yaml:"public_key"`
+		AllowedIP           string `yaml:"allowed_ip"`
+		Endpoint            string `yaml:"endpoint"`
+		PersistentKeepalive int    `yaml:"persistent_keepalive"`
+	} `yaml:"peer"`
 }
 
 type ServerConfig struct {
@@ -187,10 +206,6 @@ var agentToken string
 var websocketWriteMu sync.Mutex
 
 func main() {
-	agentToken = envOr("HOGS_AGENT_TOKEN", "")
-	if agentToken == "" {
-		log.Fatal("HOGS_AGENT_TOKEN is required")
-	}
 	configPath := envOr("HOGS_AGENT_CONFIG", "/etc/hogs-agent/config.yaml")
 	raw, err := os.ReadFile(configPath)
 	if err != nil {
@@ -220,22 +235,47 @@ func main() {
 		}
 	}()
 
-	interrupt := make(chan os.Signal, 1)
-	signal.Notify(interrupt, os.Interrupt)
-
-	for {
-		err := connectAndServe(interrupt)
-		if err != nil {
-			log.Printf("Connection error: %v, reconnecting in 5s...", err)
-		} else {
-			log.Println("Disconnected, reconnecting in 5s...")
-		}
-		select {
-		case <-interrupt:
-			return
-		case <-time.After(5 * time.Second):
-		}
+	privateKey, err := os.ReadFile(agentConfig.WireGuard.PrivateKeyFile)
+	if err != nil {
+		log.Fatalf("Read WireGuard private key: %v", err)
 	}
+	network, err := wgnet.New(wgnet.Config{
+		Address:    agentConfig.WireGuard.Address,
+		PrivateKey: strings.TrimSpace(string(privateKey)),
+		ListenPort: agentConfig.WireGuard.ListenPort,
+		Peers: []wgnet.Peer{{
+			PublicKey:           agentConfig.WireGuard.Peer.PublicKey,
+			AllowedIP:           agentConfig.WireGuard.Peer.AllowedIP,
+			Endpoint:            agentConfig.WireGuard.Peer.Endpoint,
+			PersistentKeepalive: agentConfig.WireGuard.Peer.PersistentKeepalive,
+		}},
+	}, "hogs-agent: ")
+	if err != nil {
+		log.Fatalf("Start embedded WireGuard: %v", err)
+	}
+	defer network.Close()
+	listener, err := network.ListenTCP(agentConfig.WireGuard.APIPort)
+	if err != nil {
+		log.Fatalf("Listen on private agent API: %v", err)
+	}
+	apiServer := &http.Server{
+		Handler:           agentAPI(),
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       2 * time.Minute,
+	}
+	go func() {
+		log.Printf("Private agent API listening on %s:%d", agentConfig.WireGuard.Address, agentConfig.WireGuard.APIPort)
+		if err := apiServer.Serve(listener); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Private agent API: %v", err)
+		}
+	}()
+
+	interrupt := make(chan os.Signal, 1)
+	signal.Notify(interrupt, os.Interrupt, syscall.SIGTERM)
+	<-interrupt
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_ = apiServer.Shutdown(ctx)
 }
 
 func serverConfig(name string) (*ServerConfig, error) {
@@ -247,8 +287,18 @@ func serverConfig(name string) (*ServerConfig, error) {
 }
 
 func validateConfig(cfg AgentConfig) error {
-	if cfg.Node == "" || cfg.ServerURL == "" || len(cfg.Servers) == 0 {
-		return fmt.Errorf("node, server_url, and at least one server are required")
+	if cfg.Node == "" || len(cfg.Servers) == 0 {
+		return fmt.Errorf("node and at least one server are required")
+	}
+	if _, err := netip.ParseAddr(cfg.WireGuard.Address); err != nil {
+		return fmt.Errorf("wireguard.address must be an IP address")
+	}
+	if cfg.WireGuard.PrivateKeyFile == "" || !filepath.IsAbs(cfg.WireGuard.PrivateKeyFile) {
+		return fmt.Errorf("wireguard.private_key_file must be absolute")
+	}
+	if cfg.WireGuard.APIPort == 0 || cfg.WireGuard.Peer.PublicKey == "" ||
+		cfg.WireGuard.Peer.AllowedIP == "" || cfg.WireGuard.Peer.Endpoint == "" {
+		return fmt.Errorf("wireguard api_port and peer public_key, allowed_ip, and endpoint are required")
 	}
 	for name, server := range cfg.Servers {
 		if name == "" || server.Unit == "" || !filepath.IsAbs(server.DataDir) || strings.Contains(server.Unit, "/") {

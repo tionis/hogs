@@ -220,7 +220,7 @@ Constraints are evaluated in priority order (highest first). The first constrain
 
 | Route | Method | Auth | Description |
 |-------|--------|------|-------------|
-| `/agent/ws` | GET (WS) | Token | Agent WebSocket connection |
+| Private agent API | HTTP/2 over embedded WireGuard | WireGuard peer | Node management transport |
 | `/api/agents` | GET/POST | Admin | List/Create agents |
 | `/api/agents/delete` | POST | Admin | Delete agent |
 | `/api/agents/{serverName}/files` | GET | Operator | List allowlisted files |
@@ -252,7 +252,7 @@ Constraints are evaluated in priority order (highest first). The first constrain
 | `HOGS_CRON_QUEUE_MAX_RETRY` | `10` | Max retries before giving up on queued actions |
 | `HOGS_AUDIT_LOG_RETENTION_DAYS` | `90` | Days to retain audit log entries |
 | `HOGS_PTERO_NODE_REFRESH_INTERVAL` | `300` | Seconds between Pterodactyl node info refreshes |
-| `HOGS_AGENT_ENABLED` | `true` | Enable agent WebSocket endpoint |
+| `HOGS_AGENT_ENABLED` | `true` | Enable the private agent network |
 | `HOGS_AGENT_HEARTBEAT_SEC` | `30` | Agent heartbeat interval |
 | `SCIM_ENABLED` | `false` | Enable SCIM 2.0 endpoints |
 | `SCIM_BEARER_TOKEN` | `""` | Bearer token for SCIM auth |
@@ -266,7 +266,7 @@ Constraints are evaluated in priority order (highest first). The first constrain
 |---------|---------|
 | `github.com/expr-lang/expr` | Expression evaluation engine for ACLs and constraints |
 | `github.com/robfig/cron/v3` | Cron scheduling |
-| `github.com/gorilla/websocket` | Agent WebSocket connections |
+| `golang.zx2c4.com/wireguard` | Embedded encrypted agent network |
 | `github.com/coreos/go-oidc/v3` | OIDC authentication |
 | `github.com/gorilla/sessions` | Session management |
 | `github.com/golang-migrate/migrate/v4` | Database migrations |
@@ -285,7 +285,7 @@ Constraints are evaluated in priority order (highest first). The first constrain
 - **Help endpoint**: The `/help/api.md` endpoint does not expose sensitive metadata (API tokens, passwords).
 - **Back-channel logout**: OIDC back-channel logout invalidates sessions server-side when triggered by the IdP.
 - **SCIM**: Bearer token auth, group membership changes trigger immediate session invalidation.
-- **Agent auth**: Per-agent token, stored in DB, verified on WebSocket connect.
+- **Agent auth**: Dedicated WireGuard public keys and `/128` peer allowlists.
 
 ---
 

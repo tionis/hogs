@@ -140,26 +140,28 @@ func main() {
 	serverHandler := api.NewServerHandler(store, cfg, cache, authenticator)
 	webHandler := web.NewWebHandler(store, cfg, authenticator, eng)
 
-	var agentHub *agent.Hub
+	var agentManager *agent.Manager
 	var agentHandler *api.AgentHandler
 	var agentService *agent.AgentService
 	var consoleHandler *api.ConsoleHandler
 	if cfg.AgentEnabled {
-		agentHub = agent.NewHub(store, cfg)
-		webHandler.AgentConnected = func(id int) bool { return agentHub.GetConn(id) != nil }
-		agentHub.SetNotifier(notifyService)
-		agentHub.SetStatusCache(cache)
-		agentHub.LoadAndRecoverPendingOps()
-		agentHub.StartPendingOpsCleanup()
-		agentService = agent.NewAgentService(store, agentHub)
-		agentHandler = api.NewAgentHandler(store, agentService, agentHub, authenticator, eng)
-		consoleHandler = api.NewConsoleHandler(agentHub, authenticator, store, eng)
-		log.Println("Agent WebSocket endpoint enabled at /agent/ws")
+		var err error
+		agentManager, err = agent.NewManager(cfg.AgentNetworkConfig, store)
+		if err != nil {
+			log.Fatalf("Initialize private agent network: %v", err)
+		}
+		defer agentManager.Close()
+		webHandler.AgentConnected = func(id int) bool { return agentManager.Connected(id, store) }
+		agentService = agent.NewAgentService(store, agentManager)
+		agentManager.StartStatusPolling(store, cache)
+		agentHandler = api.NewAgentHandler(store, agentService, agentManager, authenticator, eng)
+		consoleHandler = api.NewConsoleHandler(agentService, authenticator, store, eng)
+		log.Println("Private agent HTTP/2 network enabled")
 	}
 
-	pteroHandler := api.NewPterodactylHandler(store, cfg, eng, agentHub, authenticator)
+	pteroHandler := api.NewPterodactylHandler(store, cfg, eng, agentManager, authenticator)
 	automationHandler := api.NewAutomationHandler(store, cfg, eng)
-	dashboardHandler := api.NewDashboardHandler(store, cfg, eng, agentHub)
+	dashboardHandler := api.NewDashboardHandler(store, cfg, eng, agentManager)
 	apiKeyHandler := api.NewAPIKeyHandler(store)
 	templateHandler := api.NewTemplateHandler(store)
 	webhookDispatcher := webhook.NewDispatcher(store)
@@ -184,19 +186,6 @@ func main() {
 	inventoryHandler.SetAfterApply(func(changes []api.InventoryChange) error {
 		if scheduler != nil {
 			if err := scheduler.LoadJobs(); err != nil {
-				return err
-			}
-		}
-		if agentHub != nil {
-			rotated := []string{}
-			for _, change := range changes {
-				const prefix = "nodes/"
-				const suffix = "/token"
-				if change.Action == "rotate" && strings.HasPrefix(change.Resource, prefix) && strings.HasSuffix(change.Resource, suffix) {
-					rotated = append(rotated, strings.TrimSuffix(strings.TrimPrefix(change.Resource, prefix), suffix))
-				}
-			}
-			if err := agentHub.ReconcileCredentials(rotated); err != nil {
 				return err
 			}
 		}
@@ -230,7 +219,7 @@ func main() {
 
 	router := mux.NewRouter()
 
-	csrfExemptPrefixes := []string{"/agent/ws", "/scim/v2", "/auth/callback", "/auth/backchannel-logout", "/api/"}
+	csrfExemptPrefixes := []string{"/scim/v2", "/auth/callback", "/auth/backchannel-logout", "/api/"}
 	isSecureFunc := func(r *http.Request) bool {
 		if cfg.TLSCert != "" {
 			return true
@@ -365,21 +354,13 @@ func main() {
 	router.HandleFunc("/help", webHandler.Help).Methods("GET")
 	router.HandleFunc("/help/api.md", webHandler.HelpMarkdown).Methods("GET")
 
-	if agentHub != nil {
-		router.HandleFunc("/agent/ws", agentHub.ServeWS)
-	}
-
 	if consoleHandler != nil && authenticator != nil {
 		router.Handle("/servers/{serverName}/console", authenticator.RequireRole("admin", "user")(http.HandlerFunc(consoleHandler.ServeWS)))
 	}
 
 	if agentHandler != nil && authenticator != nil {
 		router.Handle("/api/agents", authenticator.RequireRole("admin")(http.HandlerFunc(agentHandler.ListAgents))).Methods("GET")
-		router.Handle("/api/agents", authenticator.RequireRole("admin")(http.HandlerFunc(agentHandler.CreateAgent))).Methods("POST")
 		router.Handle("/api/agents/{id}", authenticator.RequireRole("admin")(http.HandlerFunc(agentHandler.GetAgent))).Methods("GET")
-		router.Handle("/api/agents/{id}", authenticator.RequireRole("admin")(http.HandlerFunc(agentHandler.UpdateAgent))).Methods("PUT")
-		router.Handle("/api/agents/{id}/regenerate-token", authenticator.RequireRole("admin")(http.HandlerFunc(agentHandler.RegenerateToken))).Methods("POST")
-		router.Handle("/api/agents/delete", authenticator.RequireRole("admin")(http.HandlerFunc(agentHandler.DeleteAgent))).Methods("POST")
 
 		router.Handle("/api/agents/{serverName}/files", authenticator.RequireRole("admin", "user")(http.HandlerFunc(agentHandler.AgentFileList))).Methods("GET")
 		router.Handle("/api/agents/{serverName}/files/roots", authenticator.RequireRole("admin", "user")(http.HandlerFunc(agentHandler.AgentFileRoots))).Methods("GET")

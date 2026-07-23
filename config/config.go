@@ -50,8 +50,9 @@ type Config struct {
 	PteroNodeRefreshInterval int
 
 	// Agent Configuration
-	AgentEnabled      bool
-	AgentHeartbeatSec int
+	AgentEnabled       bool
+	AgentHeartbeatSec  int
+	AgentNetworkConfig string
 
 	// Metrics Configuration
 	MetricsRetentionDays int
@@ -114,8 +115,9 @@ func LoadConfig() *Config {
 		AuditLogRetentionDays:    mustAtoi(getEnv("HOGS_AUDIT_LOG_RETENTION_DAYS", "90")),
 		PteroNodeRefreshInterval: mustAtoi(getEnv("HOGS_PTERO_NODE_REFRESH_INTERVAL", "300")),
 
-		AgentEnabled:      getEnv("HOGS_AGENT_ENABLED", "true") == "true",
-		AgentHeartbeatSec: mustAtoi(getEnv("HOGS_AGENT_HEARTBEAT_SEC", "30")),
+		AgentEnabled:       getEnv("HOGS_AGENT_ENABLED", "true") == "true",
+		AgentHeartbeatSec:  mustAtoi(getEnv("HOGS_AGENT_HEARTBEAT_SEC", "30")),
+		AgentNetworkConfig: getEnv("HOGS_AGENT_NETWORK_CONFIG", "/etc/hogs/wireguard.yaml"),
 
 		MetricsRetentionDays: mustAtoi(getEnv("HOGS_METRICS_RETENTION_DAYS", "7")),
 

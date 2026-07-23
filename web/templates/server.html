@@ -417,6 +417,7 @@ async function initManagedFiles(serverName) {
     let root = '';
     let currentPath = '';
     let editingPath = '';
+    let editingETag = '';
 
     const endpoint = suffix => `/api/agents/${encodeURIComponent(serverName)}/files${suffix}`;
     const joinPath = (parent, name) => parent ? `${parent}/${name}` : name;
@@ -433,15 +434,6 @@ async function initManagedFiles(serverName) {
         if (result.success === false) throw new Error(result.error || 'Agent operation failed');
         return result.data || {};
     };
-    const bytesToBase64 = bytes => {
-        let binary = '';
-        for (let offset = 0; offset < bytes.length; offset += 0x8000) {
-            binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
-        }
-        return btoa(binary);
-    };
-    const base64ToBytes = value => Uint8Array.from(atob(value), character => character.charCodeAt(0));
-
     async function loadFiles(path) {
         browser.textContent = 'Loading files…';
         feedback.textContent = '';
@@ -496,33 +488,27 @@ async function initManagedFiles(serverName) {
     }
 
     async function readFile(path) {
-        return request(endpoint(`/read?path=${encodeURIComponent(path)}`));
+        const response = await fetch(endpoint(`/read?path=${encodeURIComponent(path)}`));
+        if (!response.ok) throw new Error((await response.text()) || `HTTP ${response.status}`);
+        return {content: await response.text(), etag: response.headers.get('ETag')};
     }
     async function editFile(path) {
         try {
             const data = await readFile(path);
-            const bytes = base64ToBytes(data.contentBase64 || '');
-            const content = new TextDecoder('utf-8', {fatal: true}).decode(bytes);
             editingPath = path;
+            editingETag = data.etag;
             document.getElementById('file-editor-path').textContent = path;
-            document.getElementById('file-editor-content').value = content;
+            document.getElementById('file-editor-content').value = data.content;
             new bootstrap.Modal(document.getElementById('fileEditorModal')).show();
         } catch (error) {
             showFeedback(`Cannot edit this file: ${error.message}`, true);
         }
     }
     async function downloadFile(path, name) {
-        try {
-            const data = await readFile(path);
-            const url = URL.createObjectURL(new Blob([base64ToBytes(data.contentBase64 || '')]));
-            const link = document.createElement('a');
-            link.href = url;
-            link.download = name;
-            link.click();
-            URL.revokeObjectURL(url);
-        } catch (error) {
-            showFeedback(error.message, true);
-        }
+        const link = document.createElement('a');
+        link.href = endpoint(`/read?path=${encodeURIComponent(path)}`);
+        link.download = name;
+        link.click();
     }
     async function deleteFile(path) {
         if (!confirm(`Delete ${path}?`)) return;
@@ -550,11 +536,10 @@ async function initManagedFiles(serverName) {
         const file = event.target.files[0];
         if (!file) return;
         try {
-            const contentBase64 = bytesToBase64(new Uint8Array(await file.arrayBuffer()));
-            await request(endpoint('/write'), {
+            await request(endpoint(`/write?path=${encodeURIComponent(joinPath(currentPath, file.name))}`), {
                 method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({path: joinPath(currentPath, file.name), contentBase64})
+                headers: {'Content-Type': file.type || 'application/octet-stream'},
+                body: file
             });
             showFeedback('File uploaded.');
             await loadFiles(currentPath);
@@ -564,11 +549,12 @@ async function initManagedFiles(serverName) {
     document.getElementById('file-editor-save').addEventListener('click', async () => {
         try {
             const content = document.getElementById('file-editor-content').value;
-            const contentBase64 = bytesToBase64(new TextEncoder().encode(content));
-            await request(endpoint('/write'), {
+            const headers = {'Content-Type': 'text/plain; charset=utf-8'};
+            if (editingETag) headers['If-Match'] = editingETag;
+            await request(endpoint(`/write?path=${encodeURIComponent(editingPath)}`), {
                 method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({path: editingPath, contentBase64})
+                headers,
+                body: content
             });
             bootstrap.Modal.getInstance(document.getElementById('fileEditorModal')).hide();
             showFeedback('File saved.');

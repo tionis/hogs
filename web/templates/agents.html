@@ -9,216 +9,39 @@
 </nav>
 
 <h2>Agents</h2>
+<p class="text-muted">
+  Agent identities, WireGuard peers, and server assignments are managed by Gandalf.
+  This page reports observed reachability over the private HOGS network.
+</p>
 
-<div id="agents-list">
 {{if .Agents}}
 <div class="table-responsive">
   <table class="table table-sm align-middle">
-    <thead><tr><th>ID</th><th>Name</th><th>Node</th><th>Status</th><th>Last Seen</th><th>Key Prefix</th><th>Actions</th></tr></thead>
+    <thead><tr><th>Name</th><th>Node</th><th>Private API</th><th>Last observation</th><th>Capabilities</th></tr></thead>
     <tbody>
       {{range .Agents}}
       <tr>
-        <td>{{.ID}}</td>
         <td><strong>{{.Name}}</strong></td>
         <td><code>{{.NodeName}}</code></td>
         <td>
-          {{if .Connected}}<span class="badge bg-success">Connected</span>{{else if .Online}}<span class="badge bg-warning">Online</span>{{else}}<span class="badge bg-secondary">Offline</span>{{end}}
+          {{if .Connected}}<span class="badge bg-success">Reachable</span>{{else}}<span class="badge bg-secondary">Unreachable</span>{{end}}
         </td>
-        <td class="text-muted small">{{if .LastSeen}}{{.LastSeen}}{{else}}never{{end}}</td>
-        <td><code>{{.TokenPrefix}}</code></td>
-        <td>
-          <button class="btn btn-sm btn-outline-primary" onclick="editAgent({{.ID}}, '{{.Name}}', '{{.NodeName}}')">Edit</button>
-          <button class="btn btn-sm btn-outline-warning" onclick="regenerateToken({{.ID}})">Regenerate Token</button>
-          <form action="/api/agents/delete" method="POST" class="d-inline" onsubmit="return confirm('Delete this agent? This cannot be undone.');">
-            <input type="hidden" name="id" value="{{.ID}}">
-            <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
-          </form>
-        </td>
+        <td class="text-muted small">{{if .LastSeen}}{{.LastSeen}}{{else}}not yet observed{{end}}</td>
+        <td><code>{{.Capabilities}}</code></td>
       </tr>
       {{end}}
     </tbody>
   </table>
 </div>
 {{else}}
-<p class="text-muted">No agents registered.</p>
+<p class="text-muted">No agents are declared in the inventory.</p>
 {{end}}
-</div>
 
 <div class="card mt-4">
-  <div class="card-header">Register New Agent</div>
+  <div class="card-header">Transport</div>
   <div class="card-body">
-    <form id="create-agent-form">
-      <div class="row">
-        <div class="col-md-4 mb-3">
-          <label class="form-label">Name</label>
-          <input type="text" class="form-control form-control-sm" id="agent-name" placeholder="mc-server-01" required>
-        </div>
-        <div class="col-md-4 mb-3">
-          <label class="form-label">Node Name</label>
-          <input type="text" class="form-control form-control-sm" id="agent-node" placeholder="mc-server-01">
-          <div class="form-text">Defaults to name if empty</div>
-        </div>
-        <div class="col-md-4 mb-3">
-          <label class="form-label">Token (optional)</label>
-          <input type="text" class="form-control form-control-sm" id="agent-token" placeholder="Auto-generated if empty">
-        </div>
-      </div>
-      <button type="submit" class="btn btn-primary btn-sm">Create Agent</button>
-    </form>
-    <div id="create-result" class="mt-3" style="display:none;">
-      <div class="alert alert-success">
-        <strong>Agent created!</strong> Save this token — it will not be shown again.
-        <div class="mt-2">
-          <code id="new-token" class="user-select-all"></code>
-          <button class="btn btn-sm btn-outline-secondary ms-2" onclick="copyToken()">Copy</button>
-        </div>
-        <div class="mt-2 text-muted small">
-          Install command:<br>
-          <code id="install-cmd" class="user-select-all"></code>
-        </div>
-        <div class="mt-3">
-          <button class="btn btn-sm btn-outline-info" onclick="showSystemdUnit()">Show Systemd Unit</button>
-        </div>
-      </div>
-    </div>
+    <p class="mb-2">Each agent runs an embedded userspace WireGuard peer and an HTTP/2 API. No host tunnel interface, route, or agent enrollment token is used.</p>
+    <p class="mb-0 text-muted">Provision or change peers in Gandalf, then deploy the HOGS control plane and the affected worker together.</p>
   </div>
 </div>
-
-<div class="card mt-4" id="systemd-card" style="display:none;">
-  <div class="card-header">Systemd Unit File</div>
-  <div class="card-body">
-    <p class="text-muted small">Save this to <code>/etc/systemd/system/hogs-agent.service</code> and run <code>systemctl daemon-reload && systemctl enable --now hogs-agent</code></p>
-    <pre class="small" style="background:var(--bg-input);padding:0.75rem;border-radius:4px;overflow:auto;"><code id="systemd-unit"></code></pre>
-    <button class="btn btn-sm btn-outline-secondary" onclick="copySystemd()">Copy Unit File</button>
-  </div>
-</div>
-
-<div class="card mt-4">
-  <div class="card-header">Provisioning Reference</div>
-  <div class="card-body">
-    <h6>Environment Variables</h6>
-    <table class="table table-sm">
-      <thead><tr><th>Variable</th><th>Description</th><th>Example</th></tr></thead>
-      <tbody>
-        <tr><td><code>HOGS_SERVER_URL</code></td><td>HOGS WebSocket endpoint URL</td><td><code>wss://hogs.example.com/agent/ws</code></td></tr>
-        <tr><td><code>HOGS_AGENT_TOKEN</code></td><td>Agent authentication token</td><td><code>hogs_xxxxxxxx</code></td></tr>
-        <tr><td><code>HOGS_AGENT_NODE</code></td><td>Node identifier</td><td><code>mc-server-01</code></td></tr>
-        <tr><td><code>HOGS_AGENT_SERVER_NAME</code></td><td>Server name this agent manages</td><td><code>MyMinecraftServer</code></td></tr>
-        <tr><td><code>HOGS_AGENT_SERVICE_NAME</code></td><td>systemd unit name to control</td><td><code>minecraft-server.service</code></td></tr>
-        <tr><td><code>HOGS_AGENT_DATA_DIR</code></td><td>Base directory for file operations</td><td><code>/opt/game-servers</code></td></tr>
-      </tbody>
-    </table>
-    <h6>Quick Start</h6>
-    <pre class="small" style="background:var(--bg-input);padding:0.75rem;border-radius:4px;"><code># 1. Download hogs-agent binary
-wget https://github.com/tionis/hogs/releases/latest/download/hogs-agent -O /usr/local/bin/hogs-agent
-chmod +x /usr/local/bin/hogs-agent
-
-# 2. Create systemd unit (see above)
-# 3. Start the agent
-systemctl enable --now hogs-agent
-
-# 4. Check status
-systemctl status hogs-agent
-journalctl -u hogs-agent -f</code></pre>
-  </div>
-</div>
-
-<script>
-function copyToken() {
-  navigator.clipboard.writeText(document.getElementById('new-token').textContent);
-}
-
-document.getElementById('create-agent-form').addEventListener('submit', async function(e) {
-  e.preventDefault();
-  const name = document.getElementById('agent-name').value;
-  const node = document.getElementById('agent-node').value;
-  const token = document.getElementById('agent-token').value;
-
-  const body = new URLSearchParams();
-  body.append('name', name);
-  body.append('node_name', node);
-  if (token) body.append('token', token);
-
-  try {
-    const resp = await fetch('/api/agents', {method: 'POST', body: body});
-    if (!resp.ok) {
-      alert('Failed to create agent: ' + resp.statusText);
-      return;
-    }
-    const data = await resp.json();
-    document.getElementById('new-token').textContent = data.token;
-    const serverUrl = window.location.origin + '/agent/ws';
-    document.getElementById('install-cmd').textContent =
-      'HOGS_SERVER_URL=' + serverUrl + ' HOGS_AGENT_TOKEN=' + data.token + ' HOGS_AGENT_NODE=' + data.nodeName + ' ./hogs-agent';
-    document.getElementById('create-result').style.display = 'block';
-    this.reset();
-    setTimeout(() => location.reload(), 3000);
-  } catch (err) {
-    alert('Error: ' + err.message);
-  }
-});
-
-function showSystemdUnit() {
-  const name = document.getElementById('agent-name').value || 'hogs-agent';
-  const node = document.getElementById('agent-node').value || name;
-  const token = document.getElementById('new-token').textContent;
-  const serverUrl = window.location.origin + '/agent/ws';
-
-  const unit = `[Unit]
-Description=HOGS Agent (${name})
-After=network.target
-
-[Service]
-Type=simple
-ExecStart=/usr/local/bin/hogs-agent
-Restart=always
-RestartSec=5
-
-Environment="HOGS_SERVER_URL=${serverUrl}"
-Environment="HOGS_AGENT_TOKEN=${token}"
-Environment="HOGS_AGENT_NODE=${node}"
-Environment="HOGS_AGENT_SERVER_NAME=${name}"
-Environment="HOGS_AGENT_SERVICE_NAME=${name}.service"
-
-[Install]
-WantedBy=multi-user.target`;
-
-  document.getElementById('systemd-unit').textContent = unit;
-  document.getElementById('systemd-card').style.display = 'block';
-}
-
-function copySystemd() {
-  navigator.clipboard.writeText(document.getElementById('systemd-unit').textContent);
-}
-
-async function regenerateToken(id) {
-  if (!confirm('Regenerate token for this agent? The old token will stop working immediately.')) return;
-  try {
-    const resp = await fetch('/api/agents/' + id + '/regenerate-token', {method: 'POST'});
-    if (!resp.ok) {
-      alert('Failed to regenerate token: ' + resp.statusText);
-      return;
-    }
-    const data = await resp.json();
-    prompt('New token (save this — it will not be shown again):', data.token);
-  } catch (err) {
-    alert('Error: ' + err.message);
-  }
-}
-
-function editAgent(id, name, nodeName) {
-  const newName = prompt('Agent name:', name);
-  if (!newName) return;
-  const newNode = prompt('Node name:', nodeName);
-  if (newNode === null) return;
-
-  const body = new URLSearchParams();
-  body.append('name', newName);
-  body.append('node_name', newNode);
-
-  fetch('/api/agents/' + id, {method: 'PUT', body: body})
-    .then(r => { if (r.ok) location.reload(); else alert('Failed to update agent'); })
-    .catch(err => alert('Error: ' + err.message));
-}
-</script>
 {{end}}

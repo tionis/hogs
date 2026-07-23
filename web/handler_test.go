@@ -240,7 +240,7 @@ func TestBackupsRenders(t *testing.T) {
 
 func TestAgentsRendersConnectionState(t *testing.T) {
 	handler, store, _ := testWebHandler(t)
-	agent := &database.Agent{Name: "node-agent", Token: "hogs_0123456789", NodeName: "node-a"}
+	agent := &database.Agent{Name: "node-agent", NodeName: "node-a"}
 	if err := store.CreateAgent(agent); err != nil {
 		t.Fatalf("create agent: %v", err)
 	}
@@ -253,7 +253,7 @@ func TestAgentsRendersConnectionState(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d: %s", w.Code, w.Body.String())
 	}
-	if !contains(w.Body.String(), "node-agent") || !contains(w.Body.String(), "Connected") {
+	if !contains(w.Body.String(), "node-agent") || !contains(w.Body.String(), "Reachable") {
 		t.Error("expected agent page to render the live connection state")
 	}
 }

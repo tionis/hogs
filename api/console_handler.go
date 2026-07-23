@@ -1,9 +1,12 @@
 package api
 
 import (
+	"bufio"
 	"encoding/json"
 	"log"
 	"net/http"
+	"strings"
+	"sync"
 
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
@@ -13,29 +16,23 @@ import (
 	"github.com/tionis/hogs/engine"
 )
 
-// ConsoleHandler handles browser WebSocket connections for console streaming.
 type ConsoleHandler struct {
-	AgentHub *agent.Hub
-	Auth     *auth.Authenticator
-	Store    *database.Store
-	Engine   *engine.Engine
+	Service *agent.AgentService
+	Auth    *auth.Authenticator
+	Store   *database.Store
+	Engine  *engine.Engine
 }
 
-func NewConsoleHandler(hub *agent.Hub, auth *auth.Authenticator, store *database.Store, eng *engine.Engine) *ConsoleHandler {
-	return &ConsoleHandler{AgentHub: hub, Auth: auth, Store: store, Engine: eng}
+func NewConsoleHandler(service *agent.AgentService, authenticator *auth.Authenticator, store *database.Store, eng *engine.Engine) *ConsoleHandler {
+	return &ConsoleHandler{Service: service, Auth: authenticator, Store: store, Engine: eng}
 }
 
 var consoleUpgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool {
-		return true
-	},
+	CheckOrigin: func(r *http.Request) bool { return true },
 }
 
 func (h *ConsoleHandler) ServeWS(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	serverName := vars["serverName"]
-
-	// Require authentication
+	serverName := mux.Vars(r)["serverName"]
 	if h.Auth != nil && !h.Auth.IsAuthenticated(r) {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
@@ -44,43 +41,72 @@ func (h *ConsoleHandler) ServeWS(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), status)
 		return
 	}
-
-	conn, err := consoleUpgrader.Upgrade(w, r, nil)
+	agentStream, err := h.Service.Console(r.Context(), serverName)
 	if err != nil {
-		log.Printf("Console WS upgrade failed: %v", err)
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return
 	}
-	defer h.AgentHub.RemoveConsoleClient(serverName, conn)
-
-	// Subscribe to agent console for this server
-	if err := h.AgentHub.SendConsoleSubscribe(serverName); err != nil {
-		log.Printf("Console subscribe failed for %s: %v", serverName, err)
-		// Continue anyway — agent may come online later
+	defer agentStream.Body.Close()
+	conn, err := consoleUpgrader.Upgrade(w, r, nil)
+	if err != nil {
+		return
 	}
+	defer conn.Close()
 
-	// Add client and send replay buffer
-	h.AgentHub.AddConsoleClient(serverName, conn)
+	var writeMu sync.Mutex
+	writeLine := func(line string) error {
+		writeMu.Lock()
+		defer writeMu.Unlock()
+		return conn.WriteJSON(map[string]string{"type": "console", "line": line})
+	}
+	streamDone := make(chan struct{})
+	go func() {
+		defer close(streamDone)
+		scanner := bufio.NewScanner(agentStream.Body)
+		scanner.Buffer(make([]byte, 64*1024), 1024*1024)
+		for scanner.Scan() {
+			var line struct {
+				Line string `json:"line"`
+			}
+			if json.Unmarshal(scanner.Bytes(), &line) == nil && line.Line != "" {
+				if writeLine(line.Line) != nil {
+					return
+				}
+			}
+		}
+	}()
 
-	// Read loop for browser input
 	for {
 		_, message, err := conn.ReadMessage()
 		if err != nil {
-			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				log.Printf("Console WS read error for %s: %v", serverName, err)
-			}
 			break
 		}
-
-		var req struct {
+		var request struct {
 			Input string `json:"input"`
 		}
-		if err := json.Unmarshal(message, &req); err != nil {
+		if json.Unmarshal(message, &request) != nil || strings.TrimSpace(request.Input) == "" {
 			continue
 		}
-		if req.Input != "" {
-			if err := h.AgentHub.SendConsoleInput(serverName, req.Input); err != nil {
-				log.Printf("Console input failed for %s: %v", serverName, err)
+		_ = writeLine("> " + request.Input)
+		result, err := h.Service.SendCommandResult(serverName, request.Input)
+		if err != nil {
+			_ = writeLine("Error: " + err.Error())
+			continue
+		}
+		if data, ok := result.Data.(map[string]interface{}); ok {
+			if output, ok := data["output"].(string); ok {
+				for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
+					if line != "" {
+						_ = writeLine(line)
+					}
+				}
 			}
+		}
+		select {
+		case <-streamDone:
+			log.Printf("Agent console stream ended for %s", serverName)
+			return
+		default:
 		}
 	}
 }

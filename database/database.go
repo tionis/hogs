@@ -1966,6 +1966,22 @@ func (s *Store) UpdateAgentOnline(id int, online bool) error {
 	return err
 }
 
+func (s *Store) UpdateAgentObservation(nodeName string, capabilities []string, online bool) error {
+	if !online {
+		_, err := s.DB.Exec("UPDATE agents SET online = 0 WHERE node_name = ?", nodeName)
+		return err
+	}
+	encoded, err := json.Marshal(capabilities)
+	if err != nil {
+		return err
+	}
+	_, err = s.DB.Exec(
+		"UPDATE agents SET online = 1, last_seen = CURRENT_TIMESTAMP, capabilities = ? WHERE node_name = ?",
+		string(encoded), nodeName,
+	)
+	return err
+}
+
 func (s *Store) UpdateAgentCapabilities(id int, capabilities json.RawMessage) error {
 	_, err := s.DB.Exec("UPDATE agents SET capabilities = ? WHERE id = ?", string(capabilities), id)
 	return err

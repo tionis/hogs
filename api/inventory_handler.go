@@ -38,9 +38,6 @@ type InventoryNode struct {
 	NodeName            string            `json:"nodeName"`
 	Labels              map[string]string `json:"labels,omitempty"`
 	DesiredCapabilities []string          `json:"desiredCapabilities"`
-	TokenState          string            `json:"tokenState"`
-	Token               string            `json:"token,omitempty"`
-	RotateToken         bool              `json:"rotateToken,omitempty"`
 }
 
 type InventoryServer struct {
@@ -199,13 +196,8 @@ func (h *InventoryHandler) GetState(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *InventoryHandler) Plan(w http.ResponseWriter, r *http.Request) {
-	manifest, rotations, tokens, ok := decodeInventoryManifest(w, r)
+	manifest, ok := decodeInventoryManifest(w, r)
 	if !ok {
-		return
-	}
-	rotations, err := h.effectiveRotations(tokens, rotations)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	current, currentDigest, _, _, err := h.loadState()
@@ -225,9 +217,6 @@ func (h *InventoryHandler) Plan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	changes = append(changes, legacyDeletes...)
-	for name := range rotations {
-		changes = append(changes, InventoryChange{Resource: "nodes/" + name + "/token", Action: "rotate"})
-	}
 	sortChanges(changes)
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"generation":    manifest.Generation,
@@ -239,13 +228,8 @@ func (h *InventoryHandler) Plan(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *InventoryHandler) Apply(w http.ResponseWriter, r *http.Request) {
-	manifest, rotations, tokens, ok := decodeInventoryManifest(w, r)
+	manifest, ok := decodeInventoryManifest(w, r)
 	if !ok {
-		return
-	}
-	rotations, err := h.effectiveRotations(tokens, rotations)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	current, currentDigest, _, _, err := h.loadState()
@@ -264,9 +248,6 @@ func (h *InventoryHandler) Apply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	changes = append(changes, legacyDeletes...)
-	for name := range rotations {
-		changes = append(changes, InventoryChange{Resource: "nodes/" + name + "/token", Action: "rotate"})
-	}
 	sortChanges(changes)
 	if hasDeletes(changes) && !strings.EqualFold(r.Header.Get("X-HOGS-Confirm-Prune"), "true") {
 		writeJSON(w, http.StatusConflict, map[string]interface{}{
@@ -285,7 +266,7 @@ func (h *InventoryHandler) Apply(w http.ResponseWriter, r *http.Request) {
 	if key != nil {
 		actor = "api-key:" + key.Name
 	}
-	err = h.applyManifest(manifest, current, rotations, tokens, digest, actor, changes)
+	err = h.applyManifest(manifest, current, digest, actor, changes)
 	if err != nil {
 		http.Error(w, "Failed to apply inventory: "+err.Error(), http.StatusBadRequest)
 		return
@@ -305,28 +286,6 @@ func (h *InventoryHandler) Apply(w http.ResponseWriter, r *http.Request) {
 		"digest":     digest,
 		"changes":    changes,
 	})
-}
-
-func (h *InventoryHandler) effectiveRotations(tokens map[string]string, requested map[string]bool) (map[string]bool, error) {
-	effective := make(map[string]bool)
-	for name, token := range tokens {
-		var currentHash string
-		err := h.Store.DB.QueryRow("SELECT token_hash FROM agents WHERE name=?", name).Scan(&currentHash)
-		if err == sql.ErrNoRows {
-			continue
-		}
-		if err != nil {
-			return nil, fmt.Errorf("failed to inspect node %q credential", name)
-		}
-		if currentHash == database.HashAPIKey(token) {
-			continue
-		}
-		if !requested[name] {
-			return nil, fmt.Errorf("node %q token differs; set rotateToken to replace it", name)
-		}
-		effective[name] = true
-	}
-	return effective, nil
 }
 
 func (h *InventoryHandler) Events(w http.ResponseWriter, r *http.Request) {
@@ -368,33 +327,21 @@ func (h *InventoryHandler) Events(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{"events": events, "cursor": cursor})
 }
 
-func decodeInventoryManifest(w http.ResponseWriter, r *http.Request) (InventoryManifest, map[string]bool, map[string]string, bool) {
+func decodeInventoryManifest(w http.ResponseWriter, r *http.Request) (InventoryManifest, bool) {
 	r.Body = http.MaxBytesReader(w, r.Body, 2<<20)
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
 	var manifest InventoryManifest
 	if err := decoder.Decode(&manifest); err != nil {
 		http.Error(w, "Invalid inventory JSON: "+err.Error(), http.StatusBadRequest)
-		return manifest, nil, nil, false
+		return manifest, false
 	}
 	if err := validateManifest(&manifest); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
-		return manifest, nil, nil, false
-	}
-	rotations := make(map[string]bool)
-	tokens := make(map[string]string)
-	for i := range manifest.Nodes {
-		if manifest.Nodes[i].Token != "" {
-			tokens[manifest.Nodes[i].Name] = manifest.Nodes[i].Token
-			manifest.Nodes[i].Token = ""
-		}
-		if manifest.Nodes[i].RotateToken {
-			rotations[manifest.Nodes[i].Name] = true
-			manifest.Nodes[i].RotateToken = false
-		}
+		return manifest, false
 	}
 	normalizeManifest(&manifest)
-	return manifest, rotations, tokens, true
+	return manifest, true
 }
 
 func validateManifest(m *InventoryManifest) error {
@@ -411,18 +358,6 @@ func validateManifest(m *InventoryManifest) error {
 		}
 		if node.NodeName == "" {
 			return fmt.Errorf("node %q requires nodeName", node.Name)
-		}
-		if node.TokenState != "active" && node.TokenState != "revoked" {
-			return fmt.Errorf("node %q tokenState must be active or revoked", node.Name)
-		}
-		if node.TokenState == "active" && (!strings.HasPrefix(node.Token, "hogs_") || len(node.Token) < 37) {
-			return fmt.Errorf("node %q requires a vaulted hogs_ token", node.Name)
-		}
-		if node.TokenState == "revoked" && node.Token != "" {
-			return fmt.Errorf("node %q must omit token when tokenState is revoked", node.Name)
-		}
-		if node.RotateToken && node.TokenState == "revoked" {
-			return fmt.Errorf("node %q cannot rotate and revoke its token in the same generation", node.Name)
 		}
 	}
 	servers := make(map[string]bool)
@@ -824,13 +759,13 @@ func notificationNames(v []InventoryNotification) []string {
 	return out
 }
 
-func (h *InventoryHandler) applyManifest(manifest, previous InventoryManifest, rotations map[string]bool, tokens map[string]string, digest, actor string, changes []InventoryChange) error {
+func (h *InventoryHandler) applyManifest(manifest, previous InventoryManifest, digest, actor string, changes []InventoryChange) error {
 	tx, err := h.Store.DB.Begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	if err := applyNodes(tx, manifest.Nodes, rotations, tokens); err != nil {
+	if err := applyNodes(tx, manifest.Nodes); err != nil {
 		return err
 	}
 	if err := applyServers(tx, manifest.Servers); err != nil {
@@ -879,50 +814,24 @@ func (h *InventoryHandler) applyManifest(manifest, previous InventoryManifest, r
 	return nil
 }
 
-func applyNodes(tx *sql.Tx, nodes []InventoryNode, rotations map[string]bool, tokens map[string]string) error {
+func applyNodes(tx *sql.Tx, nodes []InventoryNode) error {
 	keep := make([]string, 0, len(nodes))
 	for _, node := range nodes {
 		keep = append(keep, node.Name)
 		var id int
-		var currentHash string
-		err := tx.QueryRow("SELECT id, token_hash FROM agents WHERE name = ?", node.Name).Scan(&id, &currentHash)
+		err := tx.QueryRow("SELECT id FROM agents WHERE name = ?", node.Name).Scan(&id)
 		if err == sql.ErrNoRows {
-			if node.TokenState == "revoked" {
-				_, err = tx.Exec("INSERT INTO agents(name,token,token_hash,token_prefix,node_name,capabilities) VALUES(?,?,?,?,?,?)", node.Name, "", "", "", node.NodeName, "[]")
-				if err != nil {
-					return err
-				}
-				continue
-			}
-			token := tokens[node.Name]
-			result, err := tx.Exec("INSERT INTO agents(name,token,token_hash,token_prefix,node_name,capabilities) VALUES(?,?,?,?,?,?)", node.Name, "", database.HashAPIKey(token), token[:8], node.NodeName, "[]")
+			result, err := tx.Exec("INSERT INTO agents(name,token,token_hash,token_prefix,node_name,capabilities) VALUES(?,?,?,?,?,?)", node.Name, "", "", "", node.NodeName, "[]")
 			if err != nil {
 				return err
 			}
 			inserted, _ := result.LastInsertId()
 			id = int(inserted)
-			currentHash = database.HashAPIKey(token)
 		} else if err != nil {
 			return err
 		}
 		if _, err := tx.Exec("UPDATE agents SET node_name = ? WHERE id = ?", node.NodeName, id); err != nil {
 			return err
-		}
-		if node.TokenState == "revoked" {
-			if _, err := tx.Exec("UPDATE agents SET token='', token_hash='', token_prefix='' WHERE id=?", id); err != nil {
-				return err
-			}
-			continue
-		}
-		token := tokens[node.Name]
-		desiredHash := database.HashAPIKey(token)
-		if currentHash != desiredHash && !rotations[node.Name] {
-			return fmt.Errorf("node %q token differs; set rotateToken to replace it", node.Name)
-		}
-		if currentHash != desiredHash {
-			if _, err := tx.Exec("UPDATE agents SET token='', token_hash=?, token_prefix=? WHERE id=?", database.HashAPIKey(token), token[:8], id); err != nil {
-				return err
-			}
 		}
 	}
 	return deleteMissing(tx, "agents", "name", keep)

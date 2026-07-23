@@ -21,13 +21,13 @@ import (
 type AgentHandler struct {
 	Store   *database.Store
 	Service *agent.AgentService
-	Hub     *agent.Hub
+	Manager *agent.Manager
 	Auth    *auth.Authenticator
 	Engine  *engine.Engine
 }
 
-func NewAgentHandler(store *database.Store, service *agent.AgentService, hub *agent.Hub, authenticator *auth.Authenticator, eng *engine.Engine) *AgentHandler {
-	return &AgentHandler{Store: store, Service: service, Hub: hub, Auth: authenticator, Engine: eng}
+func NewAgentHandler(store *database.Store, service *agent.AgentService, manager *agent.Manager, authenticator *auth.Authenticator, eng *engine.Engine) *AgentHandler {
+	return &AgentHandler{Store: store, Service: service, Manager: manager, Auth: authenticator, Engine: eng}
 }
 
 func (h *AgentHandler) ListAgents(w http.ResponseWriter, r *http.Request) {
@@ -48,8 +48,8 @@ func (h *AgentHandler) ListAgents(w http.ResponseWriter, r *http.Request) {
 	var result []agentWithStatus
 	for _, a := range agents {
 		connected := false
-		if h.Hub != nil {
-			connected = h.Hub.GetConn(a.ID) != nil
+		if h.Manager != nil {
+			connected = h.Manager.ConnectedNode(a.NodeName)
 		}
 		result = append(result, agentWithStatus{Agent: a, Connected: connected})
 	}
@@ -76,8 +76,8 @@ func (h *AgentHandler) GetAgent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	connected := false
-	if h.Hub != nil {
-		connected = h.Hub.GetConn(a.ID) != nil
+	if h.Manager != nil {
+		connected = h.Manager.ConnectedNode(a.NodeName)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -329,51 +329,57 @@ func (h *AgentHandler) AgentFileRead(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := h.Service.FileRead(serverName, path)
+	forwardHeaders := make(http.Header)
+	if value := r.Header.Get("Range"); value != "" {
+		forwardHeaders.Set("Range", value)
+	}
+	result, err := h.Service.FileStreamHeaders(r.Context(), serverName, http.MethodGet, path, nil, forwardHeaders)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return
 	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(result)
+	defer result.Body.Close()
+	for _, header := range []string{"Content-Type", "Content-Length", "Content-Range", "Content-Disposition", "Accept-Ranges", "ETag", "Last-Modified"} {
+		if value := result.Header.Get(header); value != "" {
+			w.Header().Set(header, value)
+		}
+	}
+	w.WriteHeader(result.StatusCode)
+	_, _ = io.Copy(w, result.Body)
 }
 
 func (h *AgentHandler) AgentFileWrite(w http.ResponseWriter, r *http.Request) {
 	serverName := mux.Vars(r)["serverName"]
-
-	r.Body = http.MaxBytesReader(w, r.Body, 10<<20) // 10 MB limit
-
-	var req struct {
-		Path       string  `json:"path"`
-		ContentB64 *string `json:"contentBase64"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+	path := r.URL.Query().Get("path")
+	if path == "" {
+		http.Error(w, "path is required", http.StatusBadRequest)
 		return
 	}
-
-	if req.Path == "" || req.ContentB64 == nil {
-		http.Error(w, "path and contentBase64 are required", http.StatusBadRequest)
-		return
-	}
-	if !isValidAgentPath(req.Path) {
+	if !isValidAgentPath(path) {
 		http.Error(w, "Invalid path", http.StatusBadRequest)
 		return
 	}
-	if status, err := authorizeManagedPath(h.Store, h.Engine, h.Auth, r, serverName, req.Path); err != nil {
+	if status, err := authorizeManagedPath(h.Store, h.Engine, h.Auth, r, serverName, path); err != nil {
 		http.Error(w, err.Error(), status)
 		return
 	}
 
-	result, err := h.Service.FileWrite(serverName, req.Path, *req.ContentB64)
+	headers := make(http.Header)
+	if match := r.Header.Get("If-Match"); match != "" {
+		headers.Set("If-Match", match)
+	}
+	if contentType := r.Header.Get("Content-Type"); contentType != "" {
+		headers.Set("Content-Type", contentType)
+	}
+	result, err := h.Service.FileStreamHeaders(r.Context(), serverName, http.MethodPut, path, r.Body, headers)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return
 	}
-
+	defer result.Body.Close()
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(result)
+	w.WriteHeader(result.StatusCode)
+	_, _ = io.Copy(w, result.Body)
 }
 
 func (h *AgentHandler) AgentFileDelete(w http.ResponseWriter, r *http.Request) {

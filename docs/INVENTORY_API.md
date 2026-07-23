@@ -23,9 +23,9 @@ administration UI and place it in the reconciler's secret store. A declarative
 deployment may instead supply the same vaulted credential through
 `BOOTSTRAP_ADMIN_API_KEY` and optionally set `BOOTSTRAP_ADMIN_API_KEY_NAME`
 (default `gandalf`). HOGS creates or rotates only that named identity at startup
-and stores only its hash. Do not put the key or an agent credential in inventory
-source, logs, or command-line arguments. Render agent tokens into the request
-body from a vault only for the duration of apply.
+and stores only its hash. Do not put the key in inventory source, logs, or
+command-line arguments. Agent WireGuard identities are deployed separately and
+are not part of this API.
 
 ## Endpoints
 
@@ -77,9 +77,7 @@ example a Gandalf Git commit. HOGS also returns a canonical SHA-256 digest.
       "name": "destiny",
       "nodeName": "destiny",
       "labels": {"site": "netcup"},
-      "desiredCapabilities": ["backup", "command", "console", "file", "restart", "start", "status", "stop"],
-      "tokenState": "active",
-      "token": "hogs_<injected-from-vault>"
+      "desiredCapabilities": ["backup", "command", "console", "file", "restart", "start", "status", "stop"]
     }
   ],
   "servers": [
@@ -129,31 +127,20 @@ data paths as documented in [the agent contract](AGENT.md).
 A Pterodactyl backend uses `type: "pterodactyl"` and requires `externalId`; a
 display-only server uses `type: "none"`.
 
-`desiredCapabilities` is policy intent. The agent's `capabilities` value under
-`observed.agents` is reported at registration and is never overwritten by the
-manifest. A reconciler can therefore detect missing capabilities.
-
-## Credentials and revocation
-
-Active nodes require a random `hogs_` token injected from Gandalf's vault. HOGS
-strips the token before hashing, diffing, or storing desired state and persists
-only its keyed hash. A different value is rejected unless `rotateToken: true`
-is set for that generation. The flag is treated as an operation and excluded
-from stored desired state. Replaying the same rotation after a timeout is safe.
-Set `tokenState: "revoked"` and omit `token` to clear the stored hash and
-disconnect/reject authentication with that credential. Rotation and revocation
-cannot be requested together.
+`desiredCapabilities` is policy intent. Agent reachability and capabilities are
+observed over the private network and are never overwritten by the manifest.
+Peer addition, rotation, and revocation happen by deploying the HOGS
+WireGuard configuration through Gandalf.
 
 Ordinary readback redacts webhook secrets, notification URLs, secret-like
-settings, and secret-like server metadata. It never returns API keys, agent
-tokens, or token hashes, including in apply responses and events.
+settings, and secret-like server metadata. It never returns API keys.
 
 ## Desired and observed state
 
 `GET /api/v1/inventory` returns:
 
 - `manifest`, `digest`, `appliedAt`, and `actor` for desired state;
-- `observed.agents`, including connection state, last seen time, token prefix,
+- `observed.agents`, including private-API reachability, last observation time,
   and reported capabilities;
 - `observed.servers` with credential-bearing metadata removed;
 - `observed.metrics`, keyed by server name, with the latest health, version,
@@ -167,9 +154,9 @@ it is not rewritten as a desired configuration change.
 ## Events
 
 Events are ordered by an integer cursor and include generation, timestamp,
-API-key actor, resource type, stable resource key, and `create`, `update`,
-`delete`, or `rotate` action. Poll with the last processed cursor. A response contains at most 1,000
-events and returns the new cursor even when the page is empty.
+API-key actor, resource type, stable resource key, and `create`, `update`, or
+`delete` action. Poll with the last processed cursor. A response contains at
+most 1,000 events and returns the new cursor even when the page is empty.
 
-Events record reconciliation changes, including destructive changes and token
-operations, but never contain secret values.
+Events record reconciliation changes, including destructive changes, but never
+contain secret values.

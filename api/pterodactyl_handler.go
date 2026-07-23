@@ -21,15 +21,15 @@ import (
 )
 
 type PterodactylHandler struct {
-	Store    *database.Store
-	Config   *config.Config
-	Engine   *engine.Engine
-	AgentHub *agent.Hub
-	Auth     *auth.Authenticator
+	Store        *database.Store
+	Config       *config.Config
+	Engine       *engine.Engine
+	AgentManager *agent.Manager
+	Auth         *auth.Authenticator
 }
 
-func NewPterodactylHandler(store *database.Store, cfg *config.Config, eng *engine.Engine, hub *agent.Hub, auth *auth.Authenticator) *PterodactylHandler {
-	return &PterodactylHandler{Store: store, Config: cfg, Engine: eng, AgentHub: hub, Auth: auth}
+func NewPterodactylHandler(store *database.Store, cfg *config.Config, eng *engine.Engine, manager *agent.Manager, auth *auth.Authenticator) *PterodactylHandler {
+	return &PterodactylHandler{Store: store, Config: cfg, Engine: eng, AgentManager: manager, Auth: auth}
 }
 
 func (h *PterodactylHandler) client() *pterodactyl.Client {
@@ -313,10 +313,10 @@ func (h *PterodactylHandler) ServerAction(w http.ResponseWriter, r *http.Request
 }
 
 func (h *PterodactylHandler) resolveBackend(server *database.Server, link *database.PterodactylLink) (backend.Backend, error) {
-	if link.Node != "" && h.AgentHub != nil {
+	if link.Node != "" && h.AgentManager != nil {
 		ag, err := h.Store.GetAgentByNodeName(link.Node)
 		if err == nil && ag != nil {
-			return agent.NewAgentBackend(ag.ID, ag.NodeName, server.Name, h.AgentHub), nil
+			return agent.NewAgentBackend(ag.NodeName, server.Name, h.AgentManager), nil
 		}
 	}
 

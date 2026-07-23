@@ -8,7 +8,7 @@ tags:
 # HOGS Roadmap
 
 > [!info] Current State
-> HOGS is a Go web application that serves as a landing page and management panel for game servers. It features OIDC auth with role-based access control, Pterodactyl integration for server actions, an automation engine (expression-based ACLs, resource constraints, cron scheduling), SCIM 2.0 for user provisioning from Authentik, a WebSocket-based agent system for managing servers without Pterodactyl, and an admin UI.
+> HOGS is a Go web application that serves as a landing page and management panel for game servers. It features OIDC auth with role-based access control, an HTTP/2 agent API over embedded userspace WireGuard, an automation engine, SCIM 2.0 provisioning, and an admin UI.
 
 ## Design Philosophy: Manage, Don't Provision
 
@@ -62,7 +62,7 @@ Design reference: see `docs/DESIGN_AUTOMATION.md` for the full data model, archi
 ### Phase 5: Agent System ✅
 
 - **ServerBackend interface** (`backend/`): `PterodactylBackend` and `AgentBackend` implementations
-- **WebSocket hub** (`agent/`): per-token auth, registration, heartbeat, console streaming, command/action dispatch
+- **Private agent manager** (`agent/`): WireGuard peers, HTTP/2 multiplexing, health/status polling, and streamed operations
 - **hogs-agent binary** (`cmd/hogs-agent/`): connects outbound to HOGS, systemd/podman quadlet process management (start/stop/restart via systemctl, commands via podman exec), file operations (list/read/write/delete/mkdir with base64 over WS), restic backup integration (create/restore/list snapshots)
 - **Agent service** (`agent/`): AgentService with file and backup dispatch methods
 - **Admin API**: agent CRUD, file management, backup endpoints
@@ -104,7 +104,7 @@ All action paths (user-triggered, cron-triggered, API-triggered) go through the 
 | Templates | Go html/template (embedded in binary) |
 | Frontend | Bootstrap 5, vanilla JS |
 | Auth | OIDC via gorilla/sessions (DB-backed) |
-| Agent | WebSocket (gorilla/websocket) |
+| Agent | HTTP/2 over embedded wireguard-go netstack |
 | Container | Podman/Docker via Containerfile |
 
 ### Key Packages
@@ -113,7 +113,7 @@ All action paths (user-triggered, cron-triggered, API-triggered) go through the 
 |---------|---------|
 | `engine/` | Expression engine: ACL, constraints, param validation, audit |
 | `cron/` | Cron scheduler wrapping robfig/cron/v3 |
-| `agent/` | WebSocket hub, connection management, agent service |
+| `agent/` | Private-network manager and agent HTTP client |
 | `backend/` | ServerBackend interface, PterodactylBackend, AgentBackend |
 | `scim/` | SCIM 2.0 user/group provisioning endpoints |
 | `pterodactyl/` | Pterodactyl Application/Client API client |
@@ -133,7 +133,6 @@ All action paths (user-triggered, cron-triggered, API-triggered) go through the 
 - GET /api/agents/{id} — agent details with real-time connectivity status
 - POST /api/agents — create agent (auto-generates `hogs_`-prefixed token, returned once in response)
 - PUT /api/agents/{id} — update agent name, node assignment, capabilities
-- POST /api/agents/{id}/regenerate-token — token rotation, new token returned once
 - POST /api/agents/delete — delete agent
 - `/admin/agents` HTML page with agent list, create form, edit dialog, token regeneration, one-click install command display
 
@@ -149,7 +148,7 @@ All action paths (user-triggered, cron-triggered, API-triggered) go through the 
 - Interactive UI in `/admin/constraints` page with server/user env prefill
 
 #### 1.5 Console Streaming via journald ✅
-- WebSocket proxy from browser → HOGS server → agent for live console I/O
+- Browser console WebSocket bridged to the agent's private NDJSON HTTP/2 stream
 - Agent tails the container's systemd journal (`journalctl -u <unit> -f`) and streams lines as `console` messages
 - HOGS buffers recent lines per-server (last 500 lines) for replay on connect
 - Show console on server detail page with input field for commands
@@ -254,14 +253,14 @@ All action paths (user-triggered, cron-triggered, API-triggered) go through the 
 - SCIM endpoints: 100 requests/minute per token (`HOGS_RATE_LIMIT_SCIM`)
 - Respects `X-Forwarded-For` header for reverse proxy deployments
 - Periodic cleanup goroutine removes expired entries every 5 minutes
-- Agent WebSocket messages: not rate-limited (low volume, per-connection)
+- Agent requests stay on the authenticated private overlay and use independent HTTP/2 streams
 
 #### 2.9 CSRF Protection ✅
 - Added `auth/CSRFMiddleware` using HMAC-signed double-submit cookie pattern
 - Signs CSRF token with session secret (`SESSION_SECRET` env var)
 - GET/HEAD/OPTIONS requests set the `hogs-csrf` cookie and pass through
 - POST requests must include matching `csrf_token` form field or `X-CSRF-Token` header
-- Exempts `/agent/ws`, `/scim/v2/`, `/auth/callback`, `/auth/backchannel-logout`, `/api/`
+- Exempts `/scim/v2/`, `/auth/callback`, `/auth/backchannel-logout`, `/api/`
 - `CSRFTokenFromRequest()` helper available for templates
 - Tests: token generation/verification, exempt paths, GET passthrough, POST rejection, valid token acceptance
 
@@ -324,7 +323,6 @@ All action paths (user-triggered, cron-triggered, API-triggered) go through the 
 - Start with: English, German
 
 #### 3.9 Secret Management Hardening ✅
-- Agent tokens are now stored as SHA-256 hashes in DB (`token_hash` column)
 - `token_prefix` column (first 8 chars) for display in admin UI instead of full token
 - `Agent.Token` has `json:"token,omitempty"` — only populated on creation response, never in list/get
 - `GetAgentByToken` hashes the provided token and looks up by `token_hash`

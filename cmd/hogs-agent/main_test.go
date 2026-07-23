@@ -11,7 +11,22 @@ import (
 
 func testNodeConfig(root string) AgentConfig {
 	return AgentConfig{
-		Node: "node-a", ServerURL: "wss://hogs.example.test/agent/ws", ResticBin: "restic",
+		Node: "node-a", ResticBin: "restic",
+		WireGuard: AgentWireGuardConfig{
+			Address:        "fd00::2",
+			PrivateKeyFile: "/run/credentials/hogs-agent.key",
+			APIPort:        8443,
+			Peer: struct {
+				PublicKey           string `yaml:"public_key"`
+				AllowedIP           string `yaml:"allowed_ip"`
+				Endpoint            string `yaml:"endpoint"`
+				PersistentKeepalive int    `yaml:"persistent_keepalive"`
+			}{
+				PublicKey: "test-public-key",
+				AllowedIP: "fd00::1/128",
+				Endpoint:  "[2001:db8::1]:51820",
+			},
+		},
 		Servers: map[string]ServerConfig{
 			"alpha": {Unit: "game-alpha.service", GameType: "minecraft", DataDir: filepath.Join(root, "alpha")},
 			"beta":  {Unit: "game-beta.service", GameType: "factorio", DataDir: filepath.Join(root, "beta")},

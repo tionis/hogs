@@ -11,14 +11,14 @@ import (
 )
 
 type DashboardHandler struct {
-	Store    *database.Store
-	Config   *config.Config
-	Engine   *engine.Engine
-	AgentHub *agent.Hub
+	Store        *database.Store
+	Config       *config.Config
+	Engine       *engine.Engine
+	AgentManager *agent.Manager
 }
 
-func NewDashboardHandler(store *database.Store, cfg *config.Config, eng *engine.Engine, hub *agent.Hub) *DashboardHandler {
-	return &DashboardHandler{Store: store, Config: cfg, Engine: eng, AgentHub: hub}
+func NewDashboardHandler(store *database.Store, cfg *config.Config, eng *engine.Engine, manager *agent.Manager) *DashboardHandler {
+	return &DashboardHandler{Store: store, Config: cfg, Engine: eng, AgentManager: manager}
 }
 
 func (h *DashboardHandler) Overview(w http.ResponseWriter, r *http.Request) {
@@ -54,14 +54,14 @@ func (h *DashboardHandler) Overview(w http.ResponseWriter, r *http.Request) {
 		"connected":    0,
 		"disconnected": 0,
 	}
-	if h.AgentHub != nil {
+	if h.AgentManager != nil {
 		agents, _ := h.Store.ListAgents()
 		if agents == nil {
 			agents = []database.Agent{}
 		}
 		connected := 0
 		for _, a := range agents {
-			if h.AgentHub.GetConn(a.ID) != nil {
+			if h.AgentManager.ConnectedNode(a.NodeName) {
 				connected++
 			}
 		}
@@ -111,8 +111,8 @@ func (h *DashboardHandler) AgentList(w http.ResponseWriter, r *http.Request) {
 	var result []agentStatus
 	for _, a := range agents {
 		connected := false
-		if h.AgentHub != nil {
-			connected = h.AgentHub.GetConn(a.ID) != nil
+		if h.AgentManager != nil {
+			connected = h.AgentManager.ConnectedNode(a.NodeName)
 		}
 		result = append(result, agentStatus{Agent: a, Connected: connected})
 	}

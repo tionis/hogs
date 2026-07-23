@@ -29,8 +29,7 @@ func testManifest() InventoryManifest {
 		Generation: "git:abc123",
 		Nodes: []InventoryNode{{
 			Name: "destiny", NodeName: "destiny", Labels: map[string]string{"site": "cloud"},
-			DesiredCapabilities: []string{"backup", "command", "console", "file", "restart", "start", "status", "stop"}, TokenState: "active",
-			Token: "hogs_0000000000000000000000000000000000000000000000000000000000000000",
+			DesiredCapabilities: []string{"backup", "command", "console", "file", "restart", "start", "status", "stop"},
 		}},
 		Servers: []InventoryServer{{
 			Name: "cog", Address: "cog.internal:25565", Description: "Managed Minecraft",
@@ -91,10 +90,6 @@ func TestInventoryApplyIsIdempotentAndNeverReturnsAgentToken(t *testing.T) {
 	if applyRecorder.Code != http.StatusOK {
 		t.Fatalf("apply status=%d body=%s", applyRecorder.Code, applyRecorder.Body.String())
 	}
-	if bytes.Contains(applyRecorder.Body.Bytes(), []byte(manifest.Nodes[0].Token)) || bytes.Contains(applyRecorder.Body.Bytes(), []byte("credentials")) {
-		t.Fatal("apply response exposed agent credential material")
-	}
-
 	agent, err := store.GetAgentByNodeName("destiny")
 	if err != nil || agent == nil {
 		t.Fatalf("agent not persisted: %v", err)
@@ -184,13 +179,6 @@ func TestInventoryStateRedactsSecrets(t *testing.T) {
 	if !bytes.Contains([]byte(body), []byte(`"secret":"***"`)) {
 		t.Fatal("webhook secret redaction marker missing")
 	}
-	var storedManifest string
-	if err := handler.Store.DB.QueryRow("SELECT manifest FROM inventory_state WHERE singleton=1").Scan(&storedManifest); err != nil {
-		t.Fatal(err)
-	}
-	if bytes.Contains([]byte(storedManifest), []byte(manifest.Nodes[0].Token)) {
-		t.Fatal("inventory state persisted a plaintext agent token")
-	}
 }
 
 func TestInventoryPruneRequiresConfirmation(t *testing.T) {
@@ -225,71 +213,6 @@ func TestInventoryPruneRequiresConfirmation(t *testing.T) {
 	server, _ = store.GetServerByName("cog")
 	if server != nil {
 		t.Fatal("confirmed prune did not remove the server")
-	}
-}
-
-func TestInventoryTokenRotationAndEvents(t *testing.T) {
-	handler, _ := testInventoryHandler(t)
-	manifest := testManifest()
-	first := httptest.NewRecorder()
-	handler.Apply(first, requestInventory(t, http.MethodPut, "/api/v1/inventory", manifest))
-
-	manifest.Generation = "git:rotate"
-	manifest.Nodes[0].RotateToken = true
-	manifest.Nodes[0].Token = "hogs_1111111111111111111111111111111111111111111111111111111111111111"
-	rotated := httptest.NewRecorder()
-	handler.Apply(rotated, requestInventory(t, http.MethodPut, "/api/v1/inventory", manifest))
-	if rotated.Code != http.StatusOK {
-		t.Fatalf("rotate failed: %s", rotated.Body.String())
-	}
-	if bytes.Contains(rotated.Body.Bytes(), []byte(manifest.Nodes[0].Token)) {
-		t.Fatal("rotated credential leaked in response")
-	}
-
-	events := httptest.NewRecorder()
-	handler.Events(events, httptest.NewRequest(http.MethodGet, "/api/v1/inventory/events?after=0", nil))
-	if events.Code != http.StatusOK {
-		t.Fatalf("events failed: %s", events.Body.String())
-	}
-	if !bytes.Contains(events.Body.Bytes(), []byte(`"action":"rotate"`)) {
-		t.Fatal("rotation event missing")
-	}
-	retry := httptest.NewRecorder()
-	handler.Apply(retry, requestInventory(t, http.MethodPut, "/api/v1/inventory", manifest))
-	if retry.Code != http.StatusOK || bytes.Contains(retry.Body.Bytes(), []byte(`"action":"rotate"`)) {
-		t.Fatalf("rotation retry was not idempotent: %s", retry.Body.String())
-	}
-}
-
-func TestInventoryTokenRevocationIsExplicitAndAudited(t *testing.T) {
-	handler, store := testInventoryHandler(t)
-	manifest := testManifest()
-	first := httptest.NewRecorder()
-	handler.Apply(first, requestInventory(t, http.MethodPut, "/api/v1/inventory", manifest))
-	if first.Code != http.StatusOK {
-		t.Fatalf("initial apply failed: %s", first.Body.String())
-	}
-
-	manifest.Generation = "git:revoke"
-	manifest.Nodes[0].TokenState = "revoked"
-	manifest.Nodes[0].Token = ""
-	revoked := httptest.NewRecorder()
-	handler.Apply(revoked, requestInventory(t, http.MethodPut, "/api/v1/inventory", manifest))
-	if revoked.Code != http.StatusOK {
-		t.Fatalf("revoke failed: %s", revoked.Body.String())
-	}
-	var tokenHash, tokenPrefix string
-	if err := store.DB.QueryRow("SELECT token_hash, token_prefix FROM agents WHERE name=?", "destiny").Scan(&tokenHash, &tokenPrefix); err != nil {
-		t.Fatal(err)
-	}
-	if tokenHash != "" || tokenPrefix != "" {
-		t.Fatal("revoked agent still has usable token material")
-	}
-
-	events := httptest.NewRecorder()
-	handler.Events(events, httptest.NewRequest(http.MethodGet, "/api/v1/inventory/events?after=0", nil))
-	if !bytes.Contains(events.Body.Bytes(), []byte(`"generation":"git:revoke"`)) || !bytes.Contains(events.Body.Bytes(), []byte(`"resourceKey":"destiny"`)) {
-		t.Fatalf("revocation was not audited: %s", events.Body.String())
 	}
 }
 
