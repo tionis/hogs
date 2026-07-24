@@ -231,11 +231,11 @@ func (h *WebHandler) siteName() string {
 
 // ... (Home, ServerDetail, Admin handlers remain unchanged) ...
 
-// FileManager preserves old bookmarks while routing operators to the managed
-// agent-backed file browser on the server page.
+// FileManager preserves old administrator bookmarks while routing them to the
+// capability-aware server file page.
 func (h *WebHandler) FileManager(w http.ResponseWriter, r *http.Request) {
 	serverName := mux.Vars(r)["serverName"]
-	http.Redirect(w, r, "/"+serverName+"#file-browser-card", http.StatusFound)
+	http.Redirect(w, r, "/servers/"+serverName+"/files", http.StatusFound)
 }
 
 // ServeAssets serves static assets embedded in the binary.
@@ -355,6 +355,16 @@ func (h *WebHandler) Home(w http.ResponseWriter, r *http.Request) {
 
 // ServerDetail renders the detail page for a specific server.
 func (h *WebHandler) ServerDetail(w http.ResponseWriter, r *http.Request) {
+	h.renderServerPage(w, r, false)
+}
+
+// ServerFiles renders the managed file browser separately from the operational
+// server detail page.
+func (h *WebHandler) ServerFiles(w http.ResponseWriter, r *http.Request) {
+	h.renderServerPage(w, r, true)
+}
+
+func (h *WebHandler) renderServerPage(w http.ResponseWriter, r *http.Request, filesPage bool) {
 	vars := mux.Vars(r)
 	serverName := vars["serverName"]
 
@@ -423,6 +433,7 @@ func (h *WebHandler) ServerDetail(w http.ResponseWriter, r *http.Request) {
 		AccessGrants    []database.ServerAccessGrant
 		AccessCatalog   []access.Capability
 		WhitelistManage bool
+		FilesPage       bool
 	}{
 		Server:          server,
 		Authenticated:   isAuthenticated,
@@ -442,6 +453,7 @@ func (h *WebHandler) ServerDetail(w http.ResponseWriter, r *http.Request) {
 		EffectiveAccess: []EffectiveAccessEntry{},
 		AccessGrants:    []database.ServerAccessGrant{},
 		AccessCatalog:   access.Capabilities,
+		FilesPage:       filesPage,
 	}
 	if isAuthenticated {
 		for _, capability := range access.Capabilities {
@@ -481,6 +493,14 @@ func (h *WebHandler) ServerDetail(w http.ResponseWriter, r *http.Request) {
 			fileWrite, _ := h.Store.EvaluateServerAccess(server.ID, userEnv.Email, userEnv.Groups, access.FileWrite)
 			data.ShowConsole, data.ConsoleWrite = consoleRead.Allowed, consoleWrite.Allowed
 			data.ShowFiles, data.FileWrite = fileRead.Allowed, fileWrite.Allowed
+		}
+	}
+	if filesPage {
+		data.ShowConsole = false
+		data.ConsoleWrite = false
+		if !data.ShowFiles {
+			http.Error(w, "File access denied", http.StatusForbidden)
+			return
 		}
 	}
 

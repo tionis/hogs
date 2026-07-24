@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/tionis/hogs/access"
 	"github.com/tionis/hogs/auth"
 	"github.com/tionis/hogs/config"
 	"github.com/tionis/hogs/database"
@@ -291,7 +292,7 @@ func TestServerDetailRenders(t *testing.T) {
 	for _, expected := range []string{
 		"Connect address", "Direct fallback", `data-copy-target="connect-address"`,
 		`data-copy-target="direct-address"`, "copyServerAddress",
-		"metadata-list-item", "runFileOperation",
+		"metadata-list-item",
 	} {
 		if !contains(body, expected) {
 			t.Errorf("expected address UI to contain %q", expected)
@@ -362,12 +363,140 @@ func TestServerDetailRendersAuthenticatedResourceUsage(t *testing.T) {
 	for _, expected := range []string{
 		"Resource Usage", "/resources", "No systemd limit",
 		"CPU usage uses 100% per processor core",
-		"/access?", "descriptor.mode !== 'direct'",
-		"Authorization", "access_token", "method: 'PUT'",
 	} {
 		if !contains(w.Body.String(), expected) {
 			t.Errorf("expected resource UI to contain %q", expected)
 		}
+	}
+}
+
+func TestServerDetailAndFilesHonorCapabilities(t *testing.T) {
+	handler, store, authenticator := testWebHandler(t)
+	if err := store.CreateServer(&database.Server{
+		Name: "CapabilitySrv", GameType: "minecraft", State: "online",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	server, err := store.GetServerByName("CapabilitySrv")
+	if err != nil || server == nil {
+		t.Fatalf("load server: %v", err)
+	}
+	if err := store.CreatePterodactylLink(&database.PterodactylLink{
+		ServerID: server.ID, PteroServerID: "agent:CapabilitySrv",
+		AllowedActions: `["status"]`, Node: "capability-node",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateAgent(&database.Agent{Name: "capability-node", NodeName: "capability-node"}); err != nil {
+		t.Fatal(err)
+	}
+	const email = "player@example.test"
+	if err := store.SetServerAccessGrant(&database.ServerAccessGrant{
+		ServerID: server.ID, SubjectType: "user", Subject: email, Effect: "allow",
+		Capabilities: []string{access.View, access.Status},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	cookie := createTestSession(t, store, authenticator, email, "user")
+
+	renderDetail := func() *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, "/CapabilitySrv", nil)
+		req = mux.SetURLVars(req, map[string]string{"serverName": "CapabilitySrv"})
+		req.AddCookie(cookie)
+		recorder := httptest.NewRecorder()
+		handler.ServerDetail(recorder, req)
+		return recorder
+	}
+	renderFiles := func() *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, "/servers/CapabilitySrv/files", nil)
+		req = mux.SetURLVars(req, map[string]string{"serverName": "CapabilitySrv"})
+		req.AddCookie(cookie)
+		recorder := httptest.NewRecorder()
+		handler.ServerFiles(recorder, req)
+		return recorder
+	}
+
+	detail := renderDetail()
+	if detail.Code != http.StatusOK {
+		t.Fatalf("detail status=%d body=%s", detail.Code, detail.Body.String())
+	}
+	if contains(detail.Body.String(), `id="console-output"`) || contains(detail.Body.String(), "Manage Files") {
+		t.Fatal("console or file navigation rendered without its capability")
+	}
+	if files := renderFiles(); files.Code != http.StatusForbidden {
+		t.Fatalf("files status without file.read=%d body=%s", files.Code, files.Body.String())
+	}
+
+	if err := store.SetServerAccessGrant(&database.ServerAccessGrant{
+		ServerID: server.ID, SubjectType: "user", Subject: email, Effect: "allow",
+		Capabilities: []string{access.View, access.Status, access.ConsoleRead, access.FileRead, access.FileWrite},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	detail = renderDetail()
+	if !contains(detail.Body.String(), `id="console-output"`) || !contains(detail.Body.String(), "Manage Files") {
+		t.Fatal("console or file navigation missing with read capabilities")
+	}
+	if contains(detail.Body.String(), `id="file-browser-card"`) || contains(detail.Body.String(), "runFileOperation") {
+		t.Fatal("file browser implementation must not render on the server detail page")
+	}
+	files := renderFiles()
+	if files.Code != http.StatusOK {
+		t.Fatalf("files status=%d body=%s", files.Code, files.Body.String())
+	}
+	for _, expected := range []string{
+		`id="file-browser-card"`, "runFileOperation", "/access?",
+		"descriptor.mode !== 'direct'", "Authorization", "access_token", "method: 'PUT'",
+	} {
+		if !contains(files.Body.String(), expected) {
+			t.Fatalf("dedicated file page missing %q", expected)
+		}
+	}
+	if !contains(files.Body.String(), `id="file-browser-card"`) {
+		t.Fatal("dedicated file page did not render its browser")
+	}
+	if contains(files.Body.String(), `id="console-output"`) || contains(files.Body.String(), "Server Info") {
+		t.Fatal("dedicated file page rendered server console or sidebar")
+	}
+}
+
+func TestServerSidebarOrder(t *testing.T) {
+	handler, store, authenticator := testWebHandler(t)
+	if err := store.CreateServer(&database.Server{
+		Name: "OrderedSrv", GameType: "minecraft", State: "online",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	server, _ := store.GetServerByName("OrderedSrv")
+	if err := store.CreatePterodactylLink(&database.PterodactylLink{
+		ServerID: server.ID, PteroServerID: "agent:OrderedSrv",
+		AllowedActions: `["status"]`, Node: "ordered-node",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateAgent(&database.Agent{Name: "ordered-node", NodeName: "ordered-node"}); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/OrderedSrv", nil)
+	req = mux.SetURLVars(req, map[string]string{"serverName": "OrderedSrv"})
+	req.AddCookie(createTestSession(t, store, authenticator, "admin@example.test", "admin"))
+	recorder := httptest.NewRecorder()
+	handler.ServerDetail(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	body := recorder.Body.String()
+	headings := []string{"Server Info", "Server Actions", "Manage whitelist", "Your Server Access", "Manage Server Access"}
+	previous := -1
+	for _, heading := range headings {
+		position := strings.Index(body, heading)
+		if position < 0 {
+			t.Fatalf("missing sidebar heading %q", heading)
+		}
+		if position <= previous {
+			t.Fatalf("sidebar heading %q is out of order", heading)
+		}
+		previous = position
 	}
 }
 

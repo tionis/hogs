@@ -261,6 +261,7 @@ func main() {
 		router.Handle("/admin/access-grants/delete", authenticator.RequireRole("admin", "user")(http.HandlerFunc(webHandler.HandleAccessGrantDelete))).Methods("POST")
 
 		router.Handle("/admin/files/{serverName}", authenticator.RequireRole("admin")(http.HandlerFunc(webHandler.FileManager))).Methods("GET")
+		router.Handle("/servers/{serverName}/files", authenticator.RequireRole("admin", "user")(http.HandlerFunc(webHandler.ServerFiles))).Methods("GET")
 	} else {
 		router.HandleFunc("/login", func(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Authentication is not configured", http.StatusServiceUnavailable)

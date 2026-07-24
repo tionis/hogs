@@ -1,14 +1,44 @@
 {{define "body_attrs"}}data-game-type="{{.Server.GameType}}"{{end}}
-{{define "title"}}{{.Server.Name}} - Details{{end}}
+{{define "title"}}{{.Server.Name}} - {{if .FilesPage}}Files{{else}}Details{{end}}{{end}}
 
 {{define "content"}}
 <nav aria-label="breadcrumb">
   <ol class="breadcrumb">
     <li class="breadcrumb-item"><a href="/">Home</a></li>
+    {{if .FilesPage}}
+    <li class="breadcrumb-item"><a href="/{{.Server.Name}}">{{.Server.Name}}</a></li>
+    <li class="breadcrumb-item active" aria-current="page">Files</li>
+    {{else}}
     <li class="breadcrumb-item active" aria-current="page">{{.Server.Name}}</li>
+    {{end}}
   </ol>
 </nav>
 
+{{if .FilesPage}}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div>
+    <h1 class="h2 mb-1">{{.Server.Name}} Files</h1>
+    <p class="text-muted mb-0">Browse and manage the paths exposed by this server's worker.</p>
+  </div>
+  <a class="btn btn-outline-secondary" href="/{{.Server.Name}}">Back to server</a>
+</div>
+<div class="card mb-4" id="file-browser-card">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span>Managed Files</span>
+    <select id="file-root" class="form-select form-select-sm w-auto" aria-label="Managed root"></select>
+  </div>
+  <div class="card-body">
+    <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
+      <button type="button" id="file-up" class="btn btn-sm btn-outline-secondary">Up</button>
+      <code id="file-path" class="flex-grow-1"></code>
+      {{if .FileWrite}}<label class="btn btn-sm btn-outline-primary mb-0">Upload<input id="file-upload" type="file" hidden></label>
+      <button type="button" id="file-mkdir" class="btn btn-sm btn-outline-secondary">New folder</button>{{end}}
+    </div>
+    <div id="file-feedback" class="small mb-2" role="status"></div>
+    <div id="file-browser">Loading files...</div>
+  </div>
+</div>
+{{else}}
 <div class="row">
   <div class="col-md-8">
     <div class="card mb-4">
@@ -24,6 +54,9 @@
 
         {{if .Server.ModURL}}
         <a href="{{.Server.ModURL}}" class="btn btn-success mb-3">Download Mod Pack</a>
+        {{end}}
+        {{if .ShowFiles}}
+        <a href="/servers/{{.Server.Name}}/files" class="btn btn-outline-primary mb-3">Manage Files</a>
         {{end}}
 
         {{if .Server.MapURL}}
@@ -115,24 +148,43 @@
     </div>
     {{end}}
 
-    {{if .ShowFiles}}
-    <div class="card mb-4" id="file-browser-card">
-      <div class="card-header d-flex justify-content-between align-items-center">
-        <span>Managed Files</span>
-        <select id="file-root" class="form-select form-select-sm w-auto" aria-label="Managed root"></select>
-      </div>
-      <div class="card-body">
-        <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
-          <button type="button" id="file-up" class="btn btn-sm btn-outline-secondary">Up</button>
-          <code id="file-path" class="flex-grow-1"></code>
-          {{if .FileWrite}}<label class="btn btn-sm btn-outline-primary mb-0">Upload<input id="file-upload" type="file" hidden></label>
-          <button type="button" id="file-mkdir" class="btn btn-sm btn-outline-secondary">New folder</button>{{end}}
-        </div>
-        <div id="file-feedback" class="small mb-2" role="status"></div>
-        <div id="file-browser">Loading files...</div>
+    {{if and .Authenticated .PteroLink}}
+    {{if inList "status" .AllowedActions}}
+    <div class="card mb-4" id="resource-usage-card">
+      <div class="card-header">Resource Usage</div>
+      <ul class="list-group list-group-flush">
+        <li class="list-group-item d-flex justify-content-between align-items-center">
+          <strong>CPU usage</strong>
+          <span id="resource-cpu">Sampling…</span>
+        </li>
+        <li class="list-group-item d-flex justify-content-between align-items-center">
+          <strong>CPU limit</strong>
+          <span id="resource-cpu-limit">Loading…</span>
+        </li>
+        <li class="list-group-item d-flex justify-content-between align-items-center">
+          <strong>Memory usage</strong>
+          <span id="resource-memory">Loading…</span>
+        </li>
+        <li class="list-group-item d-flex justify-content-between align-items-center">
+          <strong>Memory peak</strong>
+          <span id="resource-memory-peak">Loading…</span>
+        </li>
+        <li class="list-group-item d-flex justify-content-between align-items-center">
+          <strong>Memory soft limit</strong>
+          <span id="resource-memory-high">Loading…</span>
+        </li>
+        <li class="list-group-item d-flex justify-content-between align-items-center">
+          <strong>Memory limit</strong>
+          <span id="resource-memory-limit">Loading…</span>
+        </li>
+      </ul>
+      <div class="card-footer small" style="color: var(--text-secondary);">
+        CPU usage uses 100% per processor core. Updated <time id="resource-sampled-at">—</time>.
       </div>
     </div>
     {{end}}
+    {{end}}
+
   </div>
 
   <div class="col-md-4">
@@ -180,115 +232,6 @@
        </ul>
      </div>
 
-     {{if and .Authenticated .PteroLink}}
-     {{if inList "status" .AllowedActions}}
-     <div class="card mb-4" id="resource-usage-card">
-       <div class="card-header">Resource Usage</div>
-       <ul class="list-group list-group-flush">
-         <li class="list-group-item d-flex justify-content-between align-items-center">
-           <strong>CPU usage</strong>
-           <span id="resource-cpu">Sampling…</span>
-         </li>
-         <li class="list-group-item d-flex justify-content-between align-items-center">
-           <strong>CPU limit</strong>
-           <span id="resource-cpu-limit">Loading…</span>
-         </li>
-         <li class="list-group-item d-flex justify-content-between align-items-center">
-           <strong>Memory usage</strong>
-           <span id="resource-memory">Loading…</span>
-         </li>
-         <li class="list-group-item d-flex justify-content-between align-items-center">
-           <strong>Memory peak</strong>
-           <span id="resource-memory-peak">Loading…</span>
-         </li>
-         <li class="list-group-item d-flex justify-content-between align-items-center">
-           <strong>Memory soft limit</strong>
-           <span id="resource-memory-high">Loading…</span>
-         </li>
-         <li class="list-group-item d-flex justify-content-between align-items-center">
-           <strong>Memory limit</strong>
-           <span id="resource-memory-limit">Loading…</span>
-         </li>
-       </ul>
-       <div class="card-footer small" style="color: var(--text-secondary);">
-         CPU usage uses 100% per processor core. Updated <time id="resource-sampled-at">—</time>.
-       </div>
-     </div>
-     {{end}}
-
-     {{if .Authenticated}}
-     <details class="card mb-4">
-       <summary class="card-header">Your server access</summary>
-       <div class="card-body">
-         <p class="small text-muted">These are your effective per-server permissions. Deny grants take precedence over allows.</p>
-         <div class="row g-2">
-           {{range .EffectiveAccess}}
-           <div class="col-md-6">
-             <div class="d-flex justify-content-between gap-2 small">
-               <span>{{.Label}} <code>{{.Name}}</code></span>
-               <span class="badge {{if .Allowed}}bg-success{{else}}bg-secondary{{end}}" title="{{.Reason}}">{{if .Allowed}}allowed{{else}}denied{{end}}</span>
-             </div>
-           </div>
-           {{end}}
-         </div>
-       </div>
-     </details>
-     {{end}}
-
-     {{if .ManageAccess}}
-     <div class="card mb-4" id="access-control">
-       <div class="card-header">Manage server access</div>
-       <div class="card-body">
-         <p class="small text-muted">Changes apply only to this server. Explicit denies override allows.</p>
-         {{if .AccessGrants}}
-         <div class="table-responsive mb-3">
-           <table class="table table-sm align-middle">
-             <thead><tr><th>Effect</th><th>Subject</th><th>Capabilities</th><th></th></tr></thead>
-             <tbody>{{range .AccessGrants}}<tr>
-               <td><span class="badge {{if eq .Effect "deny"}}bg-danger{{else}}bg-success{{end}}">{{.Effect}}</span></td>
-               <td><span class="badge bg-secondary">{{.SubjectType}}</span> {{.Subject}}</td>
-               <td>{{range .Capabilities}}<span class="badge bg-info me-1">{{.}}</span>{{end}}</td>
-               <td><form action="/admin/access-grants/delete" method="POST">
-                 <input type="hidden" name="server_id" value="{{$.Server.ID}}">
-                 <input type="hidden" name="grant_id" value="{{.ID}}">
-                 <button class="btn btn-sm btn-outline-danger" type="submit">Remove</button>
-               </form></td>
-             </tr>{{end}}</tbody>
-           </table>
-         </div>
-         {{end}}
-         <form action="/admin/access-grants/set" method="POST">
-           <input type="hidden" name="server_id" value="{{.Server.ID}}">
-           <div class="row g-2 mb-2">
-             <div class="col-md-2"><select class="form-select form-select-sm" name="effect"><option value="allow">Allow</option><option value="deny">Deny</option></select></div>
-             <div class="col-md-3"><select class="form-select form-select-sm" name="subject_type"><option value="group">OIDC group</option><option value="user">User email</option><option value="authenticated">Any authenticated user</option><option value="everyone">Everyone, including public</option></select></div>
-             <div class="col-md-7"><input class="form-control form-control-sm" name="subject" placeholder="Group name or user email"></div>
-           </div>
-           <div class="d-flex flex-wrap gap-2 mb-3">{{range .AccessCatalog}}
-             <label class="form-check form-check-inline me-1"><input class="form-check-input" type="checkbox" name="capability" value="{{.Name}}"><span class="form-check-label" title="{{.Description}}">{{.Label}}</span></label>
-           {{end}}</div>
-           <button class="btn btn-sm btn-primary" type="submit">Add or replace grant</button>
-         </form>
-       </div>
-     </div>
-     {{end}}
-
-     {{if .WhitelistManage}}
-     <div class="card mb-4">
-       <div class="card-header">Manage whitelist</div>
-       <div class="card-body">
-         <div id="managed-whitelist-current" class="small mb-3">Loading current whitelist…</div>
-         <form id="managed-whitelist-form" class="row g-2">
-           <div class="col-md-5"><input class="form-control form-control-sm" name="username" placeholder="In-game username" required></div>
-           <div class="col-md-5"><input class="form-control form-control-sm" name="user_email" type="email" placeholder="Optional linked panel user"></div>
-           <div class="col-md-2 d-flex gap-1"><button class="btn btn-sm btn-success" type="button" data-managed-whitelist="add">Add</button><button class="btn btn-sm btn-outline-danger" type="button" data-managed-whitelist="remove">Remove</button></div>
-         </form>
-         <div id="managed-whitelist-feedback" class="small mt-2" role="status"></div>
-       </div>
-     </div>
-     {{end}}
-     {{end}}
-
      {{if .PteroLink}}
      <div class="card mb-4">
        <div class="card-header">Server Actions</div>
@@ -331,9 +274,83 @@
        </div>
      </div>
      {{end}}
+
+     {{if and .PteroLink .WhitelistManage}}
+     <div class="card mb-4">
+       <div class="card-header">Manage whitelist</div>
+       <div class="card-body">
+         <div id="managed-whitelist-current" class="small mb-3">Loading current whitelist…</div>
+         <form id="managed-whitelist-form" class="row g-2">
+           <div class="col-md-5"><input class="form-control form-control-sm" name="username" placeholder="In-game username" required></div>
+           <div class="col-md-5"><input class="form-control form-control-sm" name="user_email" type="email" placeholder="Optional linked panel user"></div>
+           <div class="col-md-2 d-flex gap-1"><button class="btn btn-sm btn-success" type="button" data-managed-whitelist="add">Add</button><button class="btn btn-sm btn-outline-danger" type="button" data-managed-whitelist="remove">Remove</button></div>
+         </form>
+         <div id="managed-whitelist-feedback" class="small mt-2" role="status"></div>
+       </div>
+     </div>
+     {{end}}
+
+     {{if .Authenticated}}
+     <details class="card mb-4">
+       <summary class="card-header">Your Server Access</summary>
+       <div class="card-body">
+         <p class="small text-muted">These are your effective per-server permissions. Deny grants take precedence over allows.</p>
+         <div class="row g-2">
+           {{range .EffectiveAccess}}
+           <div class="col-md-6">
+             <div class="d-flex justify-content-between gap-2 small">
+               <span>{{.Label}} <code>{{.Name}}</code></span>
+               <span class="badge {{if .Allowed}}bg-success{{else}}bg-secondary{{end}}" title="{{.Reason}}">{{if .Allowed}}allowed{{else}}denied{{end}}</span>
+             </div>
+           </div>
+           {{end}}
+         </div>
+       </div>
+     </details>
+     {{end}}
+
+     {{if .ManageAccess}}
+     <div class="card mb-4" id="access-control">
+       <div class="card-header">Manage Server Access</div>
+       <div class="card-body">
+         <p class="small text-muted">Changes apply only to this server. Explicit denies override allows.</p>
+         {{if .AccessGrants}}
+         <div class="table-responsive mb-3">
+           <table class="table table-sm align-middle">
+             <thead><tr><th>Effect</th><th>Subject</th><th>Capabilities</th><th></th></tr></thead>
+             <tbody>{{range .AccessGrants}}<tr>
+               <td><span class="badge {{if eq .Effect "deny"}}bg-danger{{else}}bg-success{{end}}">{{.Effect}}</span></td>
+               <td><span class="badge bg-secondary">{{.SubjectType}}</span> {{.Subject}}</td>
+               <td>{{range .Capabilities}}<span class="badge bg-info me-1">{{.}}</span>{{end}}</td>
+               <td><form action="/admin/access-grants/delete" method="POST">
+                 <input type="hidden" name="server_id" value="{{$.Server.ID}}">
+                 <input type="hidden" name="grant_id" value="{{.ID}}">
+                 <button class="btn btn-sm btn-outline-danger" type="submit">Remove</button>
+               </form></td>
+             </tr>{{end}}</tbody>
+           </table>
+         </div>
+         {{end}}
+         <form action="/admin/access-grants/set" method="POST">
+           <input type="hidden" name="server_id" value="{{.Server.ID}}">
+           <div class="row g-2 mb-2">
+             <div class="col-md-2"><select class="form-select form-select-sm" name="effect"><option value="allow">Allow</option><option value="deny">Deny</option></select></div>
+             <div class="col-md-3"><select class="form-select form-select-sm" name="subject_type"><option value="group">OIDC group</option><option value="user">User email</option><option value="authenticated">Any authenticated user</option><option value="everyone">Everyone, including public</option></select></div>
+             <div class="col-md-7"><input class="form-control form-control-sm" name="subject" placeholder="Group name or user email"></div>
+           </div>
+           <div class="d-flex flex-wrap gap-2 mb-3">{{range .AccessCatalog}}
+             <label class="form-check form-check-inline me-1"><input class="form-check-input" type="checkbox" name="capability" value="{{.Name}}"><span class="form-check-label" title="{{.Description}}">{{.Label}}</span></label>
+           {{end}}</div>
+           <button class="btn btn-sm btn-primary" type="submit">Add or replace grant</button>
+         </form>
+       </div>
+     </div>
+     {{end}}
    </div>
 </div>
+{{end}}
 
+{{if .FilesPage}}
 <div class="modal fade" id="fileEditorModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-xl">
     <div class="modal-content">
@@ -351,6 +368,7 @@
     </div>
   </div>
 </div>
+{{end}}
 
 <script>
 async function copyServerAddress(button) {
@@ -528,7 +546,7 @@ document.addEventListener("DOMContentLoaded", function() {
 
     if (container) initManagedFiles(serverName);
 
-    {{if and .Authenticated .PteroLink}}
+    {{if and (not .FilesPage) .Authenticated .PteroLink}}
     {{if inList "status" .AllowedActions}}
     const formatBytes = value => {
         if (value === null || value === undefined) return 'Unavailable';
@@ -664,6 +682,7 @@ document.addEventListener("DOMContentLoaded", function() {
     loadWhitelistStatus();
 });
 
+{{if .FilesPage}}
 async function initManagedFiles(serverName) {
     const browser = document.getElementById('file-browser');
     const rootSelect = document.getElementById('file-root');
@@ -955,5 +974,6 @@ function formatBytes(bytes, decimals = 2) {
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
 }
+{{end}}
 </script>
 {{end}}
