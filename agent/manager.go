@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -85,6 +86,7 @@ func (m *Manager) UpdateNodeTransport(node, mode, controlURL, publicURL string) 
 }
 
 type ResourceStatus struct {
+	Running         bool      `json:"running"`
 	CPUPercent      *float64  `json:"cpuPercent,omitempty"`
 	CPULimitPercent *float64  `json:"cpuLimitPercent,omitempty"`
 	MemoryCurrent   *uint64   `json:"memoryCurrentBytes,omitempty"`
@@ -315,9 +317,21 @@ func (m *Manager) pollStatuses(ctx context.Context, store *database.Store, cache
 				return
 			}
 			if status.Resources != nil {
+				status.Resources.Running = status.Online
 				m.mu.Lock()
 				m.resources[server.Name] = *status.Resources
 				m.mu.Unlock()
+				if err := store.CreateServerResourceSample(&database.ServerResourceSample{
+					ServerName: server.Name, Timestamp: status.Resources.SampledAt,
+					Running: status.Online, CPUPercent: status.Resources.CPUPercent,
+					CPULimitPercent:    status.Resources.CPULimitPercent,
+					MemoryCurrentBytes: status.Resources.MemoryCurrent,
+					MemoryPeakBytes:    status.Resources.MemoryPeak,
+					MemoryHighBytes:    status.Resources.MemoryHigh,
+					MemoryLimitBytes:   status.Resources.MemoryLimit,
+				}); err != nil {
+					log.Printf("store resource sample for %s: %v", server.Name, err)
+				}
 			}
 			cache.SetAgentObservation(server.Name, &query.ServerStatus{
 				Online: status.Online, Players: status.Players, MaxPlayers: status.MaxPlayers,

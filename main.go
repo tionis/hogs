@@ -134,11 +134,13 @@ func main() {
 	go func() {
 		store.CleanupAuditLog(cfg.AuditLogRetentionDays)
 		store.CleanupServerMetrics(cfg.MetricsRetentionDays)
+		store.CleanupServerResourceSamples(cfg.MetricsRetentionDays)
 		ticker := time.NewTicker(1 * time.Hour)
 		defer ticker.Stop()
 		for range ticker.C {
 			store.CleanupAuditLog(cfg.AuditLogRetentionDays)
 			store.CleanupServerMetrics(cfg.MetricsRetentionDays)
+			store.CleanupServerResourceSamples(cfg.MetricsRetentionDays)
 		}
 	}()
 
@@ -392,6 +394,7 @@ func main() {
 		router.Handle("/api/agents", authenticator.RequireRole("admin")(http.HandlerFunc(agentHandler.ListAgents))).Methods("GET")
 		router.Handle("/api/agents/{id}", authenticator.RequireRole("admin")(http.HandlerFunc(agentHandler.GetAgent))).Methods("GET")
 		router.Handle("/api/agents/{serverName}/resources", authenticator.RequireRole("admin", "user")(http.HandlerFunc(agentHandler.AgentResources))).Methods("GET")
+		router.Handle("/api/agents/{serverName}/resources/history", authenticator.RequireRole("admin", "user")(http.HandlerFunc(agentHandler.AgentResourceHistory))).Methods("GET")
 
 		router.Handle("/api/agents/{serverName}/files", authenticator.RequireRole("admin", "user")(http.HandlerFunc(agentHandler.AgentFileList))).Methods("GET")
 		router.Handle("/api/agents/{serverName}/files/roots", authenticator.RequireRole("admin", "user")(http.HandlerFunc(agentHandler.AgentFileRoots))).Methods("GET")

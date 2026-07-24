@@ -209,6 +209,33 @@ func TestManagedStatusAllowsConfiguredOperator(t *testing.T) {
 	}
 }
 
+func TestManagedResourceHistoryUsesStatusCapability(t *testing.T) {
+	store, authenticator, eng := managedAuthorizationFixture(t, []string{"game-moderators"}, `true`)
+	cpu := 25.0
+	memory := uint64(256 << 20)
+	if err := store.CreateServerResourceSample(&database.ServerResourceSample{
+		ServerName: "managed-test", Timestamp: time.Now(), Running: true,
+		CPUPercent: &cpu, MemoryCurrentBytes: &memory,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	req := managedTestRequest(t, store, authenticator, "moderator@example.test", "user", "game-moderators")
+	req = mux.SetURLVars(req, map[string]string{"serverName": "managed-test"})
+	recorder := httptest.NewRecorder()
+	handler := NewAgentHandler(store, nil, nil, authenticator, eng)
+	handler.AgentResourceHistory(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	var samples []database.ServerResourceSample
+	if err := json.Unmarshal(recorder.Body.Bytes(), &samples); err != nil {
+		t.Fatal(err)
+	}
+	if len(samples) != 1 || samples[0].CPUPercent == nil || !samples[0].Running {
+		t.Fatalf("unexpected history: %#v", samples)
+	}
+}
+
 func TestWhitelistStatusIgnoresCallerSuppliedIdentity(t *testing.T) {
 	store, authenticator, eng := managedAuthorizationFixture(t, nil, `true`)
 	server, _ := store.GetServerByName("managed-test")

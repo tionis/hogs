@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/tionis/hogs/agent"
@@ -112,6 +113,37 @@ func (h *AgentHandler) AgentResources(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resources)
+}
+
+func (h *AgentHandler) AgentResourceHistory(w http.ResponseWriter, r *http.Request) {
+	serverName := mux.Vars(r)["serverName"]
+	if _, _, status, err := authorizeManagedCapability(h.Store, h.Engine, h.Auth, r, serverName, managedStatus); err != nil {
+		http.Error(w, err.Error(), status)
+		return
+	}
+	hours := 24
+	if requested, err := strconv.Atoi(r.URL.Query().Get("hours")); err == nil && requested > 0 {
+		hours = requested
+	}
+	if hours > 24*7 {
+		hours = 24 * 7
+	}
+	points := 800
+	if requested, err := strconv.Atoi(r.URL.Query().Get("points")); err == nil && requested > 0 && requested <= 1200 {
+		points = requested
+	}
+	samples, err := h.Store.ListServerResourceSamples(
+		serverName, time.Now().Add(-time.Duration(hours)*time.Hour), points,
+	)
+	if err != nil {
+		http.Error(w, "failed to load resource history", http.StatusInternalServerError)
+		return
+	}
+	if samples == nil {
+		samples = []database.ServerResourceSample{}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(samples)
 }
 
 func (h *AgentHandler) AgentFileAccess(w http.ResponseWriter, r *http.Request) {

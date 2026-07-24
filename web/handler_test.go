@@ -363,6 +363,8 @@ func TestServerDetailRendersAuthenticatedResourceUsage(t *testing.T) {
 	for _, expected := range []string{
 		"Resource Usage", "/resources", "No systemd limit",
 		"CPU usage uses 100% per processor core",
+		"Resource history", "resource-cpu-chart", "resource-memory-chart",
+		"/resources/history?", "Not running", "Stopped periods are shaded",
 	} {
 		if !contains(w.Body.String(), expected) {
 			t.Errorf("expected resource UI to contain %q", expected)

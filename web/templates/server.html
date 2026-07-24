@@ -165,7 +165,7 @@
           <span id="resource-memory">Loading…</span>
         </li>
         <li class="list-group-item d-flex justify-content-between align-items-center">
-          <strong>Memory peak</strong>
+          <strong id="resource-memory-peak-label">Memory peak</strong>
           <span id="resource-memory-peak">Loading…</span>
         </li>
         <li class="list-group-item d-flex justify-content-between align-items-center">
@@ -179,6 +179,37 @@
       </ul>
       <div class="card-footer small" style="color: var(--text-secondary);">
         CPU usage uses 100% per processor core. Updated <time id="resource-sampled-at">—</time>.
+      </div>
+      <div class="card-body border-top">
+        <div class="d-flex justify-content-between align-items-center gap-3 mb-3">
+          <div>
+            <h6 class="mb-1">Resource history</h6>
+            <div class="small text-muted">Stopped periods are shaded. History is retained for seven days.</div>
+          </div>
+          <select id="resource-history-range" class="form-select form-select-sm w-auto" aria-label="Resource history range">
+            <option value="1">Last hour</option>
+            <option value="6">Last 6 hours</option>
+            <option value="24" selected>Last 24 hours</option>
+            <option value="168">Last 7 days</option>
+          </select>
+        </div>
+        <div id="resource-history-feedback" class="small text-muted mb-2" role="status">Loading history…</div>
+        <div class="mb-4">
+          <div class="d-flex justify-content-between small mb-1">
+            <strong>CPU</strong>
+            <span><span style="color:#0d6efd">●</span> Usage <span class="ms-2 text-muted">- - Limit</span></span>
+          </div>
+          <svg id="resource-cpu-chart" viewBox="0 0 800 220" width="100%" height="220"
+               role="img" aria-label="CPU usage history"></svg>
+        </div>
+        <div>
+          <div class="d-flex justify-content-between small mb-1">
+            <strong>Memory</strong>
+            <span><span style="color:#198754">●</span> Usage <span class="ms-2 text-muted">- - Limits</span></span>
+          </div>
+          <svg id="resource-memory-chart" viewBox="0 0 800 220" width="100%" height="220"
+               role="img" aria-label="Memory usage history"></svg>
+        </div>
       </div>
     </div>
     {{end}}
@@ -566,13 +597,15 @@ document.addEventListener("DOMContentLoaded", function() {
             const response = await fetch(`/api/agents/${encodeURIComponent(serverName)}/resources`);
             if (!response.ok) throw new Error(response.statusText);
             const data = await response.json();
-            setResourceText('resource-cpu', data.cpuPercent == null ? 'Sampling…' : `${data.cpuPercent.toFixed(1)}%`);
+            const running = data.running === true;
+            setResourceText('resource-cpu', !running ? 'Not running' : data.cpuPercent == null ? 'Sampling…' : `${data.cpuPercent.toFixed(1)}%`);
             setResourceText('resource-cpu-limit', data.cpuLimitPercent == null ? 'No systemd limit' : `${data.cpuLimitPercent.toFixed(0)}%`);
-            setResourceText('resource-memory', formatBytes(data.memoryCurrentBytes));
+            setResourceText('resource-memory', !running ? 'Not running' : formatBytes(data.memoryCurrentBytes));
             setResourceText('resource-memory-peak', formatBytes(data.memoryPeakBytes));
             setResourceText('resource-memory-high', data.memoryHighBytes == null ? 'No systemd limit' : formatBytes(data.memoryHighBytes));
             setResourceText('resource-memory-limit', data.memoryLimitBytes == null ? 'No systemd limit' : formatBytes(data.memoryLimitBytes));
             setResourceText('resource-sampled-at', data.sampledAt ? new Date(data.sampledAt).toLocaleTimeString() : 'Unavailable');
+            setResourceText('resource-memory-peak-label', running ? 'Memory peak' : 'Memory peak (last run)');
         } catch (_) {
             for (const id of ['resource-cpu', 'resource-cpu-limit', 'resource-memory', 'resource-memory-peak', 'resource-memory-high', 'resource-memory-limit']) {
                 setResourceText(id, 'Unavailable');
@@ -580,8 +613,145 @@ document.addEventListener("DOMContentLoaded", function() {
             setResourceText('resource-sampled-at', 'Unavailable');
         }
     };
+    const svgElement = (name, attributes = {}, content = '') => {
+        const element = document.createElementNS('http://www.w3.org/2000/svg', name);
+        for (const [key, value] of Object.entries(attributes)) element.setAttribute(key, value);
+        if (content) element.textContent = content;
+        return element;
+    };
+    const latestValue = (samples, key) => {
+        for (let index = samples.length - 1; index >= 0; index--) {
+            const value = samples[index][key];
+            if (value !== null && value !== undefined) return Number(value);
+        }
+        return null;
+    };
+    const renderResourceChart = (svg, samples, options) => {
+        svg.replaceChildren();
+        const width = 800;
+        const height = 220;
+        const padding = {left: 62, right: 18, top: 14, bottom: 30};
+        const plotWidth = width - padding.left - padding.right;
+        const plotHeight = height - padding.top - padding.bottom;
+        const times = samples.map(sample => new Date(sample.timestamp).getTime());
+        const values = samples
+            .map(sample => sample[options.valueKey])
+            .filter(value => value !== null && value !== undefined)
+            .map(Number);
+        const references = options.references
+            .map(reference => ({...reference, value: latestValue(samples, reference.key)}))
+            .filter(reference => reference.value !== null);
+        const maximum = Math.max(1, ...values, ...references.map(reference => reference.value)) * 1.08;
+        const minimumTime = times.length ? Math.min(...times) : Date.now() - 3600000;
+        const maximumTime = times.length ? Math.max(...times) : Date.now();
+        const duration = Math.max(1, maximumTime - minimumTime);
+        const x = timestamp => padding.left + ((timestamp - minimumTime) / duration) * plotWidth;
+        const y = value => padding.top + plotHeight - (value / maximum) * plotHeight;
+
+        svg.appendChild(svgElement('rect', {
+            x: padding.left, y: padding.top, width: plotWidth, height: plotHeight,
+            fill: 'none', stroke: 'currentColor', opacity: '0.18'
+        }));
+        for (let line = 0; line <= 4; line++) {
+            const value = maximum * (line / 4);
+            const lineY = y(value);
+            svg.appendChild(svgElement('line', {
+                x1: padding.left, x2: width - padding.right, y1: lineY, y2: lineY,
+                stroke: 'currentColor', opacity: '0.10'
+            }));
+            svg.appendChild(svgElement('text', {
+                x: padding.left - 8, y: lineY + 4, 'text-anchor': 'end',
+                fill: 'currentColor', opacity: '0.68', 'font-size': '11'
+            }, options.format(value)));
+        }
+
+        samples.forEach((sample, index) => {
+            if (sample.running) return;
+            const current = times[index];
+            const previous = index > 0 ? (times[index - 1] + current) / 2 : minimumTime;
+            const next = index < times.length - 1 ? (current + times[index + 1]) / 2 : maximumTime;
+            svg.appendChild(svgElement('rect', {
+                x: x(previous), y: padding.top, width: Math.max(1, x(next) - x(previous)),
+                height: plotHeight, fill: '#dc3545', opacity: '0.09'
+            }));
+        });
+
+        for (const reference of references) {
+            const lineY = y(reference.value);
+            svg.appendChild(svgElement('line', {
+                x1: padding.left, x2: width - padding.right, y1: lineY, y2: lineY,
+                stroke: reference.color, 'stroke-width': '1.5', 'stroke-dasharray': '7 5', opacity: '0.8'
+            }));
+            svg.appendChild(svgElement('text', {
+                x: width - padding.right - 3, y: Math.max(padding.top + 11, lineY - 4),
+                'text-anchor': 'end', fill: reference.color, 'font-size': '11'
+            }, `${reference.label} ${options.format(reference.value)}`));
+        }
+
+        let segment = [];
+        const flushSegment = () => {
+            if (!segment.length) return;
+            svg.appendChild(svgElement('polyline', {
+                points: segment.join(' '), fill: 'none', stroke: options.color,
+                'stroke-width': '2.5', 'stroke-linejoin': 'round', 'stroke-linecap': 'round'
+            }));
+            segment = [];
+        };
+        samples.forEach((sample, index) => {
+            const value = sample[options.valueKey];
+            if (!sample.running || value === null || value === undefined) {
+                flushSegment();
+                return;
+            }
+            segment.push(`${x(times[index]).toFixed(1)},${y(Number(value)).toFixed(1)}`);
+        });
+        flushSegment();
+
+        const startLabel = new Date(minimumTime).toLocaleString([], {hour: '2-digit', minute: '2-digit', month: 'short', day: 'numeric'});
+        const endLabel = new Date(maximumTime).toLocaleString([], {hour: '2-digit', minute: '2-digit', month: 'short', day: 'numeric'});
+        svg.appendChild(svgElement('text', {
+            x: padding.left, y: height - 8, fill: 'currentColor', opacity: '0.68', 'font-size': '11'
+        }, startLabel));
+        svg.appendChild(svgElement('text', {
+            x: width - padding.right, y: height - 8, 'text-anchor': 'end',
+            fill: 'currentColor', opacity: '0.68', 'font-size': '11'
+        }, endLabel));
+        return values.length > 0;
+    };
+    const loadResourceHistory = async () => {
+        const feedback = document.getElementById('resource-history-feedback');
+        const range = document.getElementById('resource-history-range');
+        try {
+            const response = await fetch(`/api/agents/${encodeURIComponent(serverName)}/resources/history?hours=${encodeURIComponent(range.value)}&points=800`);
+            if (!response.ok) throw new Error(response.statusText);
+            const samples = await response.json();
+            const cpuData = renderResourceChart(document.getElementById('resource-cpu-chart'), samples, {
+                valueKey: 'cpuPercent', color: '#0d6efd', format: value => `${value.toFixed(0)}%`,
+                references: [{key: 'cpuLimitPercent', label: 'Limit', color: '#6c757d'}]
+            });
+            const memoryData = renderResourceChart(document.getElementById('resource-memory-chart'), samples, {
+                valueKey: 'memoryCurrentBytes', color: '#198754', format: value => formatBytes(value, 1),
+                references: [
+                    {key: 'memoryHighBytes', label: 'Soft limit', color: '#fd7e14'},
+                    {key: 'memoryLimitBytes', label: 'Limit', color: '#6c757d'}
+                ]
+            });
+            if (!samples.length) {
+                feedback.textContent = 'Collecting resource history. The first sample will appear shortly.';
+            } else if (!cpuData && !memoryData) {
+                feedback.textContent = 'No running samples in this range. Shaded periods indicate the service was stopped.';
+            } else {
+                feedback.textContent = `${samples.length} samples shown.`;
+            }
+        } catch (error) {
+            feedback.textContent = `Resource history is unavailable: ${error.message}`;
+        }
+    };
     loadResourceUsage();
+    loadResourceHistory();
+    document.getElementById('resource-history-range').addEventListener('change', loadResourceHistory);
     window.setInterval(loadResourceUsage, 15000);
+    window.setInterval(loadResourceHistory, 60000);
     {{end}}
 
     {{if and (not .FilesPage) .Authenticated .PteroLink}}
