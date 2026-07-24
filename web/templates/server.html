@@ -19,8 +19,8 @@
     {{.Server.Name}}
     <span class="game-badge ms-1" style="{{gameBadgeCSS .Server.GameType}}; font-size:0.45em;">{{.Server.GameType | gameIcon}}{{.Server.GameType | gameDisplayName}}</span>
   </h1>
-  <nav class="flex-grow-1 overflow-x-auto" aria-label="Server sections">
-    <div class="nav nav-tabs flex-nowrap border-bottom-0">
+  <nav class="flex-grow-1" aria-label="Server sections">
+    <div class="nav nav-tabs border-bottom-0">
       <a class="nav-link {{if eq .Page "dashboard"}}active{{end}}" href="/{{.Server.Name}}">Dashboard</a>
       {{if .ShowConsole}}<a class="nav-link {{if eq .Page "console"}}active{{end}}" href="/servers/{{.Server.Name}}/console">Console</a>{{end}}
       {{if .ShowFiles}}<a class="nav-link {{if eq .Page "files"}}active{{end}}" href="/servers/{{.Server.Name}}/files">Files</a>{{end}}

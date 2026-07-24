@@ -542,8 +542,6 @@ func (h *WebHandler) renderServerPage(w http.ResponseWriter, r *http.Request, pa
 		}
 	}
 	if page == "files" {
-		data.ShowConsole = false
-		data.ConsoleWrite = false
 		if !data.ShowFiles {
 			http.Error(w, "File access denied", http.StatusForbidden)
 			return

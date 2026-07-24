@@ -559,6 +559,9 @@ func TestServerDetailAndFilesHonorCapabilities(t *testing.T) {
 	if !contains(files.Body.String(), `id="file-browser-card"`) {
 		t.Fatal("dedicated file page did not render its browser")
 	}
+	if !contains(files.Body.String(), `/servers/CapabilitySrv/console`) {
+		t.Fatal("console tab disappeared from the file page")
+	}
 	if contains(files.Body.String(), `id="console-output"`) || contains(files.Body.String(), "Server Info") {
 		t.Fatal("dedicated file page rendered server console or sidebar")
 	}
@@ -596,6 +599,9 @@ func TestServerTabsAndAccessPage(t *testing.T) {
 	}
 	if count := strings.Count(body, `class="server-status-poller`); count != 1 {
 		t.Fatalf("server status rendered %d times, want once in the section bar", count)
+	}
+	if contains(body, "overflow-x-auto") || contains(body, "flex-nowrap") {
+		t.Fatal("server tab bar forces horizontal scrolling")
 	}
 	for _, tab := range []string{"Dashboard", "Console", "Files", "Whitelist", "Access", "Backups"} {
 		if !contains(body, ">"+tab+"</a>") {
