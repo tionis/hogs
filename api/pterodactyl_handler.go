@@ -469,6 +469,9 @@ func (h *PterodactylHandler) WhitelistSet(w http.ResponseWriter, r *http.Request
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 		defer cancel()
+		if !whitelistBackendReady(w, ctx, b) {
+			return
+		}
 		if err := b.SendCommand(ctx, removeCmd); err != nil {
 			http.Error(w, fmt.Sprintf("%s whitelist removal failed: %s", b.Name(), err.Error()), http.StatusInternalServerError)
 			return
@@ -494,6 +497,35 @@ func (h *PterodactylHandler) WhitelistSet(w http.ResponseWriter, r *http.Request
 		http.Error(w, "Whitelist not supported for game type: "+server.GameType, http.StatusBadRequest)
 		return
 	}
+	if existing != nil && existing.Username == username {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok", "message": "already whitelisted"})
+		return
+	}
+
+	b, bErr := h.resolveBackend(server, link)
+	if bErr != nil {
+		http.Error(w, bErr.Error(), http.StatusServiceUnavailable)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+	if !whitelistBackendReady(w, ctx, b) {
+		return
+	}
+
+	if existing != nil && existing.Username != "" {
+		removeCmd := whitelistRemoveCommand(server.GameType, existing.Username)
+		if removeCmd != "" {
+			b.SendCommand(ctx, removeCmd)
+		}
+	}
+
+	if err := b.SendCommand(ctx, addCmd); err != nil {
+		http.Error(w, fmt.Sprintf("%s whitelist failed: %s", b.Name(), err.Error()), http.StatusInternalServerError)
+		return
+	}
+
 	if identity == nil || identity.Username != username {
 		if err := h.Store.SetGameIdentity(&database.GameIdentity{
 			UserEmail: userEmail, GameType: server.GameType, Username: username, Source: "self",
@@ -502,41 +534,6 @@ func (h *PterodactylHandler) WhitelistSet(w http.ResponseWriter, r *http.Request
 			return
 		}
 	}
-
-	if existing != nil && existing.Username == username {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"status": "ok", "message": "already whitelisted"})
-		return
-	}
-
-	if existing != nil && existing.Username != "" {
-		removeCmd := whitelistRemoveCommand(server.GameType, existing.Username)
-		if removeCmd != "" {
-			b, bErr := h.resolveBackend(server, link)
-			if bErr != nil {
-				http.Error(w, bErr.Error(), http.StatusServiceUnavailable)
-				return
-			}
-			ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
-			defer cancel()
-			b.SendCommand(ctx, removeCmd)
-		}
-	}
-
-	b, bErr := h.resolveBackend(server, link)
-	if bErr != nil {
-		http.Error(w, bErr.Error(), http.StatusServiceUnavailable)
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
-	defer cancel()
-
-	if err := b.SendCommand(ctx, addCmd); err != nil {
-		http.Error(w, fmt.Sprintf("%s whitelist failed: %s", b.Name(), err.Error()), http.StatusInternalServerError)
-		return
-	}
-
 	if err := h.Store.SetUserWhitelist(userEmail, server.ID, username); err != nil {
 		http.Error(w, "Failed to save whitelist entry", http.StatusInternalServerError)
 		return
@@ -591,6 +588,9 @@ func (h *PterodactylHandler) AdminWhitelist(w http.ResponseWriter, r *http.Reque
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
+	if !whitelistBackendReady(w, ctx, backend) {
+		return
+	}
 
 	if r.Method == http.MethodGet {
 		output := ""
@@ -644,6 +644,19 @@ func (h *PterodactylHandler) AdminWhitelist(w http.ResponseWriter, r *http.Reque
 	_ = json.NewEncoder(w).Encode(map[string]string{
 		"status": "ok", "message": fmt.Sprintf("%s was %s the whitelist", username, verb),
 	})
+}
+
+func whitelistBackendReady(w http.ResponseWriter, ctx context.Context, backend backend.Backend) bool {
+	status, err := backend.Status(ctx)
+	if err != nil {
+		http.Error(w, "Could not determine whether the game server is running. Try again shortly.", http.StatusServiceUnavailable)
+		return false
+	}
+	if status == nil || !status.Online {
+		http.Error(w, "The game server is stopped. Start it before managing the whitelist.", http.StatusConflict)
+		return false
+	}
+	return true
 }
 
 func (h *PterodactylHandler) WhitelistStatus(w http.ResponseWriter, r *http.Request) {
