@@ -365,6 +365,8 @@ func TestServerDetailRendersAuthenticatedResourceUsage(t *testing.T) {
 		"CPU usage uses 100% per processor core",
 		"Resource history", "resource-cpu-chart", "resource-memory-chart",
 		"/resources/history?", "Not running", "Stopped periods are shaded",
+		"windowStart = windowEnd - rangeHours * 60 * 60 * 1000",
+		"window.setInterval(loadResourceHistory, 15000)",
 	} {
 		if !contains(w.Body.String(), expected) {
 			t.Errorf("expected resource UI to contain %q", expected)

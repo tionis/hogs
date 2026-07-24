@@ -642,8 +642,8 @@ document.addEventListener("DOMContentLoaded", function() {
             .map(reference => ({...reference, value: latestValue(samples, reference.key)}))
             .filter(reference => reference.value !== null);
         const maximum = Math.max(1, ...values, ...references.map(reference => reference.value)) * 1.08;
-        const minimumTime = times.length ? Math.min(...times) : Date.now() - 3600000;
-        const maximumTime = times.length ? Math.max(...times) : Date.now();
+        const minimumTime = options.windowStart;
+        const maximumTime = options.windowEnd;
         const duration = Math.max(1, maximumTime - minimumTime);
         const x = timestamp => padding.left + ((timestamp - minimumTime) / duration) * plotWidth;
         const y = value => padding.top + plotHeight - (value / maximum) * plotHeight;
@@ -722,15 +722,25 @@ document.addEventListener("DOMContentLoaded", function() {
         const feedback = document.getElementById('resource-history-feedback');
         const range = document.getElementById('resource-history-range');
         try {
-            const response = await fetch(`/api/agents/${encodeURIComponent(serverName)}/resources/history?hours=${encodeURIComponent(range.value)}&points=800`);
+            const rangeHours = Number(range.value);
+            const windowEnd = Date.now();
+            const windowStart = windowEnd - rangeHours * 60 * 60 * 1000;
+            const response = await fetch(`/api/agents/${encodeURIComponent(serverName)}/resources/history?hours=${encodeURIComponent(rangeHours)}&points=800`, {
+                cache: 'no-store'
+            });
             if (!response.ok) throw new Error(response.statusText);
-            const samples = await response.json();
+            const samples = (await response.json()).filter(sample => {
+                const timestamp = new Date(sample.timestamp).getTime();
+                return timestamp >= windowStart && timestamp <= windowEnd;
+            });
             const cpuData = renderResourceChart(document.getElementById('resource-cpu-chart'), samples, {
                 valueKey: 'cpuPercent', color: '#0d6efd', format: value => `${value.toFixed(0)}%`,
+                windowStart, windowEnd,
                 references: [{key: 'cpuLimitPercent', label: 'Limit', color: '#6c757d'}]
             });
             const memoryData = renderResourceChart(document.getElementById('resource-memory-chart'), samples, {
                 valueKey: 'memoryCurrentBytes', color: '#198754', format: value => formatBytes(value, 1),
+                windowStart, windowEnd,
                 references: [
                     {key: 'memoryHighBytes', label: 'Soft limit', color: '#fd7e14'},
                     {key: 'memoryLimitBytes', label: 'Limit', color: '#6c757d'}
@@ -751,7 +761,7 @@ document.addEventListener("DOMContentLoaded", function() {
     loadResourceHistory();
     document.getElementById('resource-history-range').addEventListener('change', loadResourceHistory);
     window.setInterval(loadResourceUsage, 15000);
-    window.setInterval(loadResourceHistory, 60000);
+    window.setInterval(loadResourceHistory, 15000);
     {{end}}
 
     {{if and (not .FilesPage) .Authenticated .PteroLink}}
