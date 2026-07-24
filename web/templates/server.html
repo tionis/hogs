@@ -329,18 +329,28 @@
          {{if .Server.Address}}<li class="list-group-item metadata-list-item">
             <strong>Connect address</strong>
             <span class="metadata-value-with-action">
-              <code id="connect-address" class="metadata-value">{{.Server.Address}}</code>
-              <button type="button" class="btn btn-sm btn-outline-secondary py-0"
-                      data-copy-target="connect-address" onclick="copyServerAddress(this)">Copy</button>
+              <code id="connect-address" class="metadata-value connection-address">{{.Server.Address}}</code>
+              <button type="button" class="btn btn-sm btn-outline-secondary p-1 copy-address-button"
+                      data-copy-target="connect-address" onclick="copyServerAddress(this)"
+                      aria-label="Copy connect address" title="Copy connect address">
+                <svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <rect x="4.5" y="4.5" width="8" height="9" rx="1"></rect><path d="M6.5 4.5v-2h4v2M3.5 11.5h-1v-9h7v1"></path>
+                </svg>
+              </button>
             </span>
          </li>{{end}}
          {{with index .Server.Metadata "directAddress"}}
          <li class="list-group-item metadata-list-item">
            <strong>Direct fallback</strong>
            <span class="metadata-value-with-action">
-             <code id="direct-address" class="metadata-value">{{.}}</code>
-             <button type="button" class="btn btn-sm btn-outline-secondary py-0"
-                     data-copy-target="direct-address" onclick="copyServerAddress(this)">Copy</button>
+             <code id="direct-address" class="metadata-value connection-address">{{.}}</code>
+             <button type="button" class="btn btn-sm btn-outline-secondary p-1 copy-address-button"
+                     data-copy-target="direct-address" onclick="copyServerAddress(this)"
+                     aria-label="Copy direct fallback address" title="Copy direct fallback address">
+               <svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                 <rect x="4.5" y="4.5" width="8" height="9" rx="1"></rect><path d="M6.5 4.5v-2h4v2M3.5 11.5h-1v-9h7v1"></path>
+               </svg>
+             </button>
            </span>
          </li>
          {{end}}
@@ -351,9 +361,11 @@
          {{if ne $k "api_token"}}
          {{if ne $k "rcon_password"}}
          {{if ne $k "directAddress"}}
+         {{if ne $k "map_lifecycle"}}
          <li class="list-group-item metadata-list-item">
             <strong class="metadata-value">{{$k}}</strong> <span class="metadata-value">{{$v}}</span>
          </li>
+         {{end}}
          {{end}}
          {{end}}
          {{end}}
@@ -422,14 +434,24 @@
 async function copyServerAddress(button) {
     const target = document.getElementById(button.dataset.copyTarget);
     if (!target) return;
-    const original = button.textContent;
+    const originalLabel = button.getAttribute('aria-label') || 'Copy address';
+    const originalTitle = button.title;
     try {
         await navigator.clipboard.writeText(target.textContent.trim());
-        button.textContent = 'Copied';
+        button.setAttribute('aria-label', 'Address copied');
+        button.title = 'Address copied';
+        button.classList.add('btn-success');
+        button.classList.remove('btn-outline-secondary');
     } catch (_) {
-        button.textContent = 'Copy failed';
+        button.setAttribute('aria-label', 'Copy failed');
+        button.title = 'Copy failed';
     }
-    window.setTimeout(() => { button.textContent = original; }, 1500);
+    window.setTimeout(() => {
+        button.setAttribute('aria-label', originalLabel);
+        button.title = originalTitle;
+        button.classList.remove('btn-success');
+        button.classList.add('btn-outline-secondary');
+    }, 1500);
 }
 
 async function runServerAction(action, button) {

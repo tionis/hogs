@@ -269,7 +269,11 @@ func TestServerDetailRenders(t *testing.T) {
 	handler, store, _ := testWebHandler(t)
 	store.CreateServer(&database.Server{
 		Name: "DetailSrv", GameType: "minecraft", State: "online", Address: "play.example.test",
-		Metadata: map[string]string{"directAddress": "node.example.test:25565"},
+		Metadata: map[string]string{
+			"directAddress": "node.example.test:25565",
+			"map_lifecycle": "independent",
+			"region":        "test-region",
+		},
 	})
 	grantPublicView(t, store, "DetailSrv")
 
@@ -292,7 +296,8 @@ func TestServerDetailRenders(t *testing.T) {
 	for _, expected := range []string{
 		"Connect address", "Direct fallback", `data-copy-target="connect-address"`,
 		`data-copy-target="direct-address"`, "copyServerAddress",
-		"metadata-list-item",
+		"metadata-list-item", "connection-address", "copy-address-button",
+		`aria-label="Copy connect address"`, "test-region",
 	} {
 		if !contains(body, expected) {
 			t.Errorf("expected address UI to contain %q", expected)
@@ -306,6 +311,9 @@ func TestServerDetailRenders(t *testing.T) {
 	}
 	if contains(body, "<strong>directAddress</strong>") || contains(body, "<span>Connect:</span>") {
 		t.Error("address metadata was also rendered through the generic or top-level UI")
+	}
+	if contains(body, "map_lifecycle") || contains(body, "independent") {
+		t.Error("internal map lifecycle metadata rendered in Server Info")
 	}
 }
 
