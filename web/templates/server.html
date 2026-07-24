@@ -557,6 +557,13 @@ document.addEventListener("DOMContentLoaded", function() {
         const digits = unit === 0 || amount >= 10 ? 0 : 1;
         return `${amount.toFixed(digits)} ${units[unit]}`;
     };
+    const formatPercentTick = (value, step) => {
+        const safeStep = Math.abs(Number(step));
+        const digits = safeStep >= 1 || !Number.isFinite(safeStep)
+            ? 0
+            : Math.min(3, Math.max(1, Math.ceil(-Math.log10(safeStep))));
+        return `${Number(value).toFixed(digits)}%`;
+    };
     const setResourceText = (id, value) => {
         const element = document.getElementById(id);
         if (element) element.textContent = value;
@@ -616,6 +623,7 @@ document.addEventListener("DOMContentLoaded", function() {
         const duration = Math.max(1, maximumTime - minimumTime);
         const x = timestamp => padding.left + ((timestamp - minimumTime) / duration) * plotWidth;
         const y = value => padding.top + plotHeight - (value / maximum) * plotHeight;
+        const tickStep = maximum / 4;
 
         svg.appendChild(svgElement('rect', {
             x: padding.left, y: padding.top, width: plotWidth, height: plotHeight,
@@ -631,7 +639,7 @@ document.addEventListener("DOMContentLoaded", function() {
             svg.appendChild(svgElement('text', {
                 x: padding.left - 8, y: lineY + 4, 'text-anchor': 'end',
                 fill: 'currentColor', opacity: '0.68', 'font-size': '11'
-            }, options.format(value)));
+            }, options.axisFormat ? options.axisFormat(value, tickStep) : options.format(value)));
         }
 
         samples.forEach((sample, index) => {
@@ -703,7 +711,8 @@ document.addEventListener("DOMContentLoaded", function() {
                 return timestamp >= windowStart && timestamp <= windowEnd;
             });
             const cpuData = renderResourceChart(document.getElementById('resource-cpu-chart'), samples, {
-                valueKey: 'cpuPercent', color: '#0d6efd', format: value => `${value.toFixed(0)}%`,
+                valueKey: 'cpuPercent', color: '#0d6efd', format: value => `${value.toFixed(1)}%`,
+                axisFormat: formatPercentTick,
                 windowStart, windowEnd,
                 references: [{key: 'cpuLimitPercent', label: 'Limit', color: '#6c757d'}]
             });

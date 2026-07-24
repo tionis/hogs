@@ -11,8 +11,8 @@ import (
 func ClientIP(r *http.Request, trustProxyHeaders bool) string {
 	if trustProxyHeaders {
 		for _, candidate := range []string{
-			r.Header.Get("CF-Connecting-IP"),
 			firstForwardedAddress(r.Header.Get("X-Forwarded-For")),
+			r.Header.Get("CF-Connecting-IP"),
 			r.Header.Get("X-Real-IP"),
 		} {
 			if ip := net.ParseIP(strings.TrimSpace(candidate)); ip != nil {

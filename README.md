@@ -147,6 +147,7 @@ The repository includes helper scripts for development/testing:
 | `HOGS_MAP_CACHE_DEFAULT_TTL_SEC` | `300` | Freshness used when the map backend supplies no cache lifetime. |
 | `HOGS_MAP_CACHE_STALE_TTL_SEC` | `86400` | How long an expired response may be retained and served when its backend fails. |
 | `HOGS_MAP_PROXY_ALLOWED_ORIGINS` | *(Empty)* | Comma-separated exact origins that the map proxy may access even when they use private addresses. |
+| `TRUST_PROXY_HEADERS` | `false` | Accept proxy-supplied client IP, country, and HTTPS headers. Enable only behind a trusted reverse proxy that overwrites `X-Forwarded-*` and removes untrusted provider/country headers. |
 
 ## Usage Guide
 
