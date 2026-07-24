@@ -415,8 +415,7 @@
 {{if .Authenticated}}
             {{if eq .UserRole "admin"}}<a href="/admin" class="btn btn-outline-light btn-sm">Admin</a>{{end}}
             {{if or (eq .UserRole "user") (eq .UserRole "admin")}}
-            <a href="/my-servers" class="btn btn-outline-light btn-sm">My Servers</a>
-            <a href="/account/game-identities#linked-game-accounts" class="btn btn-outline-light btn-sm">Linked Game Accounts</a>
+            <a href="/account/settings" class="btn btn-outline-light btn-sm">Settings</a>
             {{end}}
             <a href="/help" class="btn btn-outline-light btn-sm">Help</a>
             <a href="/logout" class="btn btn-outline-danger btn-sm">Logout</a>

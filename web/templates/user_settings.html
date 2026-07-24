@@ -1,0 +1,69 @@
+{{define "title"}}User Settings{{end}}
+
+{{define "content"}}
+<nav aria-label="breadcrumb">
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="/">Home</a></li>
+    <li class="breadcrumb-item active" aria-current="page">User Settings</li>
+  </ol>
+</nav>
+
+<div class="pt-2 pb-2 mb-4 border-bottom">
+  <h1 class="h2">User Settings</h1>
+  <p class="text-muted mb-0">Settings associated with your panel identity.</p>
+</div>
+
+<div class="card mb-4">
+  <div class="card-header">Panel Account</div>
+  <div class="card-body">
+    <dl class="row mb-0">
+      <dt class="col-sm-3">Email</dt>
+      <dd class="col-sm-9"><code>{{.UserEmail}}</code></dd>
+      <dt class="col-sm-3">Instance role</dt>
+      <dd class="col-sm-9 mb-0"><span class="badge bg-secondary">{{.UserRole}}</span></dd>
+    </dl>
+    <p class="small text-muted mt-3 mb-0">Your panel identity and role are supplied by the configured identity provider.</p>
+  </div>
+</div>
+
+<div class="card mb-4" id="linked-game-accounts">
+  <div class="card-header">Linked Game Accounts</div>
+  <div class="card-body">
+    <p class="text-muted">A linked identity is reused when you add yourself to a compatible server whitelist.</p>
+    {{if .Identities}}
+    <div class="list-group mb-4">
+      {{range .Identities}}
+      <div class="list-group-item d-flex align-items-center gap-3">
+        <span class="game-badge" style="{{gameBadgeCSS .GameType}}">{{.GameType | gameIcon}}{{.GameType | gameDisplayName}}</span>
+        <code>{{.Username}}</code>
+        <form action="/account/game-identities/delete" method="POST" class="ms-auto">
+          <input type="hidden" name="game_type" value="{{.GameType}}">
+          <button class="btn btn-sm btn-outline-danger" type="submit">Unlink</button>
+        </form>
+      </div>
+      {{end}}
+    </div>
+    {{else}}
+    <div class="alert alert-info">You have not linked any game accounts yet.</div>
+    {{end}}
+
+    <h6>Link or replace an account</h6>
+    <form action="/account/game-identities/set" method="POST" class="row g-2">
+      <div class="col-md-4">
+        <label class="form-label" for="identity-game-type">Game</label>
+        <select class="form-select" id="identity-game-type" name="game_type" required>
+          <option value="">Choose a game…</option>
+          {{range .GameTypes}}<option value="{{.}}">{{. | gameDisplayName}}</option>{{end}}
+        </select>
+      </div>
+      <div class="col-md-5">
+        <label class="form-label" for="identity-username">In-game username</label>
+        <input class="form-control" id="identity-username" name="username" required>
+      </div>
+      <div class="col-md-3 d-flex align-items-end">
+        <button class="btn btn-primary w-100" type="submit">Save linked account</button>
+      </div>
+    </form>
+  </div>
+</div>
+{{end}}

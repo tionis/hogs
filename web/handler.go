@@ -1301,7 +1301,7 @@ func (h *WebHandler) HandleGameIdentitySet(w http.ResponseWriter, r *http.Reques
 		http.Redirect(w, r, "/admin/users", http.StatusFound)
 		return
 	}
-	http.Redirect(w, r, "/my-servers", http.StatusFound)
+	http.Redirect(w, r, "/account/settings#linked-game-accounts", http.StatusFound)
 }
 
 func (h *WebHandler) HandleGameIdentityDelete(w http.ResponseWriter, r *http.Request) {
@@ -1323,7 +1323,7 @@ func (h *WebHandler) HandleGameIdentityDelete(w http.ResponseWriter, r *http.Req
 		http.Redirect(w, r, "/admin/users", http.StatusFound)
 		return
 	}
-	http.Redirect(w, r, "/my-servers", http.StatusFound)
+	http.Redirect(w, r, "/account/settings#linked-game-accounts", http.StatusFound)
 }
 
 func (h *WebHandler) HandleUserUpdate(w http.ResponseWriter, r *http.Request) {
@@ -1332,14 +1332,11 @@ func (h *WebHandler) HandleUserUpdate(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/admin/users", http.StatusFound)
 }
 
-type MyServerRow struct {
-	Server         database.Server
-	PteroLink      *database.PterodactylLink
-	PteroCommands  []database.PterodactylCommand
-	AllowedActions []string
+func (h *WebHandler) MyServers(w http.ResponseWriter, r *http.Request) {
+	http.Redirect(w, r, "/account/settings", http.StatusFound)
 }
 
-func (h *WebHandler) MyServers(w http.ResponseWriter, r *http.Request) {
+func (h *WebHandler) UserSettings(w http.ResponseWriter, r *http.Request) {
 	servers, err := h.Store.ListServers()
 	if err != nil {
 		http.Error(w, "Failed to load servers", http.StatusInternalServerError)
@@ -1347,59 +1344,30 @@ func (h *WebHandler) MyServers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	user := h.getUserEnv(r)
-	var rows []MyServerRow
-	for _, srv := range servers {
-		link, _ := h.Store.GetPterodactylLink(srv.ID)
-		if link == nil {
-			continue
-		}
-		var configuredActions []string
-		json.Unmarshal([]byte(link.AllowedActions), &configuredActions)
-		var actions []string
-		for _, action := range configuredActions {
-			allowed, evalErr := h.Engine.EvaluateACL(link, &srv, action, user)
-			if evalErr == nil && allowed {
-				actions = append(actions, action)
-			}
-		}
-		if len(actions) == 0 {
-			continue
-		}
-		commands, _ := h.Store.ListPterodactylCommands(srv.ID)
-		if commands == nil {
-			commands = []database.PterodactylCommand{}
-		}
-		rows = append(rows, MyServerRow{
-			Server:         srv,
-			PteroLink:      link,
-			PteroCommands:  commands,
-			AllowedActions: actions,
-		})
-	}
 	identities, _ := h.Store.ListGameIdentities(user.Email)
 	if identities == nil {
 		identities = []database.GameIdentity{}
 	}
 
 	data := struct {
-		Servers        []MyServerRow
 		Identities     []database.GameIdentity
 		GameTypes      []string
 		Authenticated  bool
 		UserRole       string
+		UserEmail      string
 		SiteName       string
 		BackgroundURLs BackgroundURLs
 	}{
-		Servers:        rows,
 		Identities:     identities,
 		GameTypes:      configuredGameTypes(servers),
 		Authenticated:  true,
 		UserRole:       h.userRole(r),
+		UserEmail:      user.Email,
 		SiteName:       h.siteName(),
 		BackgroundURLs: h.pickBackgrounds([]string{"home"}),
 	}
 
-	tmpl, err := template.New("base.html").Funcs(sharedFuncMap(h.Store)).ParseFS(templateFS, "templates/base.html", "templates/my_servers.html")
+	tmpl, err := template.New("base.html").Funcs(sharedFuncMap(h.Store)).ParseFS(templateFS, "templates/base.html", "templates/user_settings.html")
 	if err != nil {
 		http.Error(w, "Template error: "+err.Error(), http.StatusInternalServerError)
 		return

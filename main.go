@@ -339,7 +339,8 @@ func main() {
 		router.Handle("/api/pterodactyl/servers", authenticator.RequireRole("admin")(http.HandlerFunc(pteroHandler.ListPteroServers))).Methods("GET")
 
 		router.Handle("/my-servers", authenticator.RequireRole("admin", "user")(http.HandlerFunc(webHandler.MyServers))).Methods("GET")
-		router.Handle("/account/game-identities", authenticator.RequireRole("admin", "user")(http.HandlerFunc(webHandler.MyServers))).Methods("GET")
+		router.Handle("/account/settings", authenticator.RequireRole("admin", "user")(http.HandlerFunc(webHandler.UserSettings))).Methods("GET")
+		router.Handle("/account/game-identities", authenticator.RequireRole("admin", "user")(http.HandlerFunc(webHandler.UserSettings))).Methods("GET")
 		router.Handle("/account/game-identities/set", authenticator.RequireRole("admin", "user")(http.HandlerFunc(webHandler.HandleGameIdentitySet))).Methods("POST")
 		router.Handle("/account/game-identities/delete", authenticator.RequireRole("admin", "user")(http.HandlerFunc(webHandler.HandleGameIdentityDelete))).Methods("POST")
 

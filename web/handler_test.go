@@ -211,12 +211,50 @@ func TestAdminRoleFailureRendersForbiddenPage(t *testing.T) {
 	for _, want := range []string{
 		"You don&rsquo;t have access to this page",
 		"player@test.com",
-		"Go to My Servers",
 		"Browse Game Servers",
 	} {
 		if !contains(body, want) {
 			t.Errorf("expected forbidden page to contain %q", want)
 		}
+	}
+	if contains(body, "My Servers") {
+		t.Error("forbidden page still links to the retired My Servers view")
+	}
+}
+
+func TestUserSettingsContainsLinkedGameAccounts(t *testing.T) {
+	handler, store, authenticator := testWebHandler(t)
+	store.CreateServer(&database.Server{Name: "IdentitySrv", GameType: "minecraft", State: "online"})
+	if err := store.SetGameIdentity(&database.GameIdentity{
+		UserEmail: "player@example.test", GameType: "minecraft", Username: "TestPlayer", Source: "self",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	cookie := createTestSession(t, store, authenticator, "player@example.test", "user")
+	req := httptest.NewRequest(http.MethodGet, "/account/settings", nil)
+	req.AddCookie(cookie)
+	recorder := httptest.NewRecorder()
+	handler.UserSettings(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("settings status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	for _, expected := range []string{
+		"User Settings", "Panel Account", "Linked Game Accounts",
+		"player@example.test", "TestPlayer", `href="/account/settings"`,
+	} {
+		if !contains(recorder.Body.String(), expected) {
+			t.Errorf("user settings missing %q", expected)
+		}
+	}
+	if contains(recorder.Body.String(), "My Servers") {
+		t.Error("user settings still renders the retired My Servers navigation")
+	}
+
+	redirectReq := httptest.NewRequest(http.MethodGet, "/my-servers", nil)
+	redirectRecorder := httptest.NewRecorder()
+	handler.MyServers(redirectRecorder, redirectReq)
+	if redirectRecorder.Code != http.StatusFound || redirectRecorder.Header().Get("Location") != "/account/settings" {
+		t.Fatalf("My Servers redirect=%d %q", redirectRecorder.Code, redirectRecorder.Header().Get("Location"))
 	}
 }
 
