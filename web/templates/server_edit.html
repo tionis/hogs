@@ -401,13 +401,23 @@
   const whitelistForm = document.getElementById('admin-whitelist-form');
   const whitelistCurrent = document.getElementById('admin-whitelist-current');
   const whitelistFeedback = document.getElementById('admin-whitelist-feedback');
+  function whitelistSummary(body) {
+    const source = body.mode === 'offline' ? 'Saved whitelist (server stopped)' : 'Live whitelist';
+    if (Array.isArray(body.entries) && body.entries.length > 0) {
+      return `${source}: ${body.entries.map(entry => entry.name).join(', ')}`;
+    }
+    if (body.output) return `${source}: ${body.output}`;
+    return `${source}: no players`;
+  }
   async function refreshAdminWhitelist() {
     if (!whitelistForm) return;
     try {
       const response = await fetch('/admin/servers/{{.Server.Name}}/whitelist');
-      const body = await response.json();
+      const contentType = response.headers.get('content-type') || '';
+      const body = contentType.includes('application/json') ? await response.json() : {error: (await response.text()).trim()};
       if (!response.ok) throw new Error(body.error || response.statusText);
-      whitelistCurrent.textContent = body.output || 'The game server returned an empty whitelist.';
+      whitelistCurrent.className = 'small mb-3';
+      whitelistCurrent.textContent = whitelistSummary(body);
     } catch (error) {
       whitelistCurrent.className = 'small mb-3 text-danger';
       whitelistCurrent.textContent = 'Could not load the live whitelist: ' + error.message;

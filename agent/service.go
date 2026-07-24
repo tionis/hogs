@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -65,6 +66,45 @@ func (a *AgentBackend) Status(ctx context.Context) (*backend.ServerStatus, error
 	}
 	defer response.Body.Close()
 	return decodeBackendStatus(response.Body)
+}
+
+func (a *AgentBackend) Whitelist(ctx context.Context, request backend.WhitelistRequest) (*backend.WhitelistResult, error) {
+	method := http.MethodPost
+	var body io.Reader
+	if request.Operation == "list" {
+		method = http.MethodGet
+	} else {
+		encoded, err := json.Marshal(request)
+		if err != nil {
+			return nil, err
+		}
+		body = bytes.NewReader(encoded)
+	}
+	response, err := a.Manager.do(ctx, a.NodeName, method,
+		fmt.Sprintf("/v1/servers/%s/whitelist", url.PathEscape(a.ServerName)), body)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+	var envelope struct {
+		Success bool                    `json:"success"`
+		Data    backend.WhitelistResult `json:"data"`
+		Error   string                  `json:"error"`
+		Code    string                  `json:"code"`
+	}
+	if err := json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&envelope); err != nil {
+		return nil, fmt.Errorf("decode agent whitelist response: %w", err)
+	}
+	if response.StatusCode < 200 || response.StatusCode >= 300 || !envelope.Success {
+		if envelope.Error == "" {
+			envelope.Error = response.Status
+		}
+		return nil, &backend.WhitelistError{Code: envelope.Code, Message: envelope.Error}
+	}
+	if envelope.Data.Entries == nil {
+		envelope.Data.Entries = []backend.WhitelistEntry{}
+	}
+	return &envelope.Data, nil
 }
 
 func decodeBackendStatus(reader io.Reader) (*backend.ServerStatus, error) {

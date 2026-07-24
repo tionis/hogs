@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tionis/hogs/backend"
 	"github.com/tionis/hogs/gametypes"
 	"github.com/tionis/hogs/internal/capability"
 )
@@ -25,6 +26,8 @@ func agentAPI() http.Handler {
 	mux.HandleFunc("GET /v1/servers/{server}/status", withServer(handleStatus))
 	mux.HandleFunc("POST /v1/servers/{server}/actions/{action}", withServer(handleAction))
 	mux.HandleFunc("POST /v1/servers/{server}/command", withServer(handleCommand))
+	mux.HandleFunc("GET /v1/servers/{server}/whitelist", withServer(handleWhitelist))
+	mux.HandleFunc("POST /v1/servers/{server}/whitelist", withServer(handleWhitelist))
 	mux.HandleFunc("GET /v1/servers/{server}/console", withServer(handleConsole))
 	mux.HandleFunc("GET /v1/servers/{server}/files", withServer(handleFileList))
 	mux.HandleFunc("GET /v1/servers/{server}/file", withServer(handleFileRead))
@@ -139,8 +142,44 @@ func handleStatus(w http.ResponseWriter, r *http.Request, server *ServerConfig) 
 }
 
 func handleAction(w http.ResponseWriter, r *http.Request, server *ServerConfig) {
+	lock := serverOperationLock(server)
+	lock.Lock()
+	defer lock.Unlock()
 	result := executeAction(server, r.PathValue("action"))
 	writeOperationResult(w, result)
+}
+
+func handleWhitelist(w http.ResponseWriter, r *http.Request, server *ServerConfig) {
+	request := backend.WhitelistRequest{Operation: "list"}
+	if r.Method == http.MethodPost {
+		if !decodeJSON(w, r, &request) {
+			return
+		}
+	}
+	lock := serverOperationLock(server)
+	lock.Lock()
+	defer lock.Unlock()
+	result, operationErr := whitelistOperation(server, request)
+	if operationErr != nil {
+		status := http.StatusBadGateway
+		switch operationErr.Code {
+		case "invalid_operation", "invalid_identity":
+			status = http.StatusBadRequest
+		case "identity_required":
+			status = http.StatusUnprocessableEntity
+		case "server_started":
+			status = http.StatusConflict
+		case "status_unknown":
+			status = http.StatusServiceUnavailable
+		case "unsupported", "offline_unsupported":
+			status = http.StatusNotImplemented
+		}
+		writeJSONResponse(w, status, map[string]interface{}{
+			"success": false, "error": operationErr.Message, "code": operationErr.Code,
+		})
+		return
+	}
+	writeJSONResponse(w, http.StatusOK, map[string]interface{}{"success": true, "data": result})
 }
 
 func handleCommand(w http.ResponseWriter, r *http.Request, server *ServerConfig) {

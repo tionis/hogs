@@ -356,16 +356,17 @@ func (s *Store) ServerAccessAllowed(serverID int, email string, groups []string,
 }
 
 type GameIdentity struct {
-	ID        int    `json:"id"`
-	UserEmail string `json:"userEmail"`
-	GameType  string `json:"gameType"`
-	Username  string `json:"username"`
-	Source    string `json:"source"`
-	UpdatedAt string `json:"updatedAt"`
+	ID         int    `json:"id"`
+	UserEmail  string `json:"userEmail"`
+	GameType   string `json:"gameType"`
+	Username   string `json:"username"`
+	ExternalID string `json:"externalId,omitempty"`
+	Source     string `json:"source"`
+	UpdatedAt  string `json:"updatedAt"`
 }
 
 func (s *Store) ListGameIdentities(email string) ([]GameIdentity, error) {
-	query := "SELECT id,user_email,game_type,username,source,updated_at FROM game_identities"
+	query := "SELECT id,user_email,game_type,username,external_id,source,updated_at FROM game_identities"
 	var args []interface{}
 	if email != "" {
 		query += " WHERE user_email=?"
@@ -380,7 +381,7 @@ func (s *Store) ListGameIdentities(email string) ([]GameIdentity, error) {
 	var identities []GameIdentity
 	for rows.Next() {
 		var identity GameIdentity
-		if err := rows.Scan(&identity.ID, &identity.UserEmail, &identity.GameType, &identity.Username, &identity.Source, &identity.UpdatedAt); err != nil {
+		if err := rows.Scan(&identity.ID, &identity.UserEmail, &identity.GameType, &identity.Username, &identity.ExternalID, &identity.Source, &identity.UpdatedAt); err != nil {
 			return nil, err
 		}
 		identities = append(identities, identity)
@@ -389,10 +390,10 @@ func (s *Store) ListGameIdentities(email string) ([]GameIdentity, error) {
 }
 
 func (s *Store) GetGameIdentity(email, gameType string) (*GameIdentity, error) {
-	row := s.DB.QueryRow(`SELECT id,user_email,game_type,username,source,updated_at
+	row := s.DB.QueryRow(`SELECT id,user_email,game_type,username,external_id,source,updated_at
 		FROM game_identities WHERE user_email=? AND game_type=?`, email, gameType)
 	var identity GameIdentity
-	if err := row.Scan(&identity.ID, &identity.UserEmail, &identity.GameType, &identity.Username, &identity.Source, &identity.UpdatedAt); err != nil {
+	if err := row.Scan(&identity.ID, &identity.UserEmail, &identity.GameType, &identity.Username, &identity.ExternalID, &identity.Source, &identity.UpdatedAt); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
@@ -402,10 +403,11 @@ func (s *Store) GetGameIdentity(email, gameType string) (*GameIdentity, error) {
 }
 
 func (s *Store) SetGameIdentity(identity *GameIdentity) error {
-	_, err := s.DB.Exec(`INSERT INTO game_identities(user_email,game_type,username,source,updated_at)
-		VALUES(?,?,?,?,CURRENT_TIMESTAMP) ON CONFLICT(user_email,game_type)
-		DO UPDATE SET username=excluded.username,source=excluded.source,updated_at=CURRENT_TIMESTAMP`,
-		identity.UserEmail, identity.GameType, identity.Username, identity.Source)
+	_, err := s.DB.Exec(`INSERT INTO game_identities(user_email,game_type,username,external_id,source,updated_at)
+		VALUES(?,?,?,?,?,CURRENT_TIMESTAMP) ON CONFLICT(user_email,game_type)
+		DO UPDATE SET username=excluded.username,external_id=excluded.external_id,
+		source=excluded.source,updated_at=CURRENT_TIMESTAMP`,
+		identity.UserEmail, identity.GameType, identity.Username, identity.ExternalID, identity.Source)
 	return err
 }
 

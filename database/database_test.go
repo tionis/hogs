@@ -398,13 +398,14 @@ func TestGameIdentityAndServerCascade(t *testing.T) {
 		t.Fatal("CreateServer did not populate ID")
 	}
 	identity := &GameIdentity{
-		UserEmail: "player@example.test", GameType: "minecraft", Username: "PlayerOne", Source: "self",
+		UserEmail: "player@example.test", GameType: "minecraft", Username: "PlayerOne",
+		ExternalID: "123456781234123412341234567890ab", Source: "self",
 	}
 	if err := store.SetGameIdentity(identity); err != nil {
 		t.Fatal(err)
 	}
 	got, err := store.GetGameIdentity(identity.UserEmail, identity.GameType)
-	if err != nil || got == nil || got.Username != identity.Username {
+	if err != nil || got == nil || got.Username != identity.Username || got.ExternalID != identity.ExternalID {
 		t.Fatalf("identity=%#v err=%v", got, err)
 	}
 	if err := store.SetServerTags(server.ID, []string{"temporary"}); err != nil {

@@ -6,6 +6,8 @@
 package gametypes
 
 import (
+	"context"
+	"net/http"
 	"sort"
 	"strings"
 )
@@ -17,8 +19,14 @@ const (
 
 type PlayerStatusParser func(string) (players, maxPlayers int, known bool)
 type IdentityValidator func(string) bool
+type IdentityResolver func(context.Context, *http.Client, string) (ResolvedIdentity, error)
 type PlayerCommand func(string) string
 type ConsoleLineFilter func(string) bool
+
+type ResolvedIdentity struct {
+	Username   string
+	ExternalID string
+}
 
 type DetailField struct {
 	Key   string
@@ -29,6 +37,7 @@ type WhitelistDriver struct {
 	ListCommand   string
 	AddCommand    PlayerCommand
 	RemoveCommand PlayerCommand
+	OfflineFile   string
 }
 
 type Driver struct {
@@ -45,6 +54,7 @@ type Driver struct {
 	ParsePlayerStatus    PlayerStatusParser
 	VersionCommand       string
 	ValidateIdentity     IdentityValidator
+	ResolveIdentity      IdentityResolver
 	Whitelist            *WhitelistDriver
 	IsRoutineConsoleLine ConsoleLineFilter
 }

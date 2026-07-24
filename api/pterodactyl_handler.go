@@ -17,19 +17,45 @@ import (
 	"github.com/tionis/hogs/config"
 	"github.com/tionis/hogs/database"
 	"github.com/tionis/hogs/engine"
+	"github.com/tionis/hogs/gametypes"
 	"github.com/tionis/hogs/pterodactyl"
 )
 
 type PterodactylHandler struct {
-	Store        *database.Store
-	Config       *config.Config
-	Engine       *engine.Engine
-	AgentManager *agent.Manager
-	Auth         *auth.Authenticator
+	Store              *database.Store
+	Config             *config.Config
+	Engine             *engine.Engine
+	AgentManager       *agent.Manager
+	Auth               *auth.Authenticator
+	IdentityHTTPClient *http.Client
 }
 
 func NewPterodactylHandler(store *database.Store, cfg *config.Config, eng *engine.Engine, manager *agent.Manager, auth *auth.Authenticator) *PterodactylHandler {
-	return &PterodactylHandler{Store: store, Config: cfg, Engine: eng, AgentManager: manager, Auth: auth}
+	return &PterodactylHandler{
+		Store: store, Config: cfg, Engine: eng, AgentManager: manager, Auth: auth,
+		IdentityHTTPClient: &http.Client{Timeout: 10 * time.Second},
+	}
+}
+
+func (h *PterodactylHandler) structuredWhitelist(
+	ctx context.Context,
+	managed backend.WhitelistBackend,
+	driver gametypes.Driver,
+	request backend.WhitelistRequest,
+) (*backend.WhitelistResult, *gametypes.ResolvedIdentity, error) {
+	result, err := managed.Whitelist(ctx, request)
+	if err == nil || !backend.IsWhitelistError(err, "identity_required") ||
+		request.Operation != "add" || driver.ResolveIdentity == nil {
+		return result, nil, err
+	}
+	resolved, resolveErr := driver.ResolveIdentity(ctx, h.IdentityHTTPClient, request.Username)
+	if resolveErr != nil {
+		return nil, nil, resolveErr
+	}
+	request.Username = resolved.Username
+	request.ExternalID = resolved.ExternalID
+	result, err = managed.Whitelist(ctx, request)
+	return result, &resolved, err
 }
 
 func (h *PterodactylHandler) client() *pterodactyl.Client {
@@ -472,11 +498,18 @@ func (h *PterodactylHandler) WhitelistSet(w http.ResponseWriter, r *http.Request
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 		defer cancel()
-		if !whitelistBackendReady(w, ctx, b) {
+		var operationErr error
+		if managed, ok := b.(backend.WhitelistBackend); ok {
+			_, _, operationErr = h.structuredWhitelist(ctx, managed, driver, backend.WhitelistRequest{
+				Operation: "remove", Username: existing.Username,
+			})
+		} else if whitelistBackendReady(w, ctx, b) {
+			operationErr = b.SendCommand(ctx, removeCmd)
+		} else {
 			return
 		}
-		if err := b.SendCommand(ctx, removeCmd); err != nil {
-			http.Error(w, fmt.Sprintf("%s whitelist removal failed: %s", b.Name(), err.Error()), http.StatusInternalServerError)
+		if operationErr != nil {
+			http.Error(w, fmt.Sprintf("%s whitelist removal failed: %s", b.Name(), operationErr), http.StatusInternalServerError)
 			return
 		}
 		if err := h.Store.DeleteUserWhitelist(userEmail, server.ID); err != nil {
@@ -496,12 +529,6 @@ func (h *PterodactylHandler) WhitelistSet(w http.ResponseWriter, r *http.Request
 		return
 	}
 	addCmd := driver.Whitelist.AddCommand(username)
-	if existing != nil && existing.Username == username {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"status": "ok", "message": "already whitelisted"})
-		return
-	}
-
 	b, bErr := h.resolveBackend(server, link)
 	if bErr != nil {
 		http.Error(w, bErr.Error(), http.StatusServiceUnavailable)
@@ -509,25 +536,44 @@ func (h *PterodactylHandler) WhitelistSet(w http.ResponseWriter, r *http.Request
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
-	if !whitelistBackendReady(w, ctx, b) {
-		return
-	}
 
-	if existing != nil && existing.Username != "" {
-		removeCmd := driver.Whitelist.RemoveCommand(existing.Username)
-		if removeCmd != "" {
-			b.SendCommand(ctx, removeCmd)
+	externalID := ""
+	if identity != nil && identity.Username == username {
+		externalID = identity.ExternalID
+	}
+	var resolved *gametypes.ResolvedIdentity
+	var operationErr error
+	previousUsername := ""
+	if existing != nil && !strings.EqualFold(existing.Username, username) {
+		previousUsername = existing.Username
+	}
+	if managed, ok := b.(backend.WhitelistBackend); ok {
+		_, resolved, operationErr = h.structuredWhitelist(ctx, managed, driver, backend.WhitelistRequest{
+			Operation: "add", Username: username, PreviousUsername: previousUsername,
+			ExternalID: externalID,
+		})
+	} else {
+		if !whitelistBackendReady(w, ctx, b) {
+			return
+		}
+		operationErr = b.SendCommand(ctx, addCmd)
+		if operationErr == nil && previousUsername != "" {
+			operationErr = b.SendCommand(ctx, driver.Whitelist.RemoveCommand(previousUsername))
 		}
 	}
-
-	if err := b.SendCommand(ctx, addCmd); err != nil {
-		http.Error(w, fmt.Sprintf("%s whitelist failed: %s", b.Name(), err.Error()), http.StatusInternalServerError)
+	if operationErr != nil {
+		http.Error(w, fmt.Sprintf("%s whitelist failed: %s", b.Name(), operationErr), http.StatusInternalServerError)
 		return
 	}
+	if resolved != nil {
+		username = resolved.Username
+		externalID = resolved.ExternalID
+	}
 
-	if identity == nil || identity.Username != username {
+	if identity == nil || identity.Username != username || identity.ExternalID != externalID {
 		if err := h.Store.SetGameIdentity(&database.GameIdentity{
-			UserEmail: userEmail, GameType: server.GameType, Username: username, Source: "self",
+			UserEmail: userEmail, GameType: server.GameType, Username: username,
+			ExternalID: externalID, Source: "self",
 		}); err != nil {
 			http.Error(w, "Failed to save linked game identity", http.StatusInternalServerError)
 			return
@@ -581,33 +627,46 @@ func (h *PterodactylHandler) AdminWhitelist(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "Direct whitelist management is not available for this game type", http.StatusBadRequest)
 		return
 	}
-	backend, err := h.resolveBackend(server, link)
+	gameBackend, err := h.resolveBackend(server, link)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
-	if !whitelistBackendReady(w, ctx, backend) {
-		return
-	}
 
 	if r.Method == http.MethodGet {
 		output := ""
-		if resultBackend, ok := backend.(interface {
+		entries := []backend.WhitelistEntry{}
+		mode := "online"
+		if managed, ok := gameBackend.(backend.WhitelistBackend); ok {
+			result, _, listErr := h.structuredWhitelist(ctx, managed, driver, backend.WhitelistRequest{Operation: "list"})
+			err = listErr
+			if result != nil {
+				output, entries, mode = result.Output, result.Entries, result.Mode
+			}
+		} else if resultBackend, ok := gameBackend.(interface {
 			SendCommandOutput(context.Context, string) (string, error)
 		}); ok {
+			if !whitelistBackendReady(w, ctx, gameBackend) {
+				return
+			}
 			output, err = resultBackend.SendCommandOutput(ctx, driver.Whitelist.ListCommand)
 		} else {
-			err = backend.SendCommand(ctx, driver.Whitelist.ListCommand)
+			if !whitelistBackendReady(w, ctx, gameBackend) {
+				return
+			}
+			err = gameBackend.SendCommand(ctx, driver.Whitelist.ListCommand)
 		}
 		if err != nil {
-			http.Error(w, fmt.Sprintf("%s whitelist query failed: %s", backend.Name(), err), http.StatusBadGateway)
+			http.Error(w, fmt.Sprintf("%s whitelist query failed: %s", gameBackend.Name(), err), http.StatusBadGateway)
 			return
 		}
 		linked, _ := h.Store.ListUserWhitelists(server.ID)
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{"status": "ok", "output": output, "linked": linked})
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"status": "ok", "output": output, "entries": entries, "mode": mode, "linked": linked,
+		})
 		return
 	}
 
@@ -621,15 +680,38 @@ func (h *PterodactylHandler) AdminWhitelist(w http.ResponseWriter, r *http.Reque
 	if op == "remove" {
 		command = driver.Whitelist.RemoveCommand(username)
 	}
-	if err := backend.SendCommand(ctx, command); err != nil {
-		http.Error(w, fmt.Sprintf("%s whitelist %s failed: %s", backend.Name(), op, err), http.StatusBadGateway)
+	email := strings.TrimSpace(r.FormValue("user_email"))
+	externalID := ""
+	if email != "" && op == "add" {
+		if identity, _ := h.Store.GetGameIdentity(email, server.GameType); identity != nil &&
+			strings.EqualFold(identity.Username, username) {
+			externalID = identity.ExternalID
+		}
+	}
+	var resolved *gametypes.ResolvedIdentity
+	var operationErr error
+	if managed, ok := gameBackend.(backend.WhitelistBackend); ok {
+		_, resolved, operationErr = h.structuredWhitelist(ctx, managed, driver, backend.WhitelistRequest{
+			Operation: op, Username: username, ExternalID: externalID,
+		})
+	} else {
+		if !whitelistBackendReady(w, ctx, gameBackend) {
+			return
+		}
+		operationErr = gameBackend.SendCommand(ctx, command)
+	}
+	if operationErr != nil {
+		http.Error(w, fmt.Sprintf("%s whitelist %s failed: %s", gameBackend.Name(), op, operationErr), http.StatusBadGateway)
 		return
 	}
-	email := strings.TrimSpace(r.FormValue("user_email"))
+	if resolved != nil {
+		username, externalID = resolved.Username, resolved.ExternalID
+	}
 	if email != "" {
 		if op == "add" {
 			_ = h.Store.SetGameIdentity(&database.GameIdentity{
-				UserEmail: email, GameType: server.GameType, Username: username, Source: "admin",
+				UserEmail: email, GameType: server.GameType, Username: username,
+				ExternalID: externalID, Source: "admin",
 			})
 			_ = h.Store.SetUserWhitelist(email, server.ID, username)
 		} else if existing, _ := h.Store.GetUserWhitelist(email, server.ID); existing != nil && existing.Username == username {

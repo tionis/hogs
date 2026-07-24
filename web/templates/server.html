@@ -767,12 +767,20 @@ document.addEventListener("DOMContentLoaded", function() {
     const managedWhitelistCurrent = document.getElementById('managed-whitelist-current');
     const managedWhitelistFeedback = document.getElementById('managed-whitelist-feedback');
     const managedWhitelistForm = document.getElementById('managed-whitelist-form');
+    const whitelistSummary = result => {
+      const source = result.mode === 'offline' ? 'Saved whitelist (server stopped)' : 'Live whitelist';
+      if (Array.isArray(result.entries) && result.entries.length > 0) {
+        return `${source}: ${result.entries.map(entry => entry.name).join(', ')}`;
+      }
+      if (result.output) return `${source}: ${result.output}`;
+      return `${source}: no players`;
+    };
     const loadManagedWhitelist = async () => {
       try {
         const response = await fetch(managedWhitelistEndpoint);
         if (!response.ok) throw new Error((await response.text()) || `HTTP ${response.status}`);
         const result = await response.json();
-        managedWhitelistCurrent.textContent = result.output || 'The server returned an empty whitelist.';
+        managedWhitelistCurrent.textContent = whitelistSummary(result);
       } catch (error) {
         managedWhitelistCurrent.textContent = `Could not load the whitelist: ${error.message}`;
       }

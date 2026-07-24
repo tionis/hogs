@@ -1,0 +1,152 @@
+package main
+
+import (
+	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/tionis/hogs/backend"
+	"github.com/tionis/hogs/gametypes"
+)
+
+func minecraftWhitelistFixture(t *testing.T, onlineMode bool, contents string) *ServerConfig {
+	t.Helper()
+	previousState := whitelistServiceRunningState
+	whitelistServiceRunningState = func(string) (bool, error) { return false, nil }
+	t.Cleanup(func() { whitelistServiceRunningState = previousState })
+	dataDir := t.TempDir()
+	mode := "true"
+	if !onlineMode {
+		mode = "false"
+	}
+	if err := os.WriteFile(filepath.Join(dataDir, "server.properties"), []byte("online-mode="+mode+"\n"), 0640); err != nil {
+		t.Fatal(err)
+	}
+	if contents != "" {
+		if err := os.WriteFile(filepath.Join(dataDir, "whitelist.json"), []byte(contents), 0640); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return &ServerConfig{
+		Unit: "hogs-whitelist-test-does-not-exist.service", GameType: "minecraft", DataDir: dataDir,
+		Console: ConsoleConfig{Type: "rcon"},
+	}
+}
+
+func TestOfflineWhitelistAddRemoveAndList(t *testing.T) {
+	server := minecraftWhitelistFixture(t, true, `[{"uuid":"00000000-0000-0000-0000-000000000001","name":"Alex"}]`)
+	driver, _ := gametypes.Embedded("minecraft")
+	result, operationErr := offlineWhitelistOperation(server, driver, backend.WhitelistRequest{
+		Operation: "add", Username: "Steve", ExternalID: "123456781234123412341234567890ab",
+	})
+	if operationErr != nil {
+		t.Fatal(operationErr)
+	}
+	if result.Mode != "offline" || len(result.Entries) != 2 ||
+		result.Entries[1].UUID != "12345678-1234-1234-1234-1234567890ab" {
+		t.Fatalf("unexpected add result: %#v", result)
+	}
+	info, err := os.Stat(filepath.Join(server.DataDir, "whitelist.json"))
+	if err != nil || info.Mode().Perm() != 0640 {
+		t.Fatalf("whitelist permissions=%v err=%v", info.Mode().Perm(), err)
+	}
+
+	result, operationErr = offlineWhitelistOperation(server, driver, backend.WhitelistRequest{
+		Operation: "remove", Username: "alex",
+	})
+	if operationErr != nil || len(result.Entries) != 1 || result.Entries[0].Name != "Steve" {
+		t.Fatalf("unexpected remove result=%#v err=%v", result, operationErr)
+	}
+	raw, err := os.ReadFile(filepath.Join(server.DataDir, "whitelist.json"))
+	if err != nil || !json.Valid(raw) || strings.Contains(string(raw), "Alex") {
+		t.Fatalf("invalid persisted whitelist=%q err=%v", raw, err)
+	}
+}
+
+func TestOfflineWhitelistRequiresVerifiedOnlineModeUUID(t *testing.T) {
+	original := `[{"uuid":"00000000-0000-0000-0000-000000000001","name":"Alex"}]`
+	server := minecraftWhitelistFixture(t, true, original)
+	driver, _ := gametypes.Embedded("minecraft")
+	_, operationErr := offlineWhitelistOperation(server, driver, backend.WhitelistRequest{
+		Operation: "add", Username: "Steve",
+	})
+	if operationErr == nil || operationErr.Code != "identity_required" {
+		t.Fatalf("operation error=%#v, want identity_required", operationErr)
+	}
+	raw, err := os.ReadFile(filepath.Join(server.DataDir, "whitelist.json"))
+	if err != nil || string(raw) != original {
+		t.Fatalf("whitelist changed after rejected operation: %q err=%v", raw, err)
+	}
+}
+
+func TestOfflineWhitelistReplacesPreviousIdentityInOneWrite(t *testing.T) {
+	server := minecraftWhitelistFixture(t, true, `[{"uuid":"00000000-0000-0000-0000-000000000001","name":"OldName"}]`)
+	driver, _ := gametypes.Embedded("minecraft")
+	result, operationErr := offlineWhitelistOperation(server, driver, backend.WhitelistRequest{
+		Operation: "add", Username: "NewName", PreviousUsername: "OldName",
+		ExternalID: "123456781234123412341234567890ab",
+	})
+	if operationErr != nil || len(result.Entries) != 1 || result.Entries[0].Name != "NewName" {
+		t.Fatalf("replacement result=%#v err=%v", result, operationErr)
+	}
+}
+
+func TestOfflineModeWhitelistDerivesMinecraftUUID(t *testing.T) {
+	server := minecraftWhitelistFixture(t, false, "")
+	driver, _ := gametypes.Embedded("minecraft")
+	result, operationErr := offlineWhitelistOperation(server, driver, backend.WhitelistRequest{
+		Operation: "add", Username: "Notch",
+	})
+	if operationErr != nil {
+		t.Fatal(operationErr)
+	}
+	if len(result.Entries) != 1 || result.Entries[0].UUID != "b50ad385-829d-3141-a216-7e7d7539ba7f" {
+		t.Fatalf("unexpected offline profile: %#v", result.Entries)
+	}
+}
+
+func TestMalformedOfflineWhitelistIsNeverOverwritten(t *testing.T) {
+	server := minecraftWhitelistFixture(t, true, `{not-json`)
+	driver, _ := gametypes.Embedded("minecraft")
+	_, operationErr := offlineWhitelistOperation(server, driver, backend.WhitelistRequest{
+		Operation: "remove", Username: "Alex",
+	})
+	if operationErr == nil || operationErr.Code != "read_failed" {
+		t.Fatalf("operation error=%#v, want read_failed", operationErr)
+	}
+	raw, err := os.ReadFile(filepath.Join(server.DataDir, "whitelist.json"))
+	if err != nil || string(raw) != `{not-json` {
+		t.Fatalf("malformed whitelist was overwritten: %q err=%v", raw, err)
+	}
+}
+
+func TestWhitelistFailsClosedWhenServiceStateIsUnknown(t *testing.T) {
+	server := minecraftWhitelistFixture(t, true, `[]`)
+	whitelistServiceRunningState = func(string) (bool, error) {
+		return false, errors.New("systemd unavailable")
+	}
+	_, operationErr := whitelistOperation(server, backend.WhitelistRequest{Operation: "list"})
+	if operationErr == nil || operationErr.Code != "status_unknown" {
+		t.Fatalf("operation error=%#v, want status_unknown", operationErr)
+	}
+}
+
+func TestOfflineWhitelistAbortsIfServerStartsBeforeReplace(t *testing.T) {
+	original := `[]`
+	server := minecraftWhitelistFixture(t, true, original)
+	whitelistServiceRunningState = func(string) (bool, error) { return true, nil }
+	driver, _ := gametypes.Embedded("minecraft")
+	_, operationErr := offlineWhitelistOperation(server, driver, backend.WhitelistRequest{
+		Operation: "add", Username: "Steve", ExternalID: "123456781234123412341234567890ab",
+	})
+	if operationErr == nil || operationErr.Code != "server_started" {
+		t.Fatalf("operation error=%#v, want server_started", operationErr)
+	}
+	raw, err := os.ReadFile(filepath.Join(server.DataDir, "whitelist.json"))
+	if err != nil || string(raw) != original {
+		t.Fatalf("whitelist changed after start race: %q err=%v", raw, err)
+	}
+}

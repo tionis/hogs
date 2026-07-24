@@ -249,10 +249,21 @@ func sortedServerNames() []string {
 
 func agentCapabilities() []string {
 	capabilities := []string{"start", "stop", "restart", "command", "console", "status", "file"}
+	hasWhitelist := false
+	hasBackup := false
 	for _, server := range agentConfig.Servers {
-		if server.Backup.EnvironmentFile != "" {
-			return append(capabilities, "backup")
+		if driver, ok := gametypes.Embedded(server.GameType); ok && driver.SupportsWhitelist() {
+			hasWhitelist = true
 		}
+		if server.Backup.EnvironmentFile != "" {
+			hasBackup = true
+		}
+	}
+	if hasWhitelist {
+		capabilities = append(capabilities, "whitelist")
+	}
+	if hasBackup {
+		capabilities = append(capabilities, "backup")
 	}
 	return capabilities
 }

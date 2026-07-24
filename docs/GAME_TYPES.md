@@ -4,7 +4,8 @@ HOGS separates common server management from optional game-specific behavior.
 Lifecycle actions, console access, files, backups, resource metrics, maps, and
 access control are generic. A game driver may add protocol status queries,
 RCON-based player and version discovery, identity validation, whitelist
-commands, console-line filtering, and dashboard detail fields.
+commands and offline storage, profile resolution, console-line filtering, and
+dashboard detail fields.
 
 ## Kinds and availability
 
@@ -33,6 +34,12 @@ executable.
    forward migration for databases that already exist.
 4. Add driver and protocol tests. Generic and disabled resolution must remain
    free of all specialized hooks.
+
+Minecraft's embedded driver declares both its RCON commands and
+`whitelist.json` storage. The worker selects the online or offline backend from
+the managed systemd unit state; callers do not implement separate stopped-server
+logic. Verified external identity IDs are stored with linked game identities so
+future offline changes do not require another profile lookup.
 
 Callers should use `Store.ResolveGameDriver`; they must not infer special
 behavior from `Server.GameType` directly.

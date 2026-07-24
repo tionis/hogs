@@ -1,6 +1,18 @@
 package gametypes
 
-import "testing"
+import (
+	"context"
+	"io"
+	"net/http"
+	"strings"
+	"testing"
+)
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return f(request)
+}
 
 func TestResolveRequiresEnabledEmbeddedKind(t *testing.T) {
 	enabled := Resolve("minecraft", KindEmbedded, true)
@@ -24,6 +36,25 @@ func TestResolveRequiresEnabledEmbeddedKind(t *testing.T) {
 				t.Fatalf("unexpected specialized behavior: %#v", driver)
 			}
 		})
+	}
+}
+
+func TestMinecraftIdentityResolverValidatesOfficialProfile(t *testing.T) {
+	driver, _ := Embedded("minecraft")
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if request.URL.Host != "api.minecraftservices.com" || !strings.HasSuffix(request.URL.Path, "/TestPlayer") {
+			t.Fatalf("unexpected profile request: %s", request.URL)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK, Status: "200 OK",
+			Body:   io.NopCloser(strings.NewReader(`{"id":"123456781234123412341234567890ab","name":"TestPlayer"}`)),
+			Header: make(http.Header),
+		}, nil
+	})}
+	resolved, err := driver.ResolveIdentity(context.Background(), client, "TestPlayer")
+	if err != nil || resolved.Username != "TestPlayer" ||
+		resolved.ExternalID != "123456781234123412341234567890ab" {
+		t.Fatalf("resolved=%#v err=%v", resolved, err)
 	}
 }
 

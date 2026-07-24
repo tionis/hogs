@@ -1,7 +1,12 @@
 package gametypes
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -9,6 +14,44 @@ import (
 
 var minecraftPlayerCount = regexp.MustCompile(`(?i)there are\s+(\d+)\s+of a max of\s+(\d+)\s+players online`)
 var minecraftUsername = regexp.MustCompile(`^[a-zA-Z0-9_]{3,16}$`)
+var minecraftUUID = regexp.MustCompile(`^[0-9a-fA-F]{32}$`)
+
+func resolveMinecraftIdentity(ctx context.Context, client *http.Client, username string) (ResolvedIdentity, error) {
+	if !minecraftUsername.MatchString(username) {
+		return ResolvedIdentity{}, fmt.Errorf("invalid Minecraft username")
+	}
+	if client == nil {
+		client = http.DefaultClient
+	}
+	endpoint := "https://api.minecraftservices.com/minecraft/profile/lookup/name/" + url.PathEscape(username)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return ResolvedIdentity{}, err
+	}
+	response, err := client.Do(request)
+	if err != nil {
+		return ResolvedIdentity{}, fmt.Errorf("resolve Minecraft profile: %w", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode == http.StatusNotFound || response.StatusCode == http.StatusNoContent {
+		return ResolvedIdentity{}, fmt.Errorf("Minecraft account %q was not found", username)
+	}
+	if response.StatusCode != http.StatusOK {
+		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 64<<10))
+		return ResolvedIdentity{}, fmt.Errorf("Minecraft profile service returned %s", response.Status)
+	}
+	var profile struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(io.LimitReader(response.Body, 64<<10)).Decode(&profile); err != nil {
+		return ResolvedIdentity{}, fmt.Errorf("decode Minecraft profile: %w", err)
+	}
+	if !minecraftUsername.MatchString(profile.Name) || !minecraftUUID.MatchString(profile.ID) {
+		return ResolvedIdentity{}, fmt.Errorf("Minecraft profile service returned an invalid profile")
+	}
+	return ResolvedIdentity{Username: profile.Name, ExternalID: strings.ToLower(profile.ID)}, nil
+}
 
 func init() {
 	Register(Driver{
@@ -30,10 +73,12 @@ func init() {
 			return players, maxPlayers, err == nil
 		},
 		ValidateIdentity: minecraftUsername.MatchString,
+		ResolveIdentity:  resolveMinecraftIdentity,
 		Whitelist: &WhitelistDriver{
 			ListCommand:   "whitelist list",
 			AddCommand:    func(player string) string { return fmt.Sprintf("whitelist add %s", player) },
 			RemoveCommand: func(player string) string { return fmt.Sprintf("whitelist remove %s", player) },
+			OfflineFile:   "whitelist.json",
 		},
 		IsRoutineConsoleLine: func(line string) bool {
 			return strings.Contains(line, "Thread RCON Client /") &&

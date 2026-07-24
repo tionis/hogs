@@ -189,6 +189,11 @@ func (h *AccessHandler) SetGameIdentity(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "Invalid username for game type", http.StatusBadRequest)
 		return
 	}
+	identity.ExternalID = ""
+	if existing, _ := h.Store.GetGameIdentity(identity.UserEmail, identity.GameType); existing != nil &&
+		strings.EqualFold(existing.Username, identity.Username) {
+		identity.ExternalID = existing.ExternalID
+	}
 	if err := h.Store.SetGameIdentity(&identity); err != nil {
 		http.Error(w, "Failed to save game identity", http.StatusInternalServerError)
 		return

@@ -1315,8 +1315,14 @@ func (h *WebHandler) HandleGameIdentitySet(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "Invalid game identity", http.StatusBadRequest)
 		return
 	}
+	externalID := ""
+	if existing, _ := h.Store.GetGameIdentity(email, gameType); existing != nil &&
+		strings.EqualFold(existing.Username, username) {
+		externalID = existing.ExternalID
+	}
 	if err := h.Store.SetGameIdentity(&database.GameIdentity{
-		UserEmail: email, GameType: gameType, Username: username, Source: source,
+		UserEmail: email, GameType: gameType, Username: username,
+		ExternalID: externalID, Source: source,
 	}); err != nil {
 		http.Error(w, "Failed to save game identity", http.StatusInternalServerError)
 		return
