@@ -282,7 +282,13 @@ func TestUserSettingsContainsLinkedGameAccounts(t *testing.T) {
 
 func TestHomeRenders(t *testing.T) {
 	handler, store, _ := testWebHandler(t)
-	store.CreateServer(&database.Server{Name: "PublicSrv", GameType: "minecraft", State: "online"})
+	store.CreateServer(&database.Server{
+		Name: "PublicSrv", GameType: "minecraft", State: "online",
+		Metadata: map[string]string{
+			"directAddress": "node.example.test:25565",
+			"region":        "test-region",
+		},
+	})
 	grantPublicView(t, store, "PublicSrv")
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -295,6 +301,12 @@ func TestHomeRenders(t *testing.T) {
 	}
 	if !contains(w.Body.String(), "PublicSrv") {
 		t.Error("expected home page to contain server name")
+	}
+	if contains(w.Body.String(), "node.example.test:25565") {
+		t.Error("home page renders the direct fallback address")
+	}
+	if !contains(w.Body.String(), "test-region") {
+		t.Error("home page omitted ordinary server metadata")
 	}
 }
 

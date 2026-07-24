@@ -46,7 +46,7 @@
           {{if .Metadata}}
           <div class="mb-3">
             {{range $k, $v := .Metadata}}
-              {{if ne $k "map_lifecycle"}}
+              {{if and (ne $k "map_lifecycle") (ne $k "directAddress")}}
               <span class="badge metadata-badge me-1 mb-1" style="background: var(--badge-bg); color: var(--badge-text);" title="{{$k}}">{{$k}}: {{$v}}</span>
               {{end}}
             {{end}}
