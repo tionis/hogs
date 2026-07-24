@@ -435,6 +435,7 @@ func TestServerDetailRendersAuthenticatedResourceUsage(t *testing.T) {
 		"/resources/history?", "Not running", "Stopped periods are shaded",
 		"windowStart = windowEnd - rangeHours * 60 * 60 * 1000",
 		"window.setInterval(loadResourceHistory, 15000)",
+		`<option value="1" selected>Last hour</option>`,
 	} {
 		if !contains(w.Body.String(), expected) {
 			t.Errorf("expected resource UI to contain %q", expected)
