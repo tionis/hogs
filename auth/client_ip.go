@@ -31,6 +31,22 @@ func ClientIP(r *http.Request, trustProxyHeaders bool) string {
 	return ""
 }
 
+// ClientCountry returns an ISO 3166-1 alpha-2 code supplied by a trusted edge.
+// HOGS does not accept country assertions directly from untrusted clients.
+func ClientCountry(r *http.Request, trustProxyHeaders bool) string {
+	if !trustProxyHeaders {
+		return ""
+	}
+	for _, header := range []string{"CF-IPCountry", "CDN-Country-Code", "X-Country-Code"} {
+		country := strings.ToUpper(strings.TrimSpace(r.Header.Get(header)))
+		if len(country) == 2 && country[0] >= 'A' && country[0] <= 'Z' &&
+			country[1] >= 'A' && country[1] <= 'Z' {
+			return country
+		}
+	}
+	return ""
+}
+
 func firstForwardedAddress(value string) string {
 	if index := strings.IndexByte(value, ','); index >= 0 {
 		return value[:index]

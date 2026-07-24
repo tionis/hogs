@@ -509,6 +509,8 @@ func (h *AutomationHandler) TestConstraint(w http.ResponseWriter, r *http.Reques
 		"countRunning": engine.CountRunning,
 		"filterByTag":  engine.FilterByTag,
 		"weekday":      engine.ParseWeekday,
+		"ipInCIDR":     engine.IPInCIDR,
+		"ipInAnyCIDR":  engine.IPInAnyCIDR,
 	}
 
 	result, err := h.Engine.TestExpression(req.Condition, env)

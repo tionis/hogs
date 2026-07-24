@@ -636,8 +636,14 @@ func TestConstraintManagerRenders(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Errorf("expected status 200, got %d: %s", w.Code, w.Body.String())
 	}
-	if !contains(w.Body.String(), "Constraint Tester") {
-		t.Error("expected constraint manager to contain tester section")
+	for _, expected := range []string{
+		"Constraint Tester", "user.ClientIP", "user.CountryCode",
+		"ipInCIDR", "ipInAnyCIDR", "TRUST_PROXY_HEADERS",
+		`id="test-user-client-ip"`, `id="test-user-country"`,
+	} {
+		if !contains(w.Body.String(), expected) {
+			t.Errorf("constraint manager missing %q", expected)
+		}
 	}
 }
 

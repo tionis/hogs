@@ -25,9 +25,13 @@ const (
 	managedStatus        managedCapability = access.Status
 )
 
-func userEnvFromRequest(store *database.Store, authenticator *auth.Authenticator, r *http.Request) *engine.UserEnv {
+func userEnvFromRequest(store *database.Store, authenticator *auth.Authenticator, r *http.Request, trustProxyHeaders ...bool) *engine.UserEnv {
+	trustProxy := len(trustProxyHeaders) > 0 && trustProxyHeaders[0]
 	if key := auth.GetAPIKeyFromContext(r); key != nil {
-		return &engine.UserEnv{Email: "api-key:" + key.Name, Role: key.Role, Groups: []string{}}
+		return &engine.UserEnv{
+			Email: "api-key:" + key.Name, Role: key.Role, Groups: []string{},
+			ClientIP: auth.ClientIP(r, trustProxy), CountryCode: auth.ClientCountry(r, trustProxy),
+		}
 	}
 	email := "anonymous"
 	role := "user"
@@ -52,7 +56,10 @@ func userEnvFromRequest(store *database.Store, authenticator *auth.Authenticator
 			}
 		}
 	}
-	return &engine.UserEnv{Email: email, Role: role, Groups: groups}
+	return &engine.UserEnv{
+		Email: email, Role: role, Groups: groups,
+		ClientIP: auth.ClientIP(r, trustProxy), CountryCode: auth.ClientCountry(r, trustProxy),
+	}
 }
 
 func authorizeManagedCapability(store *database.Store, eng *engine.Engine, authenticator *auth.Authenticator, r *http.Request, serverName string, capability managedCapability) (*database.Server, *engine.UserEnv, int, error) {
@@ -91,7 +98,8 @@ func authorizeManagedCapability(store *database.Store, eng *engine.Engine, authe
 		// Status is available for every managed server, subject to operator and ACL checks below.
 	}
 
-	user := userEnvFromRequest(store, authenticator, r)
+	trustProxy := eng != nil && eng.Config != nil && eng.Config.TrustProxyHeaders
+	user := userEnvFromRequest(store, authenticator, r, trustProxy)
 	if user.Role != "admin" {
 		decision, accessErr := store.EvaluateServerAccess(server.ID, user.Email, user.Groups, string(capability))
 		if accessErr != nil {

@@ -27,3 +27,14 @@ func TestClientIPRejectsInvalidForwardedAddress(t *testing.T) {
 		t.Fatalf("fallback address = %q", got)
 	}
 }
+
+func TestClientCountryRequiresTrustedProxy(t *testing.T) {
+	request := httptest.NewRequest("GET", "/", nil)
+	request.Header.Set("CDN-Country-Code", "de")
+	if got := ClientCountry(request, false); got != "" {
+		t.Fatalf("untrusted country = %q", got)
+	}
+	if got := ClientCountry(request, true); got != "DE" {
+		t.Fatalf("trusted country = %q", got)
+	}
+}

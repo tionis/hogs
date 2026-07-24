@@ -350,9 +350,7 @@ func (h *PterodactylHandler) resolveBackend(server *database.Server, link *datab
 }
 
 func (h *PterodactylHandler) getUserEnv(r *http.Request) *engine.UserEnv {
-	user := userEnvFromRequest(h.Store, h.Auth, r)
-	user.ClientIP = auth.ClientIP(r, h.Config != nil && h.Config.TrustProxyHeaders)
-	return user
+	return userEnvFromRequest(h.Store, h.Auth, r, h.Config != nil && h.Config.TrustProxyHeaders)
 }
 
 func (h *PterodactylHandler) SendCommand(w http.ResponseWriter, r *http.Request) {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/netip"
 	"regexp"
 	"strconv"
 	"time"
@@ -132,12 +133,14 @@ func (e *Engine) buildEnv(server *database.Server, user *UserEnv) (map[string]in
 	}
 
 	env := map[string]interface{}{
-		"server":  serverEnv,
-		"servers": serverEnvs,
-		"user":    user,
-		"time":    timeEnv,
-		"hasTag":  func(s ServerEnv, tag string) bool { return HasTag(s, tag) },
-		"inList":  func(item string, list []string) bool { return InList(list, item) },
+		"server":      serverEnv,
+		"servers":     serverEnvs,
+		"user":        user,
+		"time":        timeEnv,
+		"hasTag":      func(s ServerEnv, tag string) bool { return HasTag(s, tag) },
+		"inList":      func(item string, list []string) bool { return InList(list, item) },
+		"ipInCIDR":    IPInCIDR,
+		"ipInAnyCIDR": IPInAnyCIDR,
 		"serversOnNode": func(node string) []ServerEnv {
 			return filterByNode(serverEnvs, node)
 		},
@@ -150,6 +153,27 @@ func (e *Engine) buildEnv(server *database.Server, user *UserEnv) (map[string]in
 	}
 
 	return env, nil
+}
+
+func IPInCIDR(address, prefix string) bool {
+	ip, err := netip.ParseAddr(address)
+	if err != nil {
+		return false
+	}
+	network, err := netip.ParsePrefix(prefix)
+	if err != nil {
+		return false
+	}
+	return network.Contains(ip)
+}
+
+func IPInAnyCIDR(address string, prefixes []string) bool {
+	for _, prefix := range prefixes {
+		if IPInCIDR(address, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func HasTag(s ServerEnv, tag string) bool {

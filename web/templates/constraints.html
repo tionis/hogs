@@ -35,6 +35,8 @@
             <tr><td><code>user.Email</code></td><td><code>string</code></td><td>Requesting user's email</td></tr>
             <tr><td><code>user.Role</code></td><td><code>string</code></td><td>User role (<code>admin</code> or <code>user</code>)</td></tr>
             <tr><td><code>user.Groups</code></td><td><code>[]string</code></td><td>User's SCIM groups</td></tr>
+            <tr><td><code>user.ClientIP</code></td><td><code>string</code></td><td>Normalized client IPv4 or IPv6 address; empty when unavailable</td></tr>
+            <tr><td><code>user.CountryCode</code></td><td><code>string</code></td><td>Trusted edge-provided ISO country code; empty when unavailable</td></tr>
             <tr><td><code>time.Hour</code></td><td><code>int</code></td><td>Current hour (0-23)</td></tr>
             <tr><td><code>time.Weekday</code></td><td><code>time.Weekday</code></td><td>Current weekday</td></tr>
             <tr><td><code>action</code></td><td><code>string</code></td><td>The requested action (start, stop, restart, view, ...)</td></tr>
@@ -49,6 +51,8 @@
           <tbody>
             <tr><td><code>hasTag</code></td><td><code>(server, string) bool</code></td><td>Check if server has a tag</td></tr>
             <tr><td><code>inList</code></td><td><code>(item string, []string) bool</code></td><td>Check if item is in a list</td></tr>
+            <tr><td><code>ipInCIDR</code></td><td><code>(address string, prefix string) bool</code></td><td>Check an IPv4 or IPv6 address against one CIDR prefix; invalid or missing input is false</td></tr>
+            <tr><td><code>ipInAnyCIDR</code></td><td><code>(address string, []string) bool</code></td><td>Check an address against any configured CIDR prefix</td></tr>
             <tr><td><code>serversOnNode</code></td><td><code>(node string) []ServerEnv</code></td><td>Get all servers on a node</td></tr>
             <tr><td><code>runningOnNode</code></td><td><code>(node string) []ServerEnv</code></td><td>Get running servers on a node</td></tr>
             <tr><td><code>countRunning</code></td><td><code>([]ServerEnv) int</code></td><td>Count running servers in a list</td></tr>
@@ -84,7 +88,19 @@ user.Role != "admin" && server.GameType != "minecraft"
 action == "view" && user.Email != "anonymous"
 
 # Only show server to admins or members of the "beta-testers" group
-action == "view" && (user.Role == "admin" || inList("beta-testers", user.Groups))</code></pre>
+action == "view" && (user.Role == "admin" || inList("beta-testers", user.Groups))
+
+# Restrict a tagged server to trusted network ranges
+!hasTag(server, "private") || ipInAnyCIDR(user.ClientIP, ["192.0.2.0/24", "2001:db8::/32"])
+
+# Restrict a tagged server to selected countries; missing country fails closed
+!hasTag(server, "regional") || inList(user.CountryCode, ["DE", "AT", "CH"])</code></pre>
+      <div class="alert alert-warning small mb-0">
+        Forwarded IP and country headers are accepted only when <code>TRUST_PROXY_HEADERS=true</code>.
+        Country enforcement requires a trusted edge to set <code>CF-IPCountry</code>,
+        <code>CDN-Country-Code</code>, or <code>X-Country-Code</code>; HOGS does not trust
+        browser-supplied location headers or download an implicit GeoIP database.
+      </div>
     </div>
   </div>
 </div>
@@ -181,6 +197,16 @@ action == "view" && (user.Role == "admin" || inList("beta-testers", user.Groups)
               <option value="factorio">Factorio</option>
               <option value="valheim">Valheim</option>
             </select>
+          </div>
+        </div>
+        <div class="row">
+          <div class="col-md-8 mb-3">
+            <label class="form-label">Client IP</label>
+            <input type="text" class="form-control form-control-sm" id="test-user-client-ip" value="198.51.100.42">
+          </div>
+          <div class="col-md-4 mb-3">
+            <label class="form-label">Country code</label>
+            <input type="text" class="form-control form-control-sm" id="test-user-country" value="DE" maxlength="2">
           </div>
         </div>
         <div class="row">
@@ -309,7 +335,9 @@ async function testConstraint() {
     user: {
       Email: document.getElementById('test-user-email').value,
       Role: document.getElementById('test-user-role').value,
-      Groups: groups
+      Groups: groups,
+      ClientIP: document.getElementById('test-user-client-ip').value,
+      CountryCode: document.getElementById('test-user-country').value.trim().toUpperCase()
     }
   };
 

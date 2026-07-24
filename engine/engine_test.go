@@ -688,6 +688,23 @@ func TestParamsToJSON(t *testing.T) {
 	}
 }
 
+func TestIPConstraintHelpers(t *testing.T) {
+	if !IPInCIDR("198.51.100.42", "198.51.100.0/24") {
+		t.Fatal("expected IPv4 address in prefix")
+	}
+	if IPInCIDR("198.51.101.42", "198.51.100.0/24") {
+		t.Fatal("unexpected IPv4 address in prefix")
+	}
+	if !IPInAnyCIDR("2001:db8::42", []string{"192.0.2.0/24", "2001:db8::/32"}) {
+		t.Fatal("expected IPv6 address in one configured prefix")
+	}
+	for _, invalid := range [][2]string{{"", "198.51.100.0/24"}, {"198.51.100.42", "invalid"}} {
+		if IPInCIDR(invalid[0], invalid[1]) {
+			t.Fatalf("invalid input unexpectedly matched: %q %q", invalid[0], invalid[1])
+		}
+	}
+}
+
 func TestSourceDetection(t *testing.T) {
 	eng := testEngine(t)
 	store := eng.Store
