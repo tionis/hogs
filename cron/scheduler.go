@@ -95,9 +95,9 @@ func (s *Scheduler) addJobInternal(job database.CronJob) error {
 }
 
 func (s *Scheduler) executeJob(job database.CronJob, params map[string]string, user *engine.UserEnv) {
-	server, err := s.Store.GetServerByName(job.ServerName)
+	server, err := s.Store.GetServer(job.ServerID)
 	if err != nil || server == nil {
-		log.Printf("Cron job %q: server %q not found", job.Name, job.ServerName)
+		log.Printf("Cron job %q: server ID %d not found", job.Name, job.ServerID)
 		return
 	}
 

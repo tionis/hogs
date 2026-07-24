@@ -108,8 +108,8 @@
           </div>
           {{end}}
           <div class="mb-3">
-            <label for="addName" class="form-label">Name (Unique ID)</label>
-            <input type="text" class="form-control" id="addName" name="name" required pattern="[a-zA-Z0-9_-]+" title="Alphanumeric, dashes, underscores only">
+            <label for="addName" class="form-label">Display Name</label>
+            <input type="text" class="form-control" id="addName" name="name" required maxlength="120">
           </div>
           <div class="mb-3">
             <label for="addAddress" class="form-label">Server Address</label>

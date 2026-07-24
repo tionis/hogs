@@ -101,7 +101,7 @@ type Manager struct {
 	nodes     map[string]ManagedNode
 	mu        sync.RWMutex
 	seen      map[string]time.Time
-	resources map[string]ResourceStatus
+	resources map[int]ResourceStatus
 	ctx       context.Context
 	cancel    context.CancelFunc
 	store     *database.Store
@@ -168,7 +168,7 @@ func NewManager(configPath string, store *database.Store) (*Manager, error) {
 			ResponseHeaderTimeout: 30 * time.Second,
 		}},
 		nodes: nodes, seen: make(map[string]time.Time),
-		resources: make(map[string]ResourceStatus), cancel: cancel,
+		resources: make(map[int]ResourceStatus), cancel: cancel,
 		ctx: ctx, store: store,
 	}
 	go manager.healthLoop(ctx)
@@ -244,9 +244,9 @@ func (m *Manager) ConnectedNode(node string) bool {
 	return !last.IsZero() && time.Since(last) < 30*time.Second
 }
 
-func (m *Manager) ServerResources(serverName string) (ResourceStatus, bool) {
+func (m *Manager) ServerResources(serverID int) (ResourceStatus, bool) {
 	m.mu.RLock()
-	resources, found := m.resources[serverName]
+	resources, found := m.resources[serverID]
 	m.mu.RUnlock()
 	return resources, found && time.Since(resources.SampledAt) < 30*time.Second
 }
@@ -303,9 +303,9 @@ func (m *Manager) pollStatuses(ctx context.Context, store *database.Store, cache
 			}
 			response, err := m.do(requestCtx, node, http.MethodGet,
 				fmt.Sprintf("/v1/servers/%s/status?driver=%s",
-					url.PathEscape(server.Name), url.QueryEscape(driverHint)), nil)
+					url.PathEscape(server.ManagementID), url.QueryEscape(driverHint)), nil)
 			if err != nil {
-				cache.SetAgentObservation(server.Name, &query.ServerStatus{
+				cache.SetAgentObservation(server.ManagementID, &query.ServerStatus{
 					Online: false, LastUpdated: time.Now(), Error: err.Error(),
 				})
 				return
@@ -325,10 +325,10 @@ func (m *Manager) pollStatuses(ctx context.Context, store *database.Store, cache
 			if status.Resources != nil {
 				status.Resources.Running = status.Online
 				m.mu.Lock()
-				m.resources[server.Name] = *status.Resources
+				m.resources[server.ID] = *status.Resources
 				m.mu.Unlock()
 				if err := store.CreateServerResourceSample(&database.ServerResourceSample{
-					ServerName: server.Name, Timestamp: status.Resources.SampledAt,
+					ServerID: server.ID, Timestamp: status.Resources.SampledAt,
 					Running: status.Online, CPUPercent: status.Resources.CPUPercent,
 					CPULimitPercent:    status.Resources.CPULimitPercent,
 					MemoryCurrentBytes: status.Resources.MemoryCurrent,
@@ -339,7 +339,7 @@ func (m *Manager) pollStatuses(ctx context.Context, store *database.Store, cache
 					log.Printf("store resource sample for %s: %v", server.Name, err)
 				}
 			}
-			cache.SetAgentObservation(server.Name, &query.ServerStatus{
+			cache.SetAgentObservation(server.ManagementID, &query.ServerStatus{
 				Online: status.Online, Players: status.Players, MaxPlayers: status.MaxPlayers,
 				PlayersKnown: status.PlayersKnown, Version: status.Version, LastUpdated: time.Now(),
 			})

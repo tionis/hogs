@@ -8,7 +8,7 @@ import (
 
 type ServerResourceSample struct {
 	ID                 int       `json:"id"`
-	ServerName         string    `json:"serverName"`
+	ServerID           int       `json:"serverId"`
 	Timestamp          time.Time `json:"timestamp"`
 	Running            bool      `json:"running"`
 	CPUPercent         *float64  `json:"cpuPercent,omitempty"`
@@ -25,10 +25,10 @@ func (s *Store) CreateServerResourceSample(sample *ServerResourceSample) error {
 		running = 1
 	}
 	result, err := s.DB.Exec(`INSERT INTO server_resource_samples (
-		server_name, timestamp, running, cpu_percent, cpu_limit_percent,
+		server_id, timestamp, running, cpu_percent, cpu_limit_percent,
 		memory_current_bytes, memory_peak_bytes, memory_high_bytes, memory_limit_bytes
 	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		sample.ServerName, sample.Timestamp.UTC().Format(time.RFC3339Nano), running,
+		sample.ServerID, sample.Timestamp.UTC().Format(time.RFC3339Nano), running,
 		sample.CPUPercent, sample.CPULimitPercent, sample.MemoryCurrentBytes,
 		sample.MemoryPeakBytes, sample.MemoryHighBytes, sample.MemoryLimitBytes,
 	)
@@ -40,17 +40,17 @@ func (s *Store) CreateServerResourceSample(sample *ServerResourceSample) error {
 	return nil
 }
 
-func (s *Store) ListServerResourceSamples(serverName string, since time.Time, maxPoints int) ([]ServerResourceSample, error) {
+func (s *Store) ListServerResourceSamples(serverID int, since time.Time, maxPoints int) ([]ServerResourceSample, error) {
 	if maxPoints <= 0 {
 		maxPoints = 800
 	}
-	rows, err := s.DB.Query(`SELECT id, server_name, timestamp, running, cpu_percent,
+	rows, err := s.DB.Query(`SELECT id, server_id, timestamp, running, cpu_percent,
 		cpu_limit_percent, memory_current_bytes, memory_peak_bytes, memory_high_bytes,
 		memory_limit_bytes
 		FROM server_resource_samples
-		WHERE server_name = ? AND timestamp >= ?
+		WHERE server_id = ? AND timestamp >= ?
 		ORDER BY timestamp ASC`,
-		serverName, since.UTC().Format(time.RFC3339Nano))
+		serverID, since.UTC().Format(time.RFC3339Nano))
 	if err != nil {
 		return nil, err
 	}
@@ -64,7 +64,7 @@ func (s *Store) ListServerResourceSamples(serverName string, since time.Time, ma
 		var cpu, cpuLimit sql.NullFloat64
 		var memoryCurrent, memoryPeak, memoryHigh, memoryLimit sql.NullInt64
 		if err := rows.Scan(
-			&sample.ID, &sample.ServerName, &timestamp, &running, &cpu, &cpuLimit,
+			&sample.ID, &sample.ServerID, &timestamp, &running, &cpu, &cpuLimit,
 			&memoryCurrent, &memoryPeak, &memoryHigh, &memoryLimit,
 		); err != nil {
 			return nil, err

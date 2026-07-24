@@ -595,11 +595,11 @@ func TestEvaluateConstraintsCanRequireKnownEmptyServer(t *testing.T) {
 	if result, err := eng.EvaluateConstraints(server, "stop", user); err != nil || result.Allowed {
 		t.Fatalf("unknown player state should block stop: result=%#v err=%v", result, err)
 	}
-	eng.Cache.Set("test", &query.ServerStatus{Online: true, Players: 0, MaxPlayers: 20, PlayersKnown: true})
+	eng.Cache.Set(server.ManagementID, &query.ServerStatus{Online: true, Players: 0, MaxPlayers: 20, PlayersKnown: true})
 	if result, err := eng.EvaluateConstraints(server, "stop", user); err != nil || !result.Allowed {
 		t.Fatalf("known empty server should allow stop: result=%#v err=%v", result, err)
 	}
-	eng.Cache.Set("test", &query.ServerStatus{Online: true, Players: 1, MaxPlayers: 20, PlayersKnown: true})
+	eng.Cache.Set(server.ManagementID, &query.ServerStatus{Online: true, Players: 1, MaxPlayers: 20, PlayersKnown: true})
 	if result, err := eng.EvaluateConstraints(server, "stop", user); err != nil || result.Allowed {
 		t.Fatalf("occupied server should block stop: result=%#v err=%v", result, err)
 	}

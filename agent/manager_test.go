@@ -10,18 +10,18 @@ import (
 )
 
 func TestServerResourcesRejectsStaleObservations(t *testing.T) {
-	manager := &Manager{resources: map[string]ResourceStatus{
-		"fresh": {SampledAt: time.Now().Add(-5 * time.Second)},
-		"stale": {SampledAt: time.Now().Add(-time.Minute)},
+	manager := &Manager{resources: map[int]ResourceStatus{
+		1: {SampledAt: time.Now().Add(-5 * time.Second)},
+		2: {SampledAt: time.Now().Add(-time.Minute)},
 	}}
 
-	if _, found := manager.ServerResources("fresh"); !found {
+	if _, found := manager.ServerResources(1); !found {
 		t.Fatal("fresh resource observation was rejected")
 	}
-	if _, found := manager.ServerResources("stale"); found {
+	if _, found := manager.ServerResources(2); found {
 		t.Fatal("stale resource observation was accepted")
 	}
-	if _, found := manager.ServerResources("missing"); found {
+	if _, found := manager.ServerResources(3); found {
 		t.Fatal("missing resource observation was accepted")
 	}
 }

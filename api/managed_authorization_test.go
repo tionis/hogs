@@ -213,10 +213,11 @@ func TestManagedStatusAllowsConfiguredOperator(t *testing.T) {
 
 func TestManagedResourceHistoryUsesStatusCapability(t *testing.T) {
 	store, authenticator, eng := managedAuthorizationFixture(t, []string{"game-moderators"}, `true`)
+	server, _ := store.GetServerByName("managed-test")
 	cpu := 25.0
 	memory := uint64(256 << 20)
 	if err := store.CreateServerResourceSample(&database.ServerResourceSample{
-		ServerName: "managed-test", Timestamp: time.Now(), Running: true,
+		ServerID: server.ID, Timestamp: time.Now(), Running: true,
 		CPUPercent: &cpu, MemoryCurrentBytes: &memory,
 	}); err != nil {
 		t.Fatal(err)

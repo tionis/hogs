@@ -15,7 +15,7 @@ type cacheEntry struct {
 	Timestamp time.Time
 }
 
-type StatusChangeCallback func(serverName string, oldStatus, newStatus *ServerStatus)
+type StatusChangeCallback func(serverID string, oldStatus, newStatus *ServerStatus)
 
 type ServerStatusCache struct {
 	mu       sync.RWMutex
@@ -35,11 +35,11 @@ func (c *ServerStatusCache) SetOnChange(cb StatusChangeCallback) {
 	c.onChange = cb
 }
 
-func (c *ServerStatusCache) Get(serverName string) (*ServerStatus, bool) {
+func (c *ServerStatusCache) Get(serverID string) (*ServerStatus, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	entry, found := c.cache[serverName]
+	entry, found := c.cache[serverID]
 	if !found {
 		return nil, false
 	}
@@ -58,10 +58,10 @@ func (c *ServerStatusCache) Get(serverName string) (*ServerStatus, bool) {
 
 // Latest returns the most recent observation even if it is too old to satisfy
 // an ordinary status request. Error pages use it only as explanatory context.
-func (c *ServerStatusCache) Latest(serverName string) (*ServerStatus, bool) {
+func (c *ServerStatusCache) Latest(serverID string) (*ServerStatus, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	entry, found := c.cache[serverName]
+	entry, found := c.cache[serverID]
 	if !found || entry.Status == nil {
 		return nil, false
 	}
@@ -69,10 +69,10 @@ func (c *ServerStatusCache) Latest(serverName string) (*ServerStatus, bool) {
 	return &status, true
 }
 
-func (c *ServerStatusCache) Set(serverName string, status *ServerStatus) {
+func (c *ServerStatusCache) Set(serverID string, status *ServerStatus) {
 	c.mu.Lock()
-	oldEntry := c.cache[serverName]
-	c.cache[serverName] = &cacheEntry{
+	oldEntry := c.cache[serverID]
+	c.cache[serverID] = &cacheEntry{
 		Status:    status,
 		Timestamp: time.Now(),
 	}
@@ -80,16 +80,16 @@ func (c *ServerStatusCache) Set(serverName string, status *ServerStatus) {
 	c.mu.Unlock()
 
 	if onChange != nil && oldEntry != nil && oldEntry.Status.Online != status.Online {
-		onChange(serverName, oldEntry.Status, status)
+		onChange(serverID, oldEntry.Status, status)
 	}
 }
 
 // SetAgentObservation updates process reachability and authoritative occupancy
 // without discarding richer game-protocol fields already cached by the control
 // plane (MOTD, version, player samples, and protocol metadata).
-func (c *ServerStatusCache) SetAgentObservation(serverName string, observation *ServerStatus) {
+func (c *ServerStatusCache) SetAgentObservation(serverID string, observation *ServerStatus) {
 	c.mu.Lock()
-	oldEntry := c.cache[serverName]
+	oldEntry := c.cache[serverID]
 	status := observation
 	if observation.Online && oldEntry != nil && oldEntry.Status != nil {
 		merged := *oldEntry.Status
@@ -104,11 +104,11 @@ func (c *ServerStatusCache) SetAgentObservation(serverName string, observation *
 		merged.Error = observation.Error
 		status = &merged
 	}
-	c.cache[serverName] = &cacheEntry{Status: status, Timestamp: time.Now()}
+	c.cache[serverID] = &cacheEntry{Status: status, Timestamp: time.Now()}
 	onChange := c.onChange
 	c.mu.Unlock()
 
 	if onChange != nil && oldEntry != nil && oldEntry.Status.Online != status.Online {
-		onChange(serverName, oldEntry.Status, status)
+		onChange(serverID, oldEntry.Status, status)
 	}
 }

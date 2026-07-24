@@ -206,8 +206,12 @@ func main() {
 	})
 
 	// Server status change notifications
-	cache.SetOnChange(func(serverName string, oldStatus, newStatus *query.ServerStatus) {
+	cache.SetOnChange(func(managementID string, oldStatus, newStatus *query.ServerStatus) {
 		if oldStatus.Online != newStatus.Online {
+			serverName := managementID
+			if server, err := store.GetServerByManagementID(managementID); err == nil && server != nil {
+				serverName = server.Name
+			}
 			if newStatus.Online {
 				notifyService.Send("server_up", fmt.Sprintf("Server %s is now online (%d/%d players)", serverName, newStatus.Players, newStatus.MaxPlayers))
 			} else {

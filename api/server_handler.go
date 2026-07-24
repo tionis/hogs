@@ -98,7 +98,7 @@ func (h *ServerHandler) GetServerStatus(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	cachedStatus, cached := h.Cache.Get(serverName)
+	cachedStatus, cached := h.Cache.Get(server.ManagementID)
 	driver := h.Store.ResolveGameDriver(server.GameType)
 	// Agent observations intentionally contain only process and occupancy data.
 	// A Minecraft result without protocol metadata still needs one modern status
@@ -118,7 +118,7 @@ func (h *ServerHandler) GetServerStatus(w http.ResponseWriter, r *http.Request) 
 			LastUpdated: time.Now(),
 			Error:       "Server is " + server.State + ".",
 		}
-		h.Cache.Set(serverName, stateStatus)
+		h.Cache.Set(server.ManagementID, stateStatus)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(stateStatus)
 		return
@@ -130,7 +130,7 @@ func (h *ServerHandler) GetServerStatus(w http.ResponseWriter, r *http.Request) 
 			LastUpdated: time.Now(),
 			Error:       "No address configured.",
 		}
-		h.Cache.Set(serverName, noAddrStatus)
+		h.Cache.Set(server.ManagementID, noAddrStatus)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(noAddrStatus)
 		return
@@ -149,7 +149,7 @@ func (h *ServerHandler) GetServerStatus(w http.ResponseWriter, r *http.Request) 
 		status.PlayersKnown = true
 	}
 
-	h.Cache.Set(serverName, status) // Cache the new status
+	h.Cache.Set(server.ManagementID, status) // Cache by immutable server ID.
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(status); err != nil {
@@ -163,12 +163,18 @@ func (h *ServerHandler) GetServerMods(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	serverName := vars["serverName"]
 
-	if !isValidServerName(serverName) {
-		http.Error(w, "Invalid server name", http.StatusBadRequest)
+	server, err := h.Store.GetServerByName(serverName)
+	if err != nil {
+		log.Printf("Error resolving server %s for mod listing: %v", serverName, err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+	if server == nil {
+		http.Error(w, "Server not found", http.StatusNotFound)
 		return
 	}
 
-	modTree, err := modmanager.ScanModDirectory(h.Config.GameDataPath, serverName)
+	modTree, err := modmanager.ScanModDirectory(h.Config.GameDataPath, server.ManagementID)
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") { // Check if directory doesn't exist
 			http.Error(w, fmt.Sprintf("Mod directory for server %s not found", serverName), http.StatusNotFound)
@@ -211,6 +217,11 @@ func (h *ServerHandler) Healthz(w http.ResponseWriter, r *http.Request) {
 func (h *ServerHandler) GetServerMetrics(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	serverName := vars["serverName"]
+	server, err := h.Store.GetServerByName(serverName)
+	if err != nil || server == nil {
+		http.Error(w, "Server not found", http.StatusNotFound)
+		return
+	}
 
 	limitStr := r.URL.Query().Get("limit")
 	limit := 100
@@ -220,7 +231,7 @@ func (h *ServerHandler) GetServerMetrics(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
-	metrics, err := h.Store.ListServerMetrics(serverName, limit)
+	metrics, err := h.Store.ListServerMetrics(server.ID, limit)
 	if err != nil {
 		http.Error(w, "Failed to get metrics", http.StatusInternalServerError)
 		return
@@ -498,7 +509,7 @@ func (h *ServerHandler) writeMapUnavailable(w http.ResponseWriter, r *http.Reque
 	}
 	explanation := "The map service is not responding. It may still be starting or updating."
 	lifecycle := server.MapLifecycle()
-	status, known := h.Cache.Latest(server.Name)
+	status, known := h.Cache.Latest(server.ManagementID)
 	if lifecycle == "independent" {
 		explanation = "This map runs independently from the game server, and its map service is not responding."
 	} else if known && !status.Online {
@@ -526,27 +537,24 @@ func (h *ServerHandler) ServeModFiles(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	serverName := vars["serverName"]
 
-	if !isValidServerName(serverName) {
-		http.Error(w, "Invalid server name", http.StatusBadRequest)
+	server, err := h.Store.GetServerByName(serverName)
+	if err != nil {
+		log.Printf("Error resolving server %s for mod download: %v", serverName, err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+	if server == nil {
+		http.Error(w, "Server not found", http.StatusNotFound)
 		return
 	}
 
-	// Construct the base directory for the server's mods using config
-	modBaseDir := filepath.Join(h.Config.GameDataPath, serverName)
+	// Persistent paths use the immutable server ID so display-name changes do
+	// not relocate data or invalidate generated download links.
+	modBaseDir := filepath.Join(h.Config.GameDataPath, server.ManagementID)
 
 	// Create a file server for the constructed directory
 	// http.StripPrefix is needed to remove the part of the URL path that gorilla/mux matched.
 	http.StripPrefix(fmt.Sprintf("/files/%s/mods", serverName), http.FileServer(http.Dir(modBaseDir))).ServeHTTP(w, r)
-}
-
-// isValidServerName checks if the server name is safe to use in file paths.
-func isValidServerName(name string) bool {
-	for _, r := range name {
-		if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_') {
-			return false
-		}
-	}
-	return true
 }
 
 func isMapURLAllowed(target *url.URL, allowedOrigins []string) bool {

@@ -223,7 +223,8 @@ func TestMapProxyUnavailablePageUsesLifecycleAndGameStatus(t *testing.T) {
 				return mapResponse(http.StatusBadGateway, "", "no-store"), nil
 			}}
 			handler, statusCache := mapProxyFixture(t, test.lifecycle, transport)
-			statusCache.Set("cog", &query.ServerStatus{Online: test.online, LastUpdated: time.Now()})
+			server, _ := handler.Store.GetServerByName("cog")
+			statusCache.Set(server.ManagementID, &query.ServerStatus{Online: test.online, LastUpdated: time.Now()})
 			request := mapRequest("/cog/map/")
 			request.Header.Set("Accept", "text/html")
 			recorder := httptest.NewRecorder()

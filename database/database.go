@@ -2,6 +2,7 @@ package database
 
 import (
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
 	"embed"
@@ -25,16 +26,17 @@ import (
 var migrationsFS embed.FS
 
 type Server struct {
-	ID          int               `json:"id"`
-	Name        string            `json:"name"`
-	Address     string            `json:"address"`
-	Description string            `json:"description"`
-	MapURL      string            `json:"mapUrl"`
-	ModURL      string            `json:"modUrl"`
-	State       string            `json:"state"`
-	GameType    string            `json:"gameType"`
-	ShowMOTD    bool              `json:"showMotd"`
-	Metadata    map[string]string `json:"metadata"`
+	ID           int               `json:"id"`
+	ManagementID string            `json:"managementId"`
+	Name         string            `json:"name"`
+	Address      string            `json:"address"`
+	Description  string            `json:"description"`
+	MapURL       string            `json:"mapUrl"`
+	ModURL       string            `json:"modUrl"`
+	State        string            `json:"state"`
+	GameType     string            `json:"gameType"`
+	ShowMOTD     bool              `json:"showMotd"`
+	Metadata     map[string]string `json:"metadata"`
 }
 
 func (s *Server) MapLifecycle() string {
@@ -557,14 +559,14 @@ func runMigrations(dataSourceName string) error {
 	return nil
 }
 
-const serverColumns = "id, name, address, description, map_url, mod_url, state, game_type, show_motd, metadata"
+const serverColumns = "id, management_id, name, address, description, map_url, mod_url, state, game_type, show_motd, metadata"
 
 func scanServer(scanner interface{ Scan(...interface{}) error }) (*Server, error) {
 	var srv Server
 	var showMotd int
 	var metadataJSON string
 
-	err := scanner.Scan(&srv.ID, &srv.Name, &srv.Address, &srv.Description, &srv.MapURL, &srv.ModURL, &srv.State, &srv.GameType, &showMotd, &metadataJSON)
+	err := scanner.Scan(&srv.ID, &srv.ManagementID, &srv.Name, &srv.Address, &srv.Description, &srv.MapURL, &srv.ModURL, &srv.State, &srv.GameType, &showMotd, &metadataJSON)
 	if err != nil {
 		return nil, err
 	}
@@ -630,8 +632,24 @@ func (s *Store) GetServerByName(name string) (*Server, error) {
 	return srv, nil
 }
 
+func (s *Store) GetServerByManagementID(managementID string) (*Server, error) {
+	row := s.DB.QueryRow("SELECT "+serverColumns+" FROM servers WHERE management_id = ?", managementID)
+	srv, err := scanServer(row)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	return srv, err
+}
+
 func (s *Store) CreateServer(srv *Server) error {
-	stmt, err := s.DB.Prepare("INSERT INTO servers (name, address, description, map_url, mod_url, state, game_type, show_motd, metadata) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+	if srv.ManagementID == "" {
+		generated := make([]byte, 16)
+		if _, err := rand.Read(generated); err != nil {
+			return fmt.Errorf("generate immutable server ID: %w", err)
+		}
+		srv.ManagementID = "srv-" + hex.EncodeToString(generated)
+	}
+	stmt, err := s.DB.Prepare("INSERT INTO servers (management_id, name, address, description, map_url, mod_url, state, game_type, show_motd, metadata) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
 	if err != nil {
 		return err
 	}
@@ -652,7 +670,7 @@ func (s *Store) CreateServer(srv *Server) error {
 		gameType = "minecraft"
 	}
 
-	result, err := stmt.Exec(srv.Name, srv.Address, srv.Description, srv.MapURL, srv.ModURL, srv.State, gameType, showMotd, string(metadataJSON))
+	result, err := stmt.Exec(srv.ManagementID, srv.Name, srv.Address, srv.Description, srv.MapURL, srv.ModURL, srv.State, gameType, showMotd, string(metadataJSON))
 	if err != nil {
 		return err
 	}
@@ -1318,6 +1336,7 @@ type CronJob struct {
 	ID         int             `json:"id"`
 	Name       string          `json:"name"`
 	Schedule   string          `json:"schedule"`
+	ServerID   int             `json:"serverId"`
 	ServerName string          `json:"serverName"`
 	Action     string          `json:"action"`
 	Params     json.RawMessage `json:"params"`
@@ -1338,8 +1357,25 @@ type CronJobLog struct {
 	DurationMs int    `json:"durationMs"`
 }
 
+func scanCronJob(scanner interface{ Scan(...interface{}) error }) (CronJob, error) {
+	var job CronJob
+	var enabled int
+	var params string
+	err := scanner.Scan(
+		&job.ID, &job.Name, &job.Schedule, &job.ServerID, &job.ServerName,
+		&job.Action, &params, &job.ACLRule, &enabled, &job.LastRun, &job.NextRun,
+		&job.LastResult, &job.LastOutput,
+	)
+	job.Params = json.RawMessage(params)
+	job.Enabled = enabled == 1
+	return job, err
+}
+
 func (s *Store) ListCronJobs() ([]CronJob, error) {
-	rows, err := s.DB.Query("SELECT id, name, schedule, server_name, action, params, acl_rule, enabled, last_run, next_run, last_result, last_output FROM cron_jobs ORDER BY id")
+	rows, err := s.DB.Query(`SELECT jobs.id,jobs.name,jobs.schedule,jobs.server_id,servers.name,
+		jobs.action,jobs.params,jobs.acl_rule,jobs.enabled,jobs.last_run,jobs.next_run,
+		jobs.last_result,jobs.last_output FROM cron_jobs AS jobs
+		JOIN servers ON servers.id=jobs.server_id ORDER BY jobs.id`)
 	if err != nil {
 		return nil, err
 	}
@@ -1347,19 +1383,20 @@ func (s *Store) ListCronJobs() ([]CronJob, error) {
 
 	var jobs []CronJob
 	for rows.Next() {
-		var j CronJob
-		var enabled int
-		if err := rows.Scan(&j.ID, &j.Name, &j.Schedule, &j.ServerName, &j.Action, &j.Params, &j.ACLRule, &enabled, &j.LastRun, &j.NextRun, &j.LastResult, &j.LastOutput); err != nil {
+		job, err := scanCronJob(rows)
+		if err != nil {
 			return nil, err
 		}
-		j.Enabled = enabled == 1
-		jobs = append(jobs, j)
+		jobs = append(jobs, job)
 	}
 	return jobs, nil
 }
 
 func (s *Store) ListEnabledCronJobs() ([]CronJob, error) {
-	rows, err := s.DB.Query("SELECT id, name, schedule, server_name, action, params, acl_rule, enabled, last_run, next_run, last_result, last_output FROM cron_jobs WHERE enabled = 1 ORDER BY id")
+	rows, err := s.DB.Query(`SELECT jobs.id,jobs.name,jobs.schedule,jobs.server_id,servers.name,
+		jobs.action,jobs.params,jobs.acl_rule,jobs.enabled,jobs.last_run,jobs.next_run,
+		jobs.last_result,jobs.last_output FROM cron_jobs AS jobs
+		JOIN servers ON servers.id=jobs.server_id WHERE jobs.enabled=1 ORDER BY jobs.id`)
 	if err != nil {
 		return nil, err
 	}
@@ -1367,30 +1404,28 @@ func (s *Store) ListEnabledCronJobs() ([]CronJob, error) {
 
 	var jobs []CronJob
 	for rows.Next() {
-		var j CronJob
-		var enabled int
-		if err := rows.Scan(&j.ID, &j.Name, &j.Schedule, &j.ServerName, &j.Action, &j.Params, &j.ACLRule, &enabled, &j.LastRun, &j.NextRun, &j.LastResult, &j.LastOutput); err != nil {
+		job, err := scanCronJob(rows)
+		if err != nil {
 			return nil, err
 		}
-		j.Enabled = enabled == 1
-		jobs = append(jobs, j)
+		jobs = append(jobs, job)
 	}
 	return jobs, nil
 }
 
 func (s *Store) GetCronJob(id int) (*CronJob, error) {
-	row := s.DB.QueryRow("SELECT id, name, schedule, server_name, action, params, acl_rule, enabled, last_run, next_run, last_result, last_output FROM cron_jobs WHERE id = ?", id)
-	var j CronJob
-	var enabled int
-	err := row.Scan(&j.ID, &j.Name, &j.Schedule, &j.ServerName, &j.Action, &j.Params, &j.ACLRule, &enabled, &j.LastRun, &j.NextRun, &j.LastResult, &j.LastOutput)
+	row := s.DB.QueryRow(`SELECT jobs.id,jobs.name,jobs.schedule,jobs.server_id,servers.name,
+		jobs.action,jobs.params,jobs.acl_rule,jobs.enabled,jobs.last_run,jobs.next_run,
+		jobs.last_result,jobs.last_output FROM cron_jobs AS jobs
+		JOIN servers ON servers.id=jobs.server_id WHERE jobs.id=?`, id)
+	job, err := scanCronJob(row)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
 		return nil, err
 	}
-	j.Enabled = enabled == 1
-	return &j, nil
+	return &job, nil
 }
 
 func (s *Store) CreateCronJob(j *CronJob) error {
@@ -1401,8 +1436,8 @@ func (s *Store) CreateCronJob(j *CronJob) error {
 	if j.Params == nil {
 		j.Params = json.RawMessage("{}")
 	}
-	result, err := s.DB.Exec("INSERT INTO cron_jobs (name, schedule, server_name, action, params, acl_rule, enabled, last_run, next_run) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		j.Name, j.Schedule, j.ServerName, j.Action, string(j.Params), j.ACLRule, enabled, j.LastRun, j.NextRun)
+	result, err := s.DB.Exec("INSERT INTO cron_jobs (name, schedule, server_id, action, params, acl_rule, enabled, last_run, next_run) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		j.Name, j.Schedule, j.ServerID, j.Action, string(j.Params), j.ACLRule, enabled, j.LastRun, j.NextRun)
 	if err != nil {
 		return err
 	}
@@ -1419,8 +1454,8 @@ func (s *Store) UpdateCronJob(j *CronJob) error {
 	if j.Params == nil {
 		j.Params = json.RawMessage("{}")
 	}
-	_, err := s.DB.Exec("UPDATE cron_jobs SET name = ?, schedule = ?, server_name = ?, action = ?, params = ?, acl_rule = ?, enabled = ?, last_run = ?, next_run = ? WHERE id = ?",
-		j.Name, j.Schedule, j.ServerName, j.Action, string(j.Params), j.ACLRule, enabled, j.LastRun, j.NextRun, j.ID)
+	_, err := s.DB.Exec("UPDATE cron_jobs SET name=?,schedule=?,server_id=?,action=?,params=?,acl_rule=?,enabled=?,last_run=?,next_run=? WHERE id=?",
+		j.Name, j.Schedule, j.ServerID, j.Action, string(j.Params), j.ACLRule, enabled, j.LastRun, j.NextRun, j.ID)
 	return err
 }
 
@@ -1532,6 +1567,7 @@ func (s *Store) CleanupAuditLog(retentionDays int) error {
 
 type ServerMetric struct {
 	ID          int     `json:"id"`
+	ServerID    int     `json:"serverId"`
 	ServerName  string  `json:"serverName"`
 	AgentID     int     `json:"agentId"`
 	Timestamp   string  `json:"timestamp"`
@@ -1552,8 +1588,8 @@ func (s *Store) CreateServerMetric(m *ServerMetric) error {
 		online = 1
 	}
 	result, err := s.DB.Exec(
-		"INSERT INTO server_metrics (server_name, agent_id, timestamp, online, players, max_players, version, cpu_percent, memory_used, memory_total, disk_used, disk_total) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		m.ServerName, m.AgentID, m.Timestamp, online, m.Players, m.MaxPlayers, m.Version, m.CPUPercent, m.MemoryUsed, m.MemoryTotal, m.DiskUsed, m.DiskTotal,
+		"INSERT INTO server_metrics (server_id, agent_id, timestamp, online, players, max_players, version, cpu_percent, memory_used, memory_total, disk_used, disk_total) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		m.ServerID, m.AgentID, m.Timestamp, online, m.Players, m.MaxPlayers, m.Version, m.CPUPercent, m.MemoryUsed, m.MemoryTotal, m.DiskUsed, m.DiskTotal,
 	)
 	if err != nil {
 		return err
@@ -1563,11 +1599,15 @@ func (s *Store) CreateServerMetric(m *ServerMetric) error {
 	return nil
 }
 
-func (s *Store) GetLatestServerMetric(serverName string) (*ServerMetric, error) {
-	row := s.DB.QueryRow("SELECT id, server_name, agent_id, timestamp, online, players, max_players, version, cpu_percent, memory_used, memory_total, disk_used, disk_total FROM server_metrics WHERE server_name = ? ORDER BY timestamp DESC LIMIT 1", serverName)
+func (s *Store) GetLatestServerMetric(serverID int) (*ServerMetric, error) {
+	row := s.DB.QueryRow(`SELECT metrics.id, metrics.server_id, servers.name, metrics.agent_id,
+		metrics.timestamp, metrics.online, metrics.players, metrics.max_players, metrics.version,
+		metrics.cpu_percent, metrics.memory_used, metrics.memory_total, metrics.disk_used, metrics.disk_total
+		FROM server_metrics AS metrics JOIN servers ON servers.id=metrics.server_id
+		WHERE metrics.server_id=? ORDER BY metrics.timestamp DESC LIMIT 1`, serverID)
 	var m ServerMetric
 	var online int
-	err := row.Scan(&m.ID, &m.ServerName, &m.AgentID, &m.Timestamp, &online, &m.Players, &m.MaxPlayers, &m.Version, &m.CPUPercent, &m.MemoryUsed, &m.MemoryTotal, &m.DiskUsed, &m.DiskTotal)
+	err := row.Scan(&m.ID, &m.ServerID, &m.ServerName, &m.AgentID, &m.Timestamp, &online, &m.Players, &m.MaxPlayers, &m.Version, &m.CPUPercent, &m.MemoryUsed, &m.MemoryTotal, &m.DiskUsed, &m.DiskTotal)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
@@ -1578,11 +1618,15 @@ func (s *Store) GetLatestServerMetric(serverName string) (*ServerMetric, error) 
 	return &m, nil
 }
 
-func (s *Store) ListServerMetrics(serverName string, limit int) ([]ServerMetric, error) {
+func (s *Store) ListServerMetrics(serverID int, limit int) ([]ServerMetric, error) {
 	if limit <= 0 {
 		limit = 100
 	}
-	rows, err := s.DB.Query("SELECT id, server_name, agent_id, timestamp, online, players, max_players, version, cpu_percent, memory_used, memory_total, disk_used, disk_total FROM server_metrics WHERE server_name = ? ORDER BY timestamp DESC LIMIT ?", serverName, limit)
+	rows, err := s.DB.Query(`SELECT metrics.id, metrics.server_id, servers.name, metrics.agent_id,
+		metrics.timestamp, metrics.online, metrics.players, metrics.max_players, metrics.version,
+		metrics.cpu_percent, metrics.memory_used, metrics.memory_total, metrics.disk_used, metrics.disk_total
+		FROM server_metrics AS metrics JOIN servers ON servers.id=metrics.server_id
+		WHERE metrics.server_id=? ORDER BY metrics.timestamp DESC LIMIT ?`, serverID, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -1592,7 +1636,7 @@ func (s *Store) ListServerMetrics(serverName string, limit int) ([]ServerMetric,
 	for rows.Next() {
 		var m ServerMetric
 		var online int
-		if err := rows.Scan(&m.ID, &m.ServerName, &m.AgentID, &m.Timestamp, &online, &m.Players, &m.MaxPlayers, &m.Version, &m.CPUPercent, &m.MemoryUsed, &m.MemoryTotal, &m.DiskUsed, &m.DiskTotal); err != nil {
+		if err := rows.Scan(&m.ID, &m.ServerID, &m.ServerName, &m.AgentID, &m.Timestamp, &online, &m.Players, &m.MaxPlayers, &m.Version, &m.CPUPercent, &m.MemoryUsed, &m.MemoryTotal, &m.DiskUsed, &m.DiskTotal); err != nil {
 			return nil, err
 		}
 		m.Online = online == 1

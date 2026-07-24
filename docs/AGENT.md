@@ -93,9 +93,13 @@ Removing the node from HOGS revokes its control-plane access immediately;
 rotating the agent secret invalidates capabilities that have already been
 issued.
 
+The key below `servers` is the immutable server ID. It must match the inventory
+manifest's server `id`; changing the panel's display name never changes this
+key or any worker route.
+
 ## Local confinement and streaming
 
-Every request carries a server name. Unknown names are rejected locally.
+Every request carries an immutable server ID. Unknown IDs are rejected locally.
 Systemd actions use only the configured unit, and file and restore targets are
 confined to the selected server's `data_dir`. Symlink path components are
 rejected.
@@ -118,7 +122,7 @@ Commands, status queries, backups, file transfers, and console streams use
 independent requests. RCON and restic credentials remain in node-local files.
 
 Game-driver operations use dedicated endpoints rather than general file access.
-For Minecraft, `GET` and `POST /v1/servers/{server}/whitelist` use RCON while
+For Minecraft, `GET` and `POST /v1/servers/{serverID}/whitelist` use RCON while
 the unit is running and atomically read or update `whitelist.json` while it is
 stopped. Offline updates reject symlinks and malformed JSON, preserve ownership
 and permissions, sync before rename, and recheck the unit state immediately

@@ -29,7 +29,7 @@ import (
 )
 
 type StatusReportData struct {
-	ServerName   string          `json:"serverName"`
+	ServerID     string          `json:"serverId"`
 	Online       bool            `json:"online"`
 	Substate     string          `json:"substate"`
 	Players      int             `json:"players"`
@@ -194,10 +194,10 @@ func main() {
 	_ = apiServer.Shutdown(ctx)
 }
 
-func serverConfig(name string) (*ServerConfig, error) {
-	server, ok := agentConfig.Servers[name]
+func serverConfig(serverID string) (*ServerConfig, error) {
+	server, ok := agentConfig.Servers[serverID]
 	if !ok {
-		return nil, fmt.Errorf("server %q is not in the local allowlist", name)
+		return nil, fmt.Errorf("server ID %q is not in the local allowlist", serverID)
 	}
 	return &server, nil
 }
@@ -238,7 +238,7 @@ func validateConfig(cfg AgentConfig) error {
 	return nil
 }
 
-func sortedServerNames() []string {
+func sortedServerIDs() []string {
 	names := make([]string, 0, len(agentConfig.Servers))
 	for name := range agentConfig.Servers {
 		names = append(names, name)

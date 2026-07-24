@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -19,7 +20,9 @@ import (
 	"github.com/tionis/hogs/database"
 )
 
-const InventoryAPIVersion = "hogs.tionis.dev/v1alpha1"
+const InventoryAPIVersion = "hogs.tionis.dev/v1alpha2"
+
+var inventoryServerIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`)
 
 type InventoryManifest struct {
 	APIVersion    string                  `json:"apiVersion"`
@@ -42,6 +45,7 @@ type InventoryNode struct {
 }
 
 type InventoryServer struct {
+	ID           string                 `json:"id"`
 	Name         string                 `json:"name"`
 	Address      string                 `json:"address"`
 	Description  string                 `json:"description"`
@@ -107,13 +111,13 @@ type InventoryConstraint struct {
 }
 
 type InventorySchedule struct {
-	Name       string          `json:"name"`
-	Schedule   string          `json:"schedule"`
-	ServerName string          `json:"serverName"`
-	Action     string          `json:"action"`
-	Params     json.RawMessage `json:"params"`
-	ACLRule    string          `json:"aclRule"`
-	Enabled    bool            `json:"enabled"`
+	Name     string          `json:"name"`
+	Schedule string          `json:"schedule"`
+	ServerID string          `json:"serverId"`
+	Action   string          `json:"action"`
+	Params   json.RawMessage `json:"params"`
+	ACLRule  string          `json:"aclRule"`
+	Enabled  bool            `json:"enabled"`
 }
 
 type InventoryTemplate struct {
@@ -187,12 +191,12 @@ func (h *InventoryHandler) GetState(w http.ResponseWriter, r *http.Request) {
 	metrics := make(map[string]*database.ServerMetric, len(servers))
 	for i := range servers {
 		publicServers = append(publicServers, servers[i].ToPublic())
-		metric, err := h.Store.GetLatestServerMetric(servers[i].Name)
+		metric, err := h.Store.GetLatestServerMetric(servers[i].ID)
 		if err != nil {
 			http.Error(w, "Failed to load observed server metrics", http.StatusInternalServerError)
 			return
 		}
-		metrics[servers[i].Name] = metric
+		metrics[servers[i].ManagementID] = metric
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"manifest":  redactManifest(manifest),
@@ -371,8 +375,15 @@ func validateManifest(m *InventoryManifest) error {
 		}
 	}
 	servers := make(map[string]bool)
+	serverNames := make(map[string]bool)
 	for _, server := range m.Servers {
-		if err := uniqueName("server", server.Name, servers); err != nil {
+		if err := uniqueName("server ID", server.ID, servers); err != nil {
+			return err
+		}
+		if !inventoryServerIDPattern.MatchString(server.ID) {
+			return fmt.Errorf("server ID %q must use 1-64 letters, numbers, dots, dashes, or underscores", server.ID)
+		}
+		if err := uniqueName("server name", server.Name, serverNames); err != nil {
 			return err
 		}
 		if server.GameType == "" {
@@ -446,8 +457,8 @@ func validateManifest(m *InventoryManifest) error {
 		}
 	}
 	for _, schedule := range m.Schedules {
-		if !servers[schedule.ServerName] {
-			return fmt.Errorf("schedule %q references unknown server %q", schedule.Name, schedule.ServerName)
+		if !servers[schedule.ServerID] {
+			return fmt.Errorf("schedule %q references unknown server ID %q", schedule.Name, schedule.ServerID)
 		}
 		if err := validateRawJSON("schedule "+schedule.Name+" params", schedule.Params); err != nil {
 			return err
@@ -532,6 +543,9 @@ func normalizeManifest(m *InventoryManifest) {
 		m.Servers = []InventoryServer{}
 	}
 	for i := range m.Servers {
+		if m.Servers[i].ID == "" {
+			m.Servers[i].ID = m.Servers[i].Name
+		}
 		if m.Servers[i].MapLifecycle == "" {
 			m.Servers[i].MapLifecycle = "game"
 		}
@@ -558,7 +572,7 @@ func normalizeManifest(m *InventoryManifest) {
 	for i := range m.Nodes {
 		sort.Strings(m.Nodes[i].DesiredCapabilities)
 	}
-	sort.Slice(m.Servers, func(i, j int) bool { return m.Servers[i].Name < m.Servers[j].Name })
+	sort.Slice(m.Servers, func(i, j int) bool { return m.Servers[i].ID < m.Servers[j].ID })
 	for i := range m.Servers {
 		sort.Strings(m.Servers[i].Tags)
 		sort.Strings(m.Servers[i].Policy.AllowedActions)
@@ -643,18 +657,19 @@ func (h *InventoryHandler) firstAdoptionDeletes(currentDigest string, desired In
 	tables := []struct {
 		resource string
 		table    string
+		key      string
 	}{
-		{"nodes", "agents"},
-		{"servers", "servers"},
-		{"constraints", "constraints"},
-		{"schedules", "cron_jobs"},
-		{"templates", "server_templates"},
-		{"webhooks", "webhooks"},
-		{"notifications", "notification_channels"},
+		{"nodes", "agents", "name"},
+		{"servers", "servers", "management_id"},
+		{"constraints", "constraints", "name"},
+		{"schedules", "cron_jobs", "name"},
+		{"templates", "server_templates", "name"},
+		{"webhooks", "webhooks", "name"},
+		{"notifications", "notification_channels", "name"},
 	}
 	changes := []InventoryChange{}
 	for _, item := range tables {
-		rows, err := h.Store.DB.Query("SELECT name FROM " + item.table)
+		rows, err := h.Store.DB.Query("SELECT " + item.key + " FROM " + item.table)
 		if err != nil {
 			return nil, err
 		}
@@ -685,7 +700,7 @@ func inventoryResources(m InventoryManifest) map[string]string {
 		add("nodes/"+v.Name, v)
 	}
 	for _, v := range m.Servers {
-		add("servers/"+v.Name, v)
+		add("servers/"+v.ID, v)
 	}
 	for _, v := range m.Constraints {
 		add("constraints/"+v.Name, v)
@@ -901,7 +916,7 @@ func applyNodes(tx *sql.Tx, nodes []InventoryNode) error {
 func applyServers(tx *sql.Tx, servers []InventoryServer) error {
 	keep := make([]string, 0, len(servers))
 	for _, server := range servers {
-		keep = append(keep, server.Name)
+		keep = append(keep, server.ID)
 		if _, err := tx.Exec(`INSERT OR IGNORE INTO game_types(slug,display_name,player_noun,icon,accent_color,builtin,kind,enabled)
 			VALUES(?,?,'Players','','#666666',0,'generic',1)`, server.GameType, server.GameType); err != nil {
 			return err
@@ -920,14 +935,14 @@ func applyServers(tx *sql.Tx, servers []InventoryServer) error {
 		if state == "" {
 			state = "online"
 		}
-		_, err := tx.Exec(`INSERT INTO servers(name,address,description,map_url,mod_url,state,game_type,show_motd,metadata) VALUES(?,?,?,?,?,?,?,?,?)
-			ON CONFLICT(name) DO UPDATE SET address=excluded.address,description=excluded.description,map_url=excluded.map_url,mod_url=excluded.mod_url,state=excluded.state,game_type=excluded.game_type,show_motd=excluded.show_motd,metadata=excluded.metadata`,
-			server.Name, server.Address, server.Description, server.MapURL, server.ModURL, state, server.GameType, show, string(metadata))
+		_, err := tx.Exec(`INSERT INTO servers(management_id,name,address,description,map_url,mod_url,state,game_type,show_motd,metadata) VALUES(?,?,?,?,?,?,?,?,?,?)
+			ON CONFLICT(management_id) DO UPDATE SET name=excluded.name,address=excluded.address,description=excluded.description,map_url=excluded.map_url,mod_url=excluded.mod_url,state=excluded.state,game_type=excluded.game_type,show_motd=excluded.show_motd,metadata=excluded.metadata`,
+			server.ID, server.Name, server.Address, server.Description, server.MapURL, server.ModURL, state, server.GameType, show, string(metadata))
 		if err != nil {
 			return err
 		}
 		var serverID int
-		if err := tx.QueryRow("SELECT id FROM servers WHERE name=?", server.Name).Scan(&serverID); err != nil {
+		if err := tx.QueryRow("SELECT id FROM servers WHERE management_id=?", server.ID).Scan(&serverID); err != nil {
 			return err
 		}
 		allowed, _ := json.Marshal(server.Policy.AllowedActions)
@@ -938,7 +953,7 @@ func applyServers(tx *sql.Tx, servers []InventoryServer) error {
 		} else {
 			externalID := server.Backend.ExternalID
 			if server.Backend.Type == "agent" {
-				externalID = "agent:" + server.Name
+				externalID = "agent:" + server.ID
 			}
 			_, err := tx.Exec(`INSERT INTO pterodactyl_servers(server_id,ptero_server_id,ptero_identifier,allowed_actions,acl_rule,node) VALUES(?,?,?,?,?,?)
 				ON CONFLICT(server_id) DO UPDATE SET ptero_server_id=excluded.ptero_server_id,ptero_identifier=excluded.ptero_identifier,allowed_actions=excluded.allowed_actions,acl_rule=excluded.acl_rule,node=excluded.node`,
@@ -990,7 +1005,7 @@ func applyServers(tx *sql.Tx, servers []InventoryServer) error {
 			}
 		}
 	}
-	if err := deleteMissing(tx, "servers", "name", keep); err != nil {
+	if err := deleteMissing(tx, "servers", "management_id", keep); err != nil {
 		return err
 	}
 	_, err := tx.Exec("DELETE FROM server_management WHERE server_id NOT IN (SELECT id FROM servers)")
@@ -1031,7 +1046,14 @@ func applySchedules(tx *sql.Tx, values []InventorySchedule) error {
 		if len(params) == 0 {
 			params = json.RawMessage("{}")
 		}
-		_, err := tx.Exec(`INSERT INTO cron_jobs(name,schedule,server_name,action,params,acl_rule,enabled) VALUES(?,?,?,?,?,?,?) ON CONFLICT(name) DO UPDATE SET schedule=excluded.schedule,server_name=excluded.server_name,action=excluded.action,params=excluded.params,acl_rule=excluded.acl_rule,enabled=excluded.enabled`, v.Name, v.Schedule, v.ServerName, v.Action, string(params), v.ACLRule, enabled)
+		var serverID int
+		if err := tx.QueryRow("SELECT id FROM servers WHERE management_id=?", v.ServerID).Scan(&serverID); err != nil {
+			return err
+		}
+		_, err := tx.Exec(`INSERT INTO cron_jobs(name,schedule,server_id,action,params,acl_rule,enabled) VALUES(?,?,?,?,?,?,?)
+			ON CONFLICT(name) DO UPDATE SET schedule=excluded.schedule,server_id=excluded.server_id,
+			action=excluded.action,params=excluded.params,acl_rule=excluded.acl_rule,enabled=excluded.enabled`,
+			v.Name, v.Schedule, serverID, v.Action, string(params), v.ACLRule, enabled)
 		if err != nil {
 			return err
 		}

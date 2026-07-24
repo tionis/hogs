@@ -5,7 +5,7 @@ reconcilers. The API owns game-management configuration while agents report
 runtime observations independently. Interactive OIDC sessions are not accepted
 on this surface.
 
-The current contract version is `hogs.tionis.dev/v1alpha1`. It is intentionally
+The current contract version is `hogs.tionis.dev/v1alpha2`. It is intentionally
 allowed to make breaking changes while the primary game-management model is
 being established.
 
@@ -62,15 +62,18 @@ On first adoption, the plan also inventories resources created by older
 interactive HOGS versions. Any such resource omitted from the first manifest
 is reported as a delete and requires the same explicit prune confirmation.
 
-Every resource uses its manifest `name` as its stable reconciliation key. The
-top-level `generation` should identify the source inventory revision, for
-example a Gandalf Git commit. HOGS also returns a canonical SHA-256 digest.
+Every resource except a server uses its manifest `name` as its stable
+reconciliation key. A server uses its required `id`; `name` is an editable
+display label and may be changed without replacing the server, its access
+grants, metrics, schedules, or worker routing. The top-level `generation`
+should identify the source inventory revision, for example a Gandalf Git
+commit. HOGS also returns a canonical SHA-256 digest.
 
 ## Manifest
 
 ```json
 {
-  "apiVersion": "hogs.tionis.dev/v1alpha1",
+  "apiVersion": "hogs.tionis.dev/v1alpha2",
   "generation": "git:0123456789abcdef",
   "nodes": [
     {
@@ -82,6 +85,7 @@ example a Gandalf Git commit. HOGS also returns a canonical SHA-256 digest.
   ],
   "servers": [
     {
+      "id": "cog",
       "name": "cog",
       "address": "cog.internal:25565",
       "description": "Managed Minecraft server",
@@ -142,8 +146,9 @@ requires its game server to be running.
 An agent backend requires a known node plus `unit` and an absolute `dataPath`.
 Writable paths must be absolute descendants of that data path. Schedules use
 six-field cron expressions (`second minute hour day-of-month month day-of-week`).
-A node agent's local allowlist must contain matching server names, units, and
-data paths as documented in [the agent contract](AGENT.md).
+A schedule references a server through `serverId`, never through its display
+name. A node agent's local allowlist must contain matching immutable server
+IDs, units, and data paths as documented in [the agent contract](AGENT.md).
 A Pterodactyl backend uses `type: "pterodactyl"` and requires `externalId`; a
 display-only server uses `type: "none"`.
 
@@ -163,7 +168,7 @@ settings, and secret-like server metadata. It never returns API keys.
 - `observed.agents`, including private-API reachability, last observation time,
   and reported capabilities;
 - `observed.servers` with credential-bearing metadata removed;
-- `observed.metrics`, keyed by server name, with the latest health, version,
+- `observed.metrics`, keyed by immutable server ID, with the latest health, version,
   player, CPU, memory, and disk report or `null` when no report exists;
 - `observed.users`, sourced from OIDC/SCIM, including effective role and active
   state.

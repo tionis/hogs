@@ -251,14 +251,14 @@ func (h *AutomationHandler) AddCronJob(w http.ResponseWriter, r *http.Request) {
 
 	name := r.FormValue("name")
 	schedule := r.FormValue("schedule")
-	serverName := r.FormValue("server_name")
+	serverID, serverIDErr := strconv.Atoi(r.FormValue("server_id"))
 	action := r.FormValue("action")
 	params := r.FormValue("params")
 	aclRule := r.FormValue("acl_rule")
 	enabled := r.FormValue("enabled") == "on"
 
-	if name == "" || schedule == "" || serverName == "" || action == "" {
-		http.Error(w, "name, schedule, server_name, and action are required", http.StatusBadRequest)
+	if name == "" || schedule == "" || serverIDErr != nil || serverID <= 0 || action == "" {
+		http.Error(w, "name, schedule, server_id, and action are required", http.StatusBadRequest)
 		return
 	}
 	if params == "" {
@@ -266,13 +266,13 @@ func (h *AutomationHandler) AddCronJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	j := &database.CronJob{
-		Name:       name,
-		Schedule:   schedule,
-		ServerName: serverName,
-		Action:     action,
-		Params:     json.RawMessage(params),
-		ACLRule:    aclRule,
-		Enabled:    enabled,
+		Name:     name,
+		Schedule: schedule,
+		ServerID: serverID,
+		Action:   action,
+		Params:   json.RawMessage(params),
+		ACLRule:  aclRule,
+		Enabled:  enabled,
 	}
 
 	if err := h.Store.CreateCronJob(j); err != nil {
@@ -297,25 +297,29 @@ func (h *AutomationHandler) UpdateCronJob(w http.ResponseWriter, r *http.Request
 
 	name := r.FormValue("name")
 	schedule := r.FormValue("schedule")
-	serverName := r.FormValue("server_name")
+	serverID, serverIDErr := strconv.Atoi(r.FormValue("server_id"))
 	action := r.FormValue("action")
 	params := r.FormValue("params")
 	aclRule := r.FormValue("acl_rule")
 	enabled := r.FormValue("enabled") == "on"
 
+	if serverIDErr != nil || serverID <= 0 {
+		http.Error(w, "Valid server_id is required", http.StatusBadRequest)
+		return
+	}
 	if params == "" {
 		params = "{}"
 	}
 
 	j := &database.CronJob{
-		ID:         id,
-		Name:       name,
-		Schedule:   schedule,
-		ServerName: serverName,
-		Action:     action,
-		Params:     json.RawMessage(params),
-		ACLRule:    aclRule,
-		Enabled:    enabled,
+		ID:       id,
+		Name:     name,
+		Schedule: schedule,
+		ServerID: serverID,
+		Action:   action,
+		Params:   json.RawMessage(params),
+		ACLRule:  aclRule,
+		Enabled:  enabled,
 	}
 
 	if err := h.Store.UpdateCronJob(j); err != nil {

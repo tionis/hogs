@@ -18,6 +18,9 @@ func testScheduler(t *testing.T) (*Scheduler, *database.Store) {
 	if err != nil {
 		t.Fatalf("failed to create store: %v", err)
 	}
+	if err := store.CreateServer(&database.Server{Name: "test", GameType: "generic", State: "online"}); err != nil {
+		t.Fatal(err)
+	}
 	t.Cleanup(func() {
 		store.DB.Close()
 		os.Remove(dbPath)
@@ -57,12 +60,12 @@ func TestAddJob(t *testing.T) {
 
 	params, _ := json.Marshal(map[string]string{})
 	job := &database.CronJob{
-		Name:       "add-test",
-		Schedule:   "0 0 6 * * *",
-		ServerName: "non-existent",
-		Action:     "start",
-		Params:     params,
-		Enabled:    true,
+		Name:     "add-test",
+		Schedule: "0 0 6 * * *",
+		ServerID: 1,
+		Action:   "start",
+		Params:   params,
+		Enabled:  true,
 	}
 	err := sched.AddJob(job)
 	if err != nil {
@@ -83,12 +86,12 @@ func TestRemoveJob(t *testing.T) {
 
 	params, _ := json.Marshal(map[string]string{})
 	job := &database.CronJob{
-		Name:       "remove-test",
-		Schedule:   "0 0 6 * * *",
-		ServerName: "test",
-		Action:     "start",
-		Params:     params,
-		Enabled:    true,
+		Name:     "remove-test",
+		Schedule: "0 0 6 * * *",
+		ServerID: 1,
+		Action:   "start",
+		Params:   params,
+		Enabled:  true,
 	}
 	sched.AddJob(job)
 
@@ -115,12 +118,12 @@ func TestUpdateJob(t *testing.T) {
 
 	params, _ := json.Marshal(map[string]string{})
 	job := &database.CronJob{
-		Name:       "update-test",
-		Schedule:   "0 0 6 * * *",
-		ServerName: "test",
-		Action:     "start",
-		Params:     params,
-		Enabled:    true,
+		Name:     "update-test",
+		Schedule: "0 0 6 * * *",
+		ServerID: 1,
+		Action:   "start",
+		Params:   params,
+		Enabled:  true,
 	}
 	sched.AddJob(job)
 
@@ -141,12 +144,12 @@ func TestUpdateJobDisable(t *testing.T) {
 
 	params, _ := json.Marshal(map[string]string{})
 	job := &database.CronJob{
-		Name:       "disable-test",
-		Schedule:   "0 0 6 * * *",
-		ServerName: "test",
-		Action:     "start",
-		Params:     params,
-		Enabled:    true,
+		Name:     "disable-test",
+		Schedule: "0 0 6 * * *",
+		ServerID: 1,
+		Action:   "start",
+		Params:   params,
+		Enabled:  true,
 	}
 	sched.AddJob(job)
 

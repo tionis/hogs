@@ -5,6 +5,7 @@ package main
 
 import (
 	"database/sql"
+	"fmt"
 	"log"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -55,15 +56,15 @@ func main() {
 		},
 	}
 
-	insertSQL := `INSERT INTO servers (name, address, description, map_url, mod_url, state, game_type, show_motd, metadata) VALUES (?, ?, ?, ?, ?, 'online', ?, 1, '{}')`
+	insertSQL := `INSERT INTO servers (management_id, name, address, description, map_url, mod_url, state, game_type, show_motd, metadata) VALUES (?, ?, ?, ?, ?, ?, 'online', ?, 1, '{}')`
 	statement, err := db.Prepare(insertSQL)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer statement.Close()
 
-	for _, server := range servers {
-		_, err := statement.Exec(server.Name, server.Address, server.Description, server.MapURL, server.ModURL, server.GameType)
+	for index, server := range servers {
+		_, err := statement.Exec(fmt.Sprintf("dummy-%d", index+1), server.Name, server.Address, server.Description, server.MapURL, server.ModURL, server.GameType)
 		if err != nil {
 			log.Printf("Could not insert server %s: %v", server.Name, err)
 		} else {

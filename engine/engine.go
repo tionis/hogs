@@ -88,7 +88,7 @@ func (e *Engine) buildEnv(server *database.Server, user *UserEnv) (map[string]in
 			node = link.Node
 		}
 		if e.Cache != nil {
-			if status, found := e.Cache.Get(srv.Name); found {
+			if status, found := e.Cache.Get(srv.ManagementID); found {
 				running = status.Online
 				players = status.Players
 				playersKnown = status.PlayersKnown

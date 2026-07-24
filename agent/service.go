@@ -19,17 +19,17 @@ import (
 const lifecycleActionTimeout = 3 * time.Minute
 
 type AgentBackend struct {
-	NodeName   string
-	ServerName string
-	Manager    *Manager
+	NodeName string
+	ServerID string
+	Manager  *Manager
 }
 
-func NewAgentBackend(nodeName, serverName string, manager *Manager) *AgentBackend {
-	return &AgentBackend{NodeName: nodeName, ServerName: serverName, Manager: manager}
+func NewAgentBackend(nodeName, serverID string, manager *Manager) *AgentBackend {
+	return &AgentBackend{NodeName: nodeName, ServerID: serverID, Manager: manager}
 }
 
 func (a *AgentBackend) action(ctx context.Context, action string) error {
-	endpoint := fmt.Sprintf("/v1/servers/%s/actions/%s", url.PathEscape(a.ServerName), url.PathEscape(action))
+	endpoint := fmt.Sprintf("/v1/servers/%s/actions/%s", url.PathEscape(a.ServerID), url.PathEscape(action))
 	_, err := a.Manager.JSON(ctx, a.NodeName, http.MethodPost, endpoint, map[string]interface{}{})
 	return err
 }
@@ -45,7 +45,7 @@ func (a *AgentBackend) SendCommand(ctx context.Context, command string) error {
 
 func (a *AgentBackend) SendCommandOutput(ctx context.Context, command string) (string, error) {
 	result, err := a.Manager.JSON(ctx, a.NodeName, http.MethodPost,
-		fmt.Sprintf("/v1/servers/%s/command", url.PathEscape(a.ServerName)),
+		fmt.Sprintf("/v1/servers/%s/command", url.PathEscape(a.ServerID)),
 		map[string]string{"command": command})
 	if err != nil {
 		return "", err
@@ -60,7 +60,7 @@ func (a *AgentBackend) SendCommandOutput(ctx context.Context, command string) (s
 
 func (a *AgentBackend) Status(ctx context.Context) (*backend.ServerStatus, error) {
 	response, err := a.Manager.Stream(ctx, a.NodeName, http.MethodGet,
-		fmt.Sprintf("/v1/servers/%s/status", url.PathEscape(a.ServerName)), nil)
+		fmt.Sprintf("/v1/servers/%s/status", url.PathEscape(a.ServerID)), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -81,7 +81,7 @@ func (a *AgentBackend) Whitelist(ctx context.Context, request backend.WhitelistR
 		body = bytes.NewReader(encoded)
 	}
 	response, err := a.Manager.do(ctx, a.NodeName, method,
-		fmt.Sprintf("/v1/servers/%s/whitelist", url.PathEscape(a.ServerName)), body)
+		fmt.Sprintf("/v1/servers/%s/whitelist", url.PathEscape(a.ServerID)), body)
 	if err != nil {
 		return nil, err
 	}
@@ -117,8 +117,8 @@ func decodeBackendStatus(reader io.Reader) (*backend.ServerStatus, error) {
 
 func (a *AgentBackend) Name() string { return "agent" }
 
-func ResolveBackend(serverName string, store *database.Store) (string, string) {
-	server, err := store.GetServerByName(serverName)
+func ResolveBackend(serverID int, store *database.Store) (string, string) {
+	server, err := store.GetServer(serverID)
 	if err != nil || server == nil {
 		return "", ""
 	}
@@ -146,11 +146,15 @@ func NewAgentService(store *database.Store, manager *Manager) *AgentService {
 }
 
 func (s *AgentService) backend(serverName string) (*AgentBackend, error) {
-	backendType, node := ResolveBackend(serverName, s.Store)
+	server, err := s.Store.GetServerByName(serverName)
+	if err != nil || server == nil {
+		return nil, fmt.Errorf("server %q not found", serverName)
+	}
+	backendType, node := ResolveBackend(server.ID, s.Store)
 	if backendType != "agent" || node == "" {
 		return nil, fmt.Errorf("no private agent backend available for server %s", serverName)
 	}
-	return NewAgentBackend(node, serverName, s.Manager), nil
+	return NewAgentBackend(node, server.ManagementID, s.Manager), nil
 }
 
 func (s *AgentService) ExecuteAction(serverName, action string) error {
@@ -185,7 +189,7 @@ func (s *AgentService) SendCommandResult(serverName, command string) (*GenericRe
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	return s.Manager.JSON(ctx, agentBackend.NodeName, http.MethodPost,
-		fmt.Sprintf("/v1/servers/%s/command", url.PathEscape(serverName)),
+		fmt.Sprintf("/v1/servers/%s/command", url.PathEscape(agentBackend.ServerID)),
 		map[string]string{"command": command})
 }
 
@@ -194,7 +198,7 @@ func (s *AgentService) operation(ctx context.Context, serverName, method, suffix
 	if err != nil {
 		return nil, err
 	}
-	endpoint := fmt.Sprintf("/v1/servers/%s/%s", url.PathEscape(serverName), strings.TrimPrefix(suffix, "/"))
+	endpoint := fmt.Sprintf("/v1/servers/%s/%s", url.PathEscape(agentBackend.ServerID), strings.TrimPrefix(suffix, "/"))
 	return s.Manager.JSON(ctx, agentBackend.NodeName, method, endpoint, request)
 }
 
@@ -249,7 +253,7 @@ func (s *AgentService) FileStreamHeaders(ctx context.Context, serverName, method
 	if err != nil {
 		return nil, err
 	}
-	endpoint := fmt.Sprintf("/v1/servers/%s/file?path=%s", url.PathEscape(serverName), url.QueryEscape(filePath))
+	endpoint := fmt.Sprintf("/v1/servers/%s/file?path=%s", url.PathEscape(agentBackend.ServerID), url.QueryEscape(filePath))
 	return s.Manager.StreamHeaders(ctx, agentBackend.NodeName, method, endpoint, body, headers)
 }
 
@@ -300,5 +304,5 @@ func (s *AgentService) Console(ctx context.Context, serverName string) (*http.Re
 		return nil, err
 	}
 	return s.Manager.Stream(ctx, agentBackend.NodeName, http.MethodGet,
-		fmt.Sprintf("/v1/servers/%s/console", url.PathEscape(serverName)), nil)
+		fmt.Sprintf("/v1/servers/%s/console", url.PathEscape(agentBackend.ServerID)), nil)
 }

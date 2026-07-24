@@ -7,17 +7,21 @@ import (
 
 func TestServerResourceSamplesPreserveInactiveAndNullableValues(t *testing.T) {
 	store := testStore(t)
+	server := &Server{Name: "Sample Server", GameType: "generic"}
+	if err := store.CreateServer(server); err != nil {
+		t.Fatal(err)
+	}
 	now := time.Now().UTC().Truncate(time.Second)
 	cpu := 37.5
 	memory := uint64(512 << 20)
 	limit := uint64(2 << 30)
 	samples := []*ServerResourceSample{
 		{
-			ServerName: "sample-server", Timestamp: now.Add(-time.Minute), Running: true,
+			ServerID: server.ID, Timestamp: now.Add(-time.Minute), Running: true,
 			CPUPercent: &cpu, MemoryCurrentBytes: &memory, MemoryLimitBytes: &limit,
 		},
 		{
-			ServerName: "sample-server", Timestamp: now, Running: false,
+			ServerID: server.ID, Timestamp: now, Running: false,
 			MemoryPeakBytes: &limit,
 		},
 	}
@@ -26,7 +30,7 @@ func TestServerResourceSamplesPreserveInactiveAndNullableValues(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	got, err := store.ListServerResourceSamples("sample-server", now.Add(-time.Hour), 100)
+	got, err := store.ListServerResourceSamples(server.ID, now.Add(-time.Hour), 100)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,19 +50,23 @@ func TestServerResourceSamplesPreserveInactiveAndNullableValues(t *testing.T) {
 
 func TestServerResourceSamplesAreDownsampled(t *testing.T) {
 	store := testStore(t)
+	server := &Server{Name: "Downsample Server", GameType: "generic"}
+	if err := store.CreateServer(server); err != nil {
+		t.Fatal(err)
+	}
 	now := time.Now().UTC().Truncate(time.Second)
 	for index := 0; index < 20; index++ {
 		cpu := float64(index)
 		memory := uint64(index + 1)
 		sample := &ServerResourceSample{
-			ServerName: "downsample-server", Timestamp: now.Add(time.Duration(index) * time.Minute),
+			ServerID: server.ID, Timestamp: now.Add(time.Duration(index) * time.Minute),
 			Running: true, CPUPercent: &cpu, MemoryCurrentBytes: &memory,
 		}
 		if err := store.CreateServerResourceSample(sample); err != nil {
 			t.Fatal(err)
 		}
 	}
-	got, err := store.ListServerResourceSamples("downsample-server", now.Add(-time.Hour), 5)
+	got, err := store.ListServerResourceSamples(server.ID, now.Add(-time.Hour), 5)
 	if err != nil {
 		t.Fatal(err)
 	}

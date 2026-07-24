@@ -32,7 +32,7 @@ func testManifest() InventoryManifest {
 			DesiredCapabilities: []string{"backup", "command", "console", "file", "restart", "start", "status", "stop"},
 		}},
 		Servers: []InventoryServer{{
-			Name: "cog", Address: "cog.internal:25565", Description: "Managed Minecraft",
+			ID: "cog", Name: "cog", Address: "cog.internal:25565", Description: "Managed Minecraft",
 			State: "online", GameType: "minecraft", ShowMOTD: true,
 			Metadata: map[string]string{"edition": "java", "rcon_password": "do-not-return"}, Tags: []string{"game", "minecraft"},
 			Unit: "cog.service", DataPath: "/srv/cog", Backend: InventoryBackend{Type: "agent", Node: "destiny"},
@@ -46,7 +46,7 @@ func testManifest() InventoryManifest {
 			},
 		}},
 		Constraints:   []InventoryConstraint{{Name: "one_game", Condition: "true", Strategy: "deny", Priority: 10, Enabled: true}},
-		Schedules:     []InventorySchedule{{Name: "nightly_restart", Schedule: "0 0 4 * * *", ServerName: "cog", Action: "restart", Params: json.RawMessage(`{}`), Enabled: true}},
+		Schedules:     []InventorySchedule{{Name: "nightly_restart", Schedule: "0 0 4 * * *", ServerID: "cog", Action: "restart", Params: json.RawMessage(`{}`), Enabled: true}},
 		Templates:     []InventoryTemplate{{Name: "minecraft", GameType: "minecraft", DefaultSettings: json.RawMessage(`{}`), DefaultCommands: json.RawMessage(`[]`), DefaultTags: json.RawMessage(`["minecraft"]`)}},
 		Webhooks:      []InventoryWebhook{{Name: "audit", URL: "https://hooks.example.test/hogs", Secret: "webhook-secret", Events: json.RawMessage(`["*"]`), Enabled: true}},
 		Notifications: []InventoryNotification{{Name: "ops", Type: "ntfy", URL: "ntfy://token@example.test/topic", Events: json.RawMessage(`["server_down"]`), Enabled: true}},
@@ -128,9 +128,47 @@ func TestInventoryApplyIsIdempotentAndNeverReturnsAgentToken(t *testing.T) {
 	}
 }
 
+func TestInventoryRenamePreservesImmutableServerIdentity(t *testing.T) {
+	handler, store := testInventoryHandler(t)
+	manifest := testManifest()
+	first := httptest.NewRecorder()
+	handler.Apply(first, requestInventory(t, http.MethodPut, "/api/v1/inventory", manifest))
+	if first.Code != http.StatusOK {
+		t.Fatalf("initial apply failed: %s", first.Body.String())
+	}
+	before, _ := store.GetServerByManagementID("cog")
+	if before == nil {
+		t.Fatal("server was not created with its inventory ID")
+	}
+
+	manifest.Generation = "git:rename"
+	manifest.Servers[0].Name = "Renamed Cog Server"
+	renamed := httptest.NewRecorder()
+	handler.Apply(renamed, requestInventory(t, http.MethodPut, "/api/v1/inventory", manifest))
+	if renamed.Code != http.StatusOK {
+		t.Fatalf("rename apply failed: %s", renamed.Body.String())
+	}
+	after, _ := store.GetServerByManagementID("cog")
+	if after == nil || after.ID != before.ID || after.Name != "Renamed Cog Server" {
+		t.Fatalf("rename replaced server identity: before=%#v after=%#v", before, after)
+	}
+	if old, _ := store.GetServerByName("cog"); old != nil {
+		t.Fatalf("old display name still resolves: %#v", old)
+	}
+	link, _ := store.GetPterodactylLink(after.ID)
+	if link == nil || link.PteroServerID != "agent:cog" {
+		t.Fatalf("worker routing changed after rename: %#v", link)
+	}
+	jobs, err := store.ListCronJobs()
+	if err != nil || len(jobs) != 1 || jobs[0].ServerID != after.ID ||
+		jobs[0].ServerName != "Renamed Cog Server" {
+		t.Fatalf("scheduled action did not follow renamed server: jobs=%#v err=%v", jobs, err)
+	}
+}
+
 func TestInventoryFirstAdoptionReportsLegacyDeletes(t *testing.T) {
 	handler, store := testInventoryHandler(t)
-	if _, err := store.DB.Exec(`INSERT INTO servers(name,address,state,game_type,show_motd,metadata) VALUES('legacy','legacy.test:1','online','minecraft',0,'{}')`); err != nil {
+	if err := store.CreateServer(&database.Server{ManagementID: "legacy", Name: "legacy", Address: "legacy.test:1", State: "online", GameType: "minecraft"}); err != nil {
 		t.Fatal(err)
 	}
 	manifest := testManifest()

@@ -98,7 +98,8 @@ func (h *AgentHandler) GetAgent(w http.ResponseWriter, r *http.Request) {
 
 func (h *AgentHandler) AgentResources(w http.ResponseWriter, r *http.Request) {
 	serverName := mux.Vars(r)["serverName"]
-	if _, _, status, err := authorizeManagedCapability(h.Store, h.Engine, h.Auth, r, serverName, managedStatus); err != nil {
+	server, _, status, err := authorizeManagedCapability(h.Store, h.Engine, h.Auth, r, serverName, managedStatus)
+	if err != nil {
 		http.Error(w, err.Error(), status)
 		return
 	}
@@ -106,7 +107,7 @@ func (h *AgentHandler) AgentResources(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "agent manager is unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	resources, found := h.Manager.ServerResources(serverName)
+	resources, found := h.Manager.ServerResources(server.ID)
 	if !found {
 		http.Error(w, "resource observation is not available", http.StatusServiceUnavailable)
 		return
@@ -117,7 +118,8 @@ func (h *AgentHandler) AgentResources(w http.ResponseWriter, r *http.Request) {
 
 func (h *AgentHandler) AgentResourceHistory(w http.ResponseWriter, r *http.Request) {
 	serverName := mux.Vars(r)["serverName"]
-	if _, _, status, err := authorizeManagedCapability(h.Store, h.Engine, h.Auth, r, serverName, managedStatus); err != nil {
+	server, _, status, err := authorizeManagedCapability(h.Store, h.Engine, h.Auth, r, serverName, managedStatus)
+	if err != nil {
 		http.Error(w, err.Error(), status)
 		return
 	}
@@ -133,7 +135,7 @@ func (h *AgentHandler) AgentResourceHistory(w http.ResponseWriter, r *http.Reque
 		points = requested
 	}
 	samples, err := h.Store.ListServerResourceSamples(
-		serverName, time.Now().Add(-time.Duration(hours)*time.Hour), points,
+		server.ID, time.Now().Add(-time.Duration(hours)*time.Hour), points,
 	)
 	if err != nil {
 		http.Error(w, "failed to load resource history", http.StatusInternalServerError)
@@ -162,7 +164,12 @@ func (h *AgentHandler) AgentFileAccess(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), status)
 		return
 	}
-	backendType, node := agent.ResolveBackend(serverName, h.Store)
+	server, err := h.Store.GetServerByName(serverName)
+	if err != nil || server == nil {
+		http.Error(w, "server not found", http.StatusNotFound)
+		return
+	}
+	backendType, node := agent.ResolveBackend(server.ID, h.Store)
 	if backendType != "agent" || node == "" || h.Manager == nil {
 		http.Error(w, "managed agent is unavailable", http.StatusServiceUnavailable)
 		return
@@ -173,13 +180,13 @@ func (h *AgentHandler) AgentFileAccess(w http.ResponseWriter, r *http.Request) {
 	switch operation {
 	case "list":
 		method = http.MethodGet
-		route = "/v1/servers/" + url.PathEscape(serverName) + "/files?path=" + url.QueryEscape(filePath)
+		route = "/v1/servers/" + url.PathEscape(server.ManagementID) + "/files?path=" + url.QueryEscape(filePath)
 	case "read", "download":
 		method = http.MethodGet
-		route = "/v1/servers/" + url.PathEscape(serverName) + "/file?path=" + url.QueryEscape(filePath)
+		route = "/v1/servers/" + url.PathEscape(server.ManagementID) + "/file?path=" + url.QueryEscape(filePath)
 	case "write":
 		method = http.MethodPut
-		route = "/v1/servers/" + url.PathEscape(serverName) + "/file?path=" + url.QueryEscape(filePath)
+		route = "/v1/servers/" + url.PathEscape(server.ManagementID) + "/file?path=" + url.QueryEscape(filePath)
 		maxBytes = 16 << 30
 		if requested, err := strconv.ParseInt(r.URL.Query().Get("size"), 10, 64); err == nil && requested > 0 {
 			if requested > maxBytes {
@@ -190,10 +197,10 @@ func (h *AgentHandler) AgentFileAccess(w http.ResponseWriter, r *http.Request) {
 		}
 	case "delete":
 		method = http.MethodDelete
-		route = "/v1/servers/" + url.PathEscape(serverName) + "/file?path=" + url.QueryEscape(filePath)
+		route = "/v1/servers/" + url.PathEscape(server.ManagementID) + "/file?path=" + url.QueryEscape(filePath)
 	case "mkdir":
 		method = http.MethodPost
-		route = "/v1/servers/" + url.PathEscape(serverName) + "/directories?path=" + url.QueryEscape(filePath)
+		route = "/v1/servers/" + url.PathEscape(server.ManagementID) + "/directories?path=" + url.QueryEscape(filePath)
 	case "rename", "copy", "move":
 		if targetPath == "" || !isValidAgentPath(targetPath) {
 			http.Error(w, "valid target path is required", http.StatusBadRequest)
@@ -209,7 +216,7 @@ func (h *AgentHandler) AgentFileAccess(w http.ResponseWriter, r *http.Request) {
 			"path":      []string{filePath},
 			"target":    []string{targetPath},
 		}
-		route = "/v1/servers/" + url.PathEscape(serverName) + "/file-operations?" + query.Encode()
+		route = "/v1/servers/" + url.PathEscape(server.ManagementID) + "/file-operations?" + query.Encode()
 	default:
 		http.Error(w, "unsupported file operation", http.StatusBadRequest)
 		return

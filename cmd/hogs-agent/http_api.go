@@ -23,21 +23,21 @@ import (
 func agentAPI() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/health", handleHealth)
-	mux.HandleFunc("GET /v1/servers/{server}/status", withServer(handleStatus))
-	mux.HandleFunc("POST /v1/servers/{server}/actions/{action}", withServer(handleAction))
-	mux.HandleFunc("POST /v1/servers/{server}/command", withServer(handleCommand))
-	mux.HandleFunc("GET /v1/servers/{server}/whitelist", withServer(handleWhitelist))
-	mux.HandleFunc("POST /v1/servers/{server}/whitelist", withServer(handleWhitelist))
-	mux.HandleFunc("GET /v1/servers/{server}/console", withServer(handleConsole))
-	mux.HandleFunc("GET /v1/servers/{server}/files", withServer(handleFileList))
-	mux.HandleFunc("GET /v1/servers/{server}/file", withServer(handleFileRead))
-	mux.HandleFunc("PUT /v1/servers/{server}/file", withServer(handleFileWrite))
-	mux.HandleFunc("DELETE /v1/servers/{server}/file", withServer(handleFileDelete))
-	mux.HandleFunc("POST /v1/servers/{server}/file-operations", withServer(handleFileOperation))
-	mux.HandleFunc("POST /v1/servers/{server}/directories", withServer(handleMkdir))
-	mux.HandleFunc("GET /v1/servers/{server}/backups", withServer(handleBackupList))
-	mux.HandleFunc("POST /v1/servers/{server}/backups", withServer(handleBackupCreate))
-	mux.HandleFunc("POST /v1/servers/{server}/restore", withServer(handleBackupRestore))
+	mux.HandleFunc("GET /v1/servers/{serverID}/status", withServer(handleStatus))
+	mux.HandleFunc("POST /v1/servers/{serverID}/actions/{action}", withServer(handleAction))
+	mux.HandleFunc("POST /v1/servers/{serverID}/command", withServer(handleCommand))
+	mux.HandleFunc("GET /v1/servers/{serverID}/whitelist", withServer(handleWhitelist))
+	mux.HandleFunc("POST /v1/servers/{serverID}/whitelist", withServer(handleWhitelist))
+	mux.HandleFunc("GET /v1/servers/{serverID}/console", withServer(handleConsole))
+	mux.HandleFunc("GET /v1/servers/{serverID}/files", withServer(handleFileList))
+	mux.HandleFunc("GET /v1/servers/{serverID}/file", withServer(handleFileRead))
+	mux.HandleFunc("PUT /v1/servers/{serverID}/file", withServer(handleFileWrite))
+	mux.HandleFunc("DELETE /v1/servers/{serverID}/file", withServer(handleFileDelete))
+	mux.HandleFunc("POST /v1/servers/{serverID}/file-operations", withServer(handleFileOperation))
+	mux.HandleFunc("POST /v1/servers/{serverID}/directories", withServer(handleMkdir))
+	mux.HandleFunc("GET /v1/servers/{serverID}/backups", withServer(handleBackupList))
+	mux.HandleFunc("POST /v1/servers/{serverID}/backups", withServer(handleBackupCreate))
+	mux.HandleFunc("POST /v1/servers/{serverID}/restore", withServer(handleBackupRestore))
 	authenticated := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
 		if origin != "" {
@@ -99,7 +99,7 @@ type serverHTTPHandler func(http.ResponseWriter, *http.Request, *ServerConfig)
 
 func withServer(next serverHTTPHandler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		server, err := serverConfig(r.PathValue("server"))
+		server, err := serverConfig(r.PathValue("serverID"))
 		if err != nil {
 			writeAPIError(w, http.StatusNotFound, err)
 			return
@@ -112,7 +112,7 @@ func handleHealth(w http.ResponseWriter, _ *http.Request) {
 	writeJSONResponse(w, http.StatusOK, map[string]interface{}{
 		"node":         agentConfig.Node,
 		"status":       "healthy",
-		"servers":      sortedServerNames(),
+		"serverIds":    sortedServerIDs(),
 		"capabilities": agentCapabilities(),
 	})
 }
@@ -135,7 +135,7 @@ func handleStatus(w http.ResponseWriter, r *http.Request, server *ServerConfig) 
 		version = serverVersion(server, driver)
 	}
 	writeJSONResponse(w, http.StatusOK, StatusReportData{
-		ServerName: r.PathValue("server"), Online: active, Players: players,
+		ServerID: r.PathValue("serverID"), Online: active, Players: players,
 		MaxPlayers: maxPlayers, PlayersKnown: known, Version: version,
 		Substate: substate, Resources: resources,
 	})
@@ -231,9 +231,9 @@ func handleConsole(w http.ResponseWriter, r *http.Request, server *ServerConfig)
 			continue
 		}
 		if err := encoder.Encode(map[string]string{
-			"serverName": r.PathValue("server"),
-			"line":       line,
-			"timestamp":  time.Now().UTC().Format(time.RFC3339),
+			"serverId":  r.PathValue("serverID"),
+			"line":      line,
+			"timestamp": time.Now().UTC().Format(time.RFC3339),
 		}); err != nil {
 			return
 		}

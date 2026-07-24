@@ -687,8 +687,13 @@ func (h *WebHandler) HandleServerCreate(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, err.Error(), http.StatusConflict)
 		return
 	}
+	name := strings.TrimSpace(r.FormValue("name"))
+	if !validServerDisplayName(name) {
+		http.Error(w, "Server name must contain 1-120 printable characters", http.StatusBadRequest)
+		return
+	}
 	server := &database.Server{
-		Name:        r.FormValue("name"),
+		Name:        name,
 		Address:     r.FormValue("address"),
 		Description: r.FormValue("description"),
 		MapURL:      r.FormValue("map_url"),
@@ -854,9 +859,14 @@ func (h *WebHandler) HandleServerUpdate(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, err.Error(), http.StatusConflict)
 		return
 	}
+	name := strings.TrimSpace(r.FormValue("name"))
+	if !validServerDisplayName(name) {
+		http.Error(w, "Server name must contain 1-120 printable characters", http.StatusBadRequest)
+		return
+	}
 	server := &database.Server{
 		ID:          id,
-		Name:        r.FormValue("name"),
+		Name:        name,
 		Address:     r.FormValue("address"),
 		Description: r.FormValue("description"),
 		MapURL:      r.FormValue("map_url"),
@@ -893,6 +903,10 @@ func (h *WebHandler) HandleServerUpdate(w http.ResponseWriter, r *http.Request) 
 	}
 
 	http.Redirect(w, r, "/admin/servers/"+strconv.Itoa(id), http.StatusFound)
+}
+
+func validServerDisplayName(name string) bool {
+	return name != "" && len([]rune(name)) <= 120 && !strings.ContainsAny(name, "\r\n\x00")
 }
 
 // parseMetadata helper to extract metadata from form
