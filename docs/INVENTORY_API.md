@@ -97,9 +97,9 @@ example a Gandalf Git commit. HOGS also returns a canonical SHA-256 digest.
       "dataPath": "/srv/cog",
       "backend": {"type": "agent", "node": "destiny"},
       "policy": {
-        "aclRule": "user.Role == \"admin\"",
+        "aclRule": "",
         "allowedActions": ["restart", "start", "stop"],
-        "operators": ["games-admins"],
+        "operators": [],
         "console": true,
         "rcon": false,
         "start": true,
@@ -108,7 +108,21 @@ example a Gandalf Git commit. HOGS also returns a canonical SHA-256 digest.
         "restore": true,
         "writablePaths": ["/srv/cog/config", "/srv/cog/world"]
       },
-      "commands": []
+      "commands": [],
+      "accessGrants": [
+        {
+          "subjectType": "everyone",
+          "subject": "*",
+          "effect": "allow",
+          "capabilities": ["status", "view"]
+        },
+        {
+          "subjectType": "group",
+          "subject": "games-admins",
+          "effect": "allow",
+          "capabilities": ["console.read", "console.write", "start", "stop"]
+        }
+      ]
     }
   ],
   "constraints": [],

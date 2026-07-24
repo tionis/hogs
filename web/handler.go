@@ -20,6 +20,7 @@ import (
 	"strings"
 
 	"github.com/gorilla/mux"
+	"github.com/tionis/hogs/access"
 	"github.com/tionis/hogs/agent"
 )
 
@@ -51,6 +52,13 @@ type BackgroundTagOption struct {
 	Value       string
 	DisplayName string
 	Group       string
+}
+
+type EffectiveAccessEntry struct {
+	Name    string
+	Label   string
+	Allowed bool
+	Reason  string
 }
 
 func AvailableBackgroundTags(gameTypes []string) []BackgroundTagOption {
@@ -292,6 +300,13 @@ func (h *WebHandler) Home(w http.ResponseWriter, r *http.Request) {
 		// "offline" state hides the server from public view.
 		// "auto" state shows it, and the frontend determines the badge status.
 		if s.State != "offline" || isAuthenticated {
+			view := database.ServerAccessDecision{Allowed: userEnv.Role == "admin" || userEnv.Role == "system"}
+			if !view.Allowed {
+				view, _ = h.Store.EvaluateServerAccess(s.ID, userEnv.Email, userEnv.Groups, access.View)
+			}
+			if !view.Allowed {
+				continue
+			}
 			if h.Engine.EvaluateVisibility(&s, userEnv) {
 				visibleServers = append(visibleServers, s)
 			}
@@ -356,6 +371,14 @@ func (h *WebHandler) ServerDetail(w http.ResponseWriter, r *http.Request) {
 	isAuthenticated := h.Auth != nil && h.Auth.IsAuthenticated(r)
 	userRole := h.userRole(r)
 	userEnv := h.getUserEnv(r)
+	view := database.ServerAccessDecision{Allowed: userEnv.Role == "admin" || userEnv.Role == "system"}
+	if !view.Allowed {
+		view, _ = h.Store.EvaluateServerAccess(server.ID, userEnv.Email, userEnv.Groups, access.View)
+	}
+	if !view.Allowed {
+		http.Error(w, "Server not found", http.StatusNotFound)
+		return
+	}
 
 	// Check visibility constraints
 	if !h.Engine.EvaluateVisibility(server, userEnv) {
@@ -392,7 +415,14 @@ func (h *WebHandler) ServerDetail(w http.ResponseWriter, r *http.Request) {
 		AllowedActions  []string
 		HasAgent        bool
 		ShowConsole     bool
+		ConsoleWrite    bool
 		ShowFiles       bool
+		FileWrite       bool
+		EffectiveAccess []EffectiveAccessEntry
+		ManageAccess    bool
+		AccessGrants    []database.ServerAccessGrant
+		AccessCatalog   []access.Capability
+		WhitelistManage bool
 	}{
 		Server:          server,
 		Authenticated:   isAuthenticated,
@@ -405,8 +435,53 @@ func (h *WebHandler) ServerDetail(w http.ResponseWriter, r *http.Request) {
 		PteroCommands:   nil,
 		AllowedActions:  nil,
 		HasAgent:        hasAgent,
-		ShowConsole:     isAuthenticated && hasAgent,
-		ShowFiles:       isAuthenticated && userRole == "admin" && hasAgent,
+		ShowConsole:     false,
+		ConsoleWrite:    false,
+		ShowFiles:       false,
+		FileWrite:       false,
+		EffectiveAccess: []EffectiveAccessEntry{},
+		AccessGrants:    []database.ServerAccessGrant{},
+		AccessCatalog:   access.Capabilities,
+	}
+	if isAuthenticated {
+		for _, capability := range access.Capabilities {
+			decision := database.ServerAccessDecision{Allowed: true, Reason: "instance administrator"}
+			if userRole != "admin" {
+				decision, _ = h.Store.EvaluateServerAccess(server.ID, userEnv.Email, userEnv.Groups, capability.Name)
+			}
+			data.EffectiveAccess = append(data.EffectiveAccess, EffectiveAccessEntry{
+				Name: capability.Name, Label: capability.Label, Allowed: decision.Allowed, Reason: decision.Reason,
+			})
+		}
+		manageDecision := database.ServerAccessDecision{Allowed: userRole == "admin"}
+		if userRole != "admin" {
+			manageDecision, _ = h.Store.EvaluateServerAccess(server.ID, userEnv.Email, userEnv.Groups, access.AccessManage)
+		}
+		data.ManageAccess = manageDecision.Allowed
+		if data.ManageAccess {
+			data.AccessGrants, _ = h.Store.ListServerAccessGrants(server.ID)
+			if data.AccessGrants == nil {
+				data.AccessGrants = []database.ServerAccessGrant{}
+			}
+		}
+		whitelistDecision := database.ServerAccessDecision{Allowed: userRole == "admin"}
+		if userRole != "admin" {
+			whitelistDecision, _ = h.Store.EvaluateServerAccess(server.ID, userEnv.Email, userEnv.Groups, access.WhitelistManage)
+		}
+		data.WhitelistManage = whitelistDecision.Allowed
+	}
+	if isAuthenticated && hasAgent {
+		if userRole == "admin" {
+			data.ShowConsole, data.ConsoleWrite = true, true
+			data.ShowFiles, data.FileWrite = true, true
+		} else {
+			consoleRead, _ := h.Store.EvaluateServerAccess(server.ID, userEnv.Email, userEnv.Groups, access.ConsoleRead)
+			consoleWrite, _ := h.Store.EvaluateServerAccess(server.ID, userEnv.Email, userEnv.Groups, access.ConsoleWrite)
+			fileRead, _ := h.Store.EvaluateServerAccess(server.ID, userEnv.Email, userEnv.Groups, access.FileRead)
+			fileWrite, _ := h.Store.EvaluateServerAccess(server.ID, userEnv.Email, userEnv.Groups, access.FileWrite)
+			data.ShowConsole, data.ConsoleWrite = consoleRead.Allowed, consoleWrite.Allowed
+			data.ShowFiles, data.FileWrite = fileRead.Allowed, fileWrite.Allowed
+		}
 	}
 
 	data.PteroLink = link
@@ -607,7 +682,7 @@ func (h *WebHandler) ServerEdit(w http.ResponseWriter, r *http.Request) {
 		PteroLink          *PterodactylLinkData
 		ServerTags         []string
 		AccessGrants       []database.ServerAccessGrant
-		AccessCapabilities []string
+		AccessCapabilities []access.Capability
 		WhitelistEntries   []database.UserWhitelist
 		Agents             []database.Agent
 		Authenticated      bool
@@ -622,7 +697,7 @@ func (h *WebHandler) ServerEdit(w http.ResponseWriter, r *http.Request) {
 		PteroLink:          pteroLink,
 		ServerTags:         serverTags,
 		AccessGrants:       accessGrants,
-		AccessCapabilities: []string{"status", "start", "stop", "restart", "command", "console", "whitelist", "backup"},
+		AccessCapabilities: access.Capabilities,
 		WhitelistEntries:   whitelistEntries,
 		Agents:             agents,
 		Authenticated:      true,
@@ -1014,26 +1089,36 @@ func (h *WebHandler) HandleAccessGrantSet(w http.ResponseWriter, r *http.Request
 		http.Error(w, "Invalid server ID", http.StatusBadRequest)
 		return
 	}
-	subjectType := r.FormValue("subject_type")
-	subject := strings.TrimSpace(r.FormValue("subject"))
-	if subjectType != "user" && subjectType != "group" && subjectType != "authenticated" {
-		http.Error(w, "Subject type must be user, group, or authenticated", http.StatusBadRequest)
+	server, err := h.Store.GetServer(serverID)
+	if err != nil || server == nil {
+		http.Error(w, "Server not found", http.StatusNotFound)
 		return
 	}
-	if subjectType == "authenticated" {
+	if !h.canManageServerAccess(r, serverID) {
+		http.Error(w, "Server access management permission required", http.StatusForbidden)
+		return
+	}
+	subjectType := r.FormValue("subject_type")
+	subject := strings.TrimSpace(r.FormValue("subject"))
+	effect := r.FormValue("effect")
+	if subjectType != "user" && subjectType != "group" && subjectType != "authenticated" && subjectType != "everyone" {
+		http.Error(w, "Subject type must be user, group, authenticated, or everyone", http.StatusBadRequest)
+		return
+	}
+	if subjectType == "authenticated" || subjectType == "everyone" {
 		subject = "*"
 	}
 	if subject == "" {
 		http.Error(w, "Subject is required", http.StatusBadRequest)
 		return
 	}
-	known := map[string]bool{
-		"status": true, "start": true, "stop": true, "restart": true,
-		"command": true, "console": true, "whitelist": true, "backup": true,
+	if effect != "allow" && effect != "deny" {
+		http.Error(w, "Effect must be allow or deny", http.StatusBadRequest)
+		return
 	}
 	var capabilities []string
 	for _, capability := range r.Form["capability"] {
-		if known[capability] {
+		if access.Known(capability) {
 			capabilities = append(capabilities, capability)
 		}
 	}
@@ -1042,12 +1127,12 @@ func (h *WebHandler) HandleAccessGrantSet(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if err := h.Store.SetServerAccessGrant(&database.ServerAccessGrant{
-		ServerID: serverID, SubjectType: subjectType, Subject: subject, Capabilities: capabilities,
+		ServerID: serverID, SubjectType: subjectType, Subject: subject, Effect: effect, Capabilities: capabilities,
 	}); err != nil {
 		http.Error(w, "Failed to save access grant", http.StatusInternalServerError)
 		return
 	}
-	http.Redirect(w, r, "/admin/servers/"+strconv.Itoa(serverID)+"#access-control", http.StatusFound)
+	http.Redirect(w, r, "/"+server.Name+"#access-control", http.StatusFound)
 }
 
 func (h *WebHandler) HandleAccessGrantDelete(w http.ResponseWriter, r *http.Request) {
@@ -1061,11 +1146,32 @@ func (h *WebHandler) HandleAccessGrantDelete(w http.ResponseWriter, r *http.Requ
 		http.Error(w, "Invalid access grant", http.StatusBadRequest)
 		return
 	}
+	server, err := h.Store.GetServer(serverID)
+	if err != nil || server == nil {
+		http.Error(w, "Server not found", http.StatusNotFound)
+		return
+	}
+	if !h.canManageServerAccess(r, serverID) {
+		http.Error(w, "Server access management permission required", http.StatusForbidden)
+		return
+	}
 	if err := h.Store.DeleteServerAccessGrant(grantID, serverID); err != nil {
 		http.Error(w, "Failed to delete access grant", http.StatusInternalServerError)
 		return
 	}
-	http.Redirect(w, r, "/admin/servers/"+strconv.Itoa(serverID)+"#access-control", http.StatusFound)
+	http.Redirect(w, r, "/"+server.Name+"#access-control", http.StatusFound)
+}
+
+func (h *WebHandler) canManageServerAccess(r *http.Request, serverID int) bool {
+	user := h.getUserEnv(r)
+	if user != nil && (user.Role == "admin" || user.Role == "system") {
+		return true
+	}
+	if user == nil {
+		return false
+	}
+	decision, err := h.Store.EvaluateServerAccess(serverID, user.Email, user.Groups, access.AccessManage)
+	return err == nil && decision.Allowed
 }
 
 var safeGameUsernamePattern = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,64}$`)

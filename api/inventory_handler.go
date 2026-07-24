@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/robfig/cron/v3"
+	"github.com/tionis/hogs/access"
 	"github.com/tionis/hogs/auth"
 	"github.com/tionis/hogs/database"
 )
@@ -41,22 +42,30 @@ type InventoryNode struct {
 }
 
 type InventoryServer struct {
-	Name         string                `json:"name"`
-	Address      string                `json:"address"`
-	Description  string                `json:"description"`
-	MapURL       string                `json:"mapUrl"`
-	MapLifecycle string                `json:"mapLifecycle"`
-	ModURL       string                `json:"modUrl"`
-	State        string                `json:"state"`
-	GameType     string                `json:"gameType"`
-	ShowMOTD     bool                  `json:"showMotd"`
-	Metadata     map[string]string     `json:"metadata"`
-	Tags         []string              `json:"tags"`
-	Unit         string                `json:"unit"`
-	DataPath     string                `json:"dataPath"`
-	Backend      InventoryBackend      `json:"backend"`
-	Policy       InventoryServerPolicy `json:"policy"`
-	Commands     []InventoryCommand    `json:"commands"`
+	Name         string                 `json:"name"`
+	Address      string                 `json:"address"`
+	Description  string                 `json:"description"`
+	MapURL       string                 `json:"mapUrl"`
+	MapLifecycle string                 `json:"mapLifecycle"`
+	ModURL       string                 `json:"modUrl"`
+	State        string                 `json:"state"`
+	GameType     string                 `json:"gameType"`
+	ShowMOTD     bool                   `json:"showMotd"`
+	Metadata     map[string]string      `json:"metadata"`
+	Tags         []string               `json:"tags"`
+	Unit         string                 `json:"unit"`
+	DataPath     string                 `json:"dataPath"`
+	Backend      InventoryBackend       `json:"backend"`
+	Policy       InventoryServerPolicy  `json:"policy"`
+	Commands     []InventoryCommand     `json:"commands"`
+	AccessGrants []InventoryAccessGrant `json:"accessGrants"`
+}
+
+type InventoryAccessGrant struct {
+	SubjectType  string   `json:"subjectType"`
+	Subject      string   `json:"subject"`
+	Effect       string   `json:"effect"`
+	Capabilities []string `json:"capabilities"`
 }
 
 type InventoryBackend struct {
@@ -410,6 +419,31 @@ func validateManifest(m *InventoryManifest) error {
 				return fmt.Errorf("server %q command %q params must be JSON", server.Name, command.Name)
 			}
 		}
+		grants := make(map[string]bool)
+		for _, grant := range server.AccessGrants {
+			if grant.SubjectType != "user" && grant.SubjectType != "group" && grant.SubjectType != "authenticated" && grant.SubjectType != "everyone" {
+				return fmt.Errorf("server %q access grant has invalid subjectType %q", server.Name, grant.SubjectType)
+			}
+			if grant.Effect != "allow" && grant.Effect != "deny" {
+				return fmt.Errorf("server %q access grant has invalid effect %q", server.Name, grant.Effect)
+			}
+			if strings.TrimSpace(grant.Subject) == "" {
+				return fmt.Errorf("server %q access grant subject is required", server.Name)
+			}
+			key := grant.Effect + ":" + grant.SubjectType + ":" + grant.Subject
+			if grants[key] {
+				return fmt.Errorf("server %q has duplicate access grant %q", server.Name, key)
+			}
+			grants[key] = true
+			if len(grant.Capabilities) == 0 {
+				return fmt.Errorf("server %q access grant %q has no capabilities", server.Name, key)
+			}
+			for _, capability := range grant.Capabilities {
+				if !access.Known(capability) {
+					return fmt.Errorf("server %q access grant %q has unknown capability %q", server.Name, key, capability)
+				}
+			}
+		}
 	}
 	for _, schedule := range m.Schedules {
 		if !servers[schedule.ServerName] {
@@ -530,6 +564,16 @@ func normalizeManifest(m *InventoryManifest) {
 		sort.Strings(m.Servers[i].Policy.AllowedActions)
 		sort.Strings(m.Servers[i].Policy.Operators)
 		sort.Strings(m.Servers[i].Policy.WritablePaths)
+		for grant := range m.Servers[i].AccessGrants {
+			if m.Servers[i].AccessGrants[grant].SubjectType == "authenticated" || m.Servers[i].AccessGrants[grant].SubjectType == "everyone" {
+				m.Servers[i].AccessGrants[grant].Subject = "*"
+			}
+			sort.Strings(m.Servers[i].AccessGrants[grant].Capabilities)
+		}
+		sort.Slice(m.Servers[i].AccessGrants, func(a, b int) bool {
+			left, right := m.Servers[i].AccessGrants[a], m.Servers[i].AccessGrants[b]
+			return left.Effect+":"+left.SubjectType+":"+left.Subject < right.Effect+":"+right.SubjectType+":"+right.Subject
+		})
 		sort.Slice(m.Servers[i].Commands, func(a, b int) bool { return m.Servers[i].Commands[a].Name < m.Servers[i].Commands[b].Name })
 	}
 	sort.Slice(m.Constraints, func(i, j int) bool { return m.Constraints[i].Name < m.Constraints[j].Name })
@@ -934,6 +978,16 @@ func applyServers(tx *sql.Tx, servers []InventoryServer) error {
 			serverID, server.Unit, server.DataPath, string(operators), boolInt(server.Policy.Console), boolInt(server.Policy.RCON), boolInt(server.Policy.Start), boolInt(server.Policy.Stop), boolInt(server.Policy.Backup), boolInt(server.Policy.Restore), string(writablePaths))
 		if err != nil {
 			return err
+		}
+		if _, err := tx.Exec("DELETE FROM server_access_grants WHERE server_id=?", serverID); err != nil {
+			return err
+		}
+		for _, grant := range server.AccessGrants {
+			capabilities, _ := json.Marshal(grant.Capabilities)
+			if _, err := tx.Exec(`INSERT INTO server_access_grants(server_id,subject_type,subject,effect,capabilities)
+				VALUES(?,?,?,?,?)`, serverID, grant.SubjectType, grant.Subject, grant.Effect, string(capabilities)); err != nil {
+				return err
+			}
 		}
 	}
 	if err := deleteMissing(tx, "servers", "name", keep); err != nil {

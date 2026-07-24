@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/tionis/hogs/access"
 	"github.com/tionis/hogs/auth"
 	"github.com/tionis/hogs/database"
 	"github.com/tionis/hogs/engine"
@@ -14,11 +15,14 @@ import (
 type managedCapability string
 
 const (
-	managedConsole managedCapability = "console"
-	managedFile    managedCapability = "file"
-	managedBackup  managedCapability = "backup"
-	managedRestore managedCapability = "restore"
-	managedStatus  managedCapability = "status"
+	managedConsoleRead   managedCapability = access.ConsoleRead
+	managedConsoleWrite  managedCapability = access.ConsoleWrite
+	managedFileRead      managedCapability = access.FileRead
+	managedFileWrite     managedCapability = access.FileWrite
+	managedBackupList    managedCapability = access.BackupList
+	managedBackupCreate  managedCapability = access.BackupCreate
+	managedBackupRestore managedCapability = access.BackupRestore
+	managedStatus        managedCapability = access.Status
 )
 
 func userEnvFromRequest(store *database.Store, authenticator *auth.Authenticator, r *http.Request) *engine.UserEnv {
@@ -67,19 +71,19 @@ func authorizeManagedCapability(store *database.Store, eng *engine.Engine, authe
 		return nil, nil, http.StatusForbidden, fmt.Errorf("server is not managed")
 	}
 	switch capability {
-	case managedConsole:
+	case managedConsoleRead, managedConsoleWrite:
 		if !management.ConsoleEnabled {
 			return nil, nil, http.StatusForbidden, fmt.Errorf("console is disabled")
 		}
-	case managedFile:
+	case managedFileRead, managedFileWrite:
 		if len(management.WritablePaths) == 0 {
 			return nil, nil, http.StatusForbidden, fmt.Errorf("file access is disabled")
 		}
-	case managedBackup:
+	case managedBackupList, managedBackupCreate:
 		if !management.BackupEnabled {
 			return nil, nil, http.StatusForbidden, fmt.Errorf("backup access is disabled")
 		}
-	case managedRestore:
+	case managedBackupRestore:
 		if !management.RestoreEnabled {
 			return nil, nil, http.StatusForbidden, fmt.Errorf("restore access is disabled")
 		}
@@ -88,32 +92,16 @@ func authorizeManagedCapability(store *database.Store, eng *engine.Engine, authe
 	}
 
 	user := userEnvFromRequest(store, authenticator, r)
-	if capability == managedFile && user.Role != "admin" {
-		return nil, nil, http.StatusForbidden, fmt.Errorf("server administrator access required")
-	}
 	if user.Role != "admin" {
-		granted, governed, accessErr := store.ServerAccessAllowed(server.ID, user.Email, user.Groups, string(capability))
+		decision, accessErr := store.EvaluateServerAccess(server.ID, user.Email, user.Groups, string(capability))
 		if accessErr != nil {
 			return nil, nil, http.StatusInternalServerError, fmt.Errorf("evaluate server access: %w", accessErr)
 		}
-		if governed && !granted {
-			return nil, nil, http.StatusForbidden, fmt.Errorf("server capability is not granted")
-		}
-		if !governed && !isManagedOperator(management.Operators, user) {
-			return nil, nil, http.StatusForbidden, fmt.Errorf("server operator access required")
-		}
-		if !governed && eng != nil {
-			link, linkErr := store.GetPterodactylLink(server.ID)
-			if linkErr != nil {
-				return nil, nil, http.StatusInternalServerError, fmt.Errorf("load server access rule: %w", linkErr)
+		if !decision.Allowed {
+			if eng != nil {
+				eng.LogAction(server.Name, string(capability), user.Email, "denied", decision.Reason, "web", nil)
 			}
-			allowed, aclErr := eng.EvaluateACLRule(link, server, string(capability), user)
-			if aclErr != nil {
-				return nil, nil, http.StatusInternalServerError, fmt.Errorf("evaluate server access rule: %w", aclErr)
-			}
-			if !allowed {
-				return nil, nil, http.StatusForbidden, fmt.Errorf("ACL denied action %s", capability)
-			}
+			return nil, nil, http.StatusForbidden, fmt.Errorf("access denied: %s", decision.Reason)
 		}
 	}
 	if eng != nil {
@@ -129,14 +117,17 @@ func authorizeManagedCapability(store *database.Store, eng *engine.Engine, authe
 			if status == 0 {
 				status = http.StatusForbidden
 			}
+			if eng != nil {
+				eng.LogAction(server.Name, string(capability), user.Email, "blocked", result.Reason, "web", nil)
+			}
 			return nil, nil, status, fmt.Errorf("%s", result.Reason)
 		}
 	}
 	return server, user, http.StatusOK, nil
 }
 
-func authorizeManagedPath(store *database.Store, eng *engine.Engine, authenticator *auth.Authenticator, r *http.Request, serverName, requestedPath string) (int, error) {
-	server, _, status, err := authorizeManagedCapability(store, eng, authenticator, r, serverName, managedFile)
+func authorizeManagedPath(store *database.Store, eng *engine.Engine, authenticator *auth.Authenticator, r *http.Request, serverName, requestedPath string, capability managedCapability) (int, error) {
+	server, _, status, err := authorizeManagedCapability(store, eng, authenticator, r, serverName, capability)
 	if err != nil {
 		return status, err
 	}
@@ -156,21 +147,4 @@ func authorizeManagedPath(store *database.Store, eng *engine.Engine, authenticat
 		}
 	}
 	return http.StatusForbidden, fmt.Errorf("path is outside the managed file allowlist")
-}
-
-func isManagedOperator(operators []string, user *engine.UserEnv) bool {
-	if user == nil {
-		return false
-	}
-	for _, operator := range operators {
-		if operator == user.Email {
-			return true
-		}
-		for _, group := range user.Groups {
-			if operator == group {
-				return true
-			}
-		}
-	}
-	return false
 }

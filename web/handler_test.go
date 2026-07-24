@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -44,6 +46,20 @@ func testWebHandler(t *testing.T) (*WebHandler, *database.Store, *auth.Authentic
 	authenticator := auth.NewTestAuthenticator(store, "test-session-secret-for-tests-only")
 
 	return NewWebHandler(store, cfg, authenticator, eng), store, authenticator
+}
+
+func grantPublicView(t *testing.T, store *database.Store, serverName string) {
+	t.Helper()
+	server, err := store.GetServerByName(serverName)
+	if err != nil || server == nil {
+		t.Fatalf("load server for public grant: %v", err)
+	}
+	if err := store.SetServerAccessGrant(&database.ServerAccessGrant{
+		ServerID: server.ID, SubjectType: "everyone", Subject: "*", Effect: "allow",
+		Capabilities: []string{"status", "view"},
+	}); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func createTestSession(t *testing.T, store *database.Store, authenticator *auth.Authenticator, email, role string) *http.Cookie {
@@ -117,6 +133,47 @@ func TestDashboardRenders(t *testing.T) {
 	}
 }
 
+func TestServerAccessManagerCanGrantOnlyAuthorizedServer(t *testing.T) {
+	handler, store, authenticator := testWebHandler(t)
+	for _, name := range []string{"managed-one", "managed-two"} {
+		if err := store.CreateServer(&database.Server{Name: name, GameType: "example", State: "online"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	first, _ := store.GetServerByName("managed-one")
+	second, _ := store.GetServerByName("managed-two")
+	if err := store.SetServerAccessGrant(&database.ServerAccessGrant{
+		ServerID: first.ID, SubjectType: "user", Subject: "manager@example.test", Effect: "allow",
+		Capabilities: []string{"access.manage"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	cookie := createTestSession(t, store, authenticator, "manager@example.test", "user")
+
+	submit := func(serverID int) *httptest.ResponseRecorder {
+		form := url.Values{
+			"server_id": {strconv.Itoa(serverID)}, "effect": {"allow"}, "subject_type": {"user"},
+			"subject": {"player@example.test"}, "capability": {"view"},
+		}
+		req := httptest.NewRequest(http.MethodPost, "/admin/access-grants/set", strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.AddCookie(cookie)
+		recorder := httptest.NewRecorder()
+		handler.HandleAccessGrantSet(recorder, req)
+		return recorder
+	}
+
+	if recorder := submit(first.ID); recorder.Code != http.StatusFound {
+		t.Fatalf("authorized grant status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if decision, err := store.EvaluateServerAccess(first.ID, "player@example.test", nil, "view"); err != nil || !decision.Allowed {
+		t.Fatalf("authorized grant was not applied: %#v err=%v", decision, err)
+	}
+	if recorder := submit(second.ID); recorder.Code != http.StatusForbidden {
+		t.Fatalf("cross-server grant status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
 func TestAdminRenders(t *testing.T) {
 	handler, store, auth := testWebHandler(t)
 	store.CreateServer(&database.Server{Name: "TestSrv", GameType: "minecraft", State: "online"})
@@ -165,6 +222,7 @@ func TestAdminRoleFailureRendersForbiddenPage(t *testing.T) {
 func TestHomeRenders(t *testing.T) {
 	handler, store, _ := testWebHandler(t)
 	store.CreateServer(&database.Server{Name: "PublicSrv", GameType: "minecraft", State: "online"})
+	grantPublicView(t, store, "PublicSrv")
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	w := httptest.NewRecorder()
@@ -212,6 +270,7 @@ func TestServerDetailRenders(t *testing.T) {
 		Name: "DetailSrv", GameType: "minecraft", State: "online", Address: "play.example.test",
 		Metadata: map[string]string{"directAddress": "node.example.test:25565"},
 	})
+	grantPublicView(t, store, "DetailSrv")
 
 	req := httptest.NewRequest(http.MethodGet, "/DetailSrv", nil)
 	req = mux.SetURLVars(req, map[string]string{"serverName": "DetailSrv"})
@@ -232,7 +291,7 @@ func TestServerDetailRenders(t *testing.T) {
 	for _, expected := range []string{
 		"Connect address", "Direct fallback", `data-copy-target="connect-address"`,
 		`data-copy-target="direct-address"`, "copyServerAddress",
-		"metadata-list-item", "runFileOperation", "Rename", "Copy", "Move",
+		"metadata-list-item", "runFileOperation",
 	} {
 		if !contains(body, expected) {
 			t.Errorf("expected address UI to contain %q", expected)
@@ -256,6 +315,7 @@ func TestServerDetailOmitsDirectFallbackWhenNotConfigured(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	grantPublicView(t, store, "NoFallbackSrv")
 	req := httptest.NewRequest(http.MethodGet, "/NoFallbackSrv", nil)
 	req = mux.SetURLVars(req, map[string]string{"serverName": "NoFallbackSrv"})
 	w := httptest.NewRecorder()

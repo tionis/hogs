@@ -6,23 +6,33 @@ HOGS separates three concerns that were previously mixed into one expression:
    reconciliation controls enabled actions, console/RCON, backups, restore, and
    writable path roots.
 2. **Interactive access grants** declare who may use an enabled capability.
-   A grant targets one user email, one OIDC/SCIM group, or any authenticated
-   user and lists explicit capabilities. Administrators are implicit
-   superusers. File modification remains administrator-only.
+   A grant targets one user email, one OIDC/SCIM group, any authenticated user,
+   or everyone (including public visitors), and lists explicit capabilities.
+   Grants can allow or explicitly deny; deny always wins. Administrators are
+   implicit superusers.
 3. **Operational constraints** decide whether an otherwise authorized action
    may run now, for example requiring an empty server before stopping it.
 
-Once a server has at least one structured access grant, grants replace its
-legacy expression ACL for non-administrators. The expression remains as an
-advanced fallback for installations that have not migrated. A grant cannot
-enable an action disabled by deployment policy.
+Access is deny-by-default for non-administrators, including when a server has no
+grants. The legacy expression ACL and operator list are retained only as
+deployment compatibility fields and no longer authorize interactive access. A
+grant cannot enable an action disabled by deployment policy.
 
-Current grant capabilities are `status`, `start`, `stop`, `restart`, `command`,
-`console`, `whitelist`, and `backup`. `command` covers only commands separately
-approved for the server. For a non-administrator, `whitelist` means
-**whitelist own linked account**; it never permits managing another player.
-Instance administrators use the separate whitelist-management panel on the
-server edit page.
+Capabilities are explicit and independently grantable: `view`, `status`,
+`start`, `stop`, `restart`, `command`, `console.read`, `console.write`,
+`file.read`, `file.write`, `whitelist.self`, `whitelist.manage`, `backup.list`,
+`backup.create`, `backup.restore`, and `access.manage`. `command` covers only
+commands separately approved for the server. Arbitrary console input requires
+`console.write`; read-only console users cannot send it. `whitelist.self` can
+only manage the caller's linked identity, while `whitelist.manage` is intended
+for server administrators.
+
+Inventory manifests carry `accessGrants` with `subjectType`, `subject`,
+`effect`, and `capabilities`. Reconciliation replaces the grant set for each
+managed server, making the manifest the authoritative policy. The admin UI
+shows the same capability catalog and clearly distinguishes allow from deny.
+`GET /api/servers/{serverName}/effective-access` explains the current caller's
+effective decision for each capability.
 
 ## Instance roles
 

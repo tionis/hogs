@@ -802,6 +802,12 @@ func TestConstraintViolationNotification(t *testing.T) {
 	// Set ACL rule to allow everything so we reach constraints
 	store.DB.Exec("INSERT INTO pterodactyl_servers (server_id, ptero_server_id, ptero_identifier, allowed_actions, acl_rule) VALUES (?, ?, ?, ?, ?)",
 		server.ID, "test-uuid", "test-id", "[\"start\"]", "true")
+	if err := store.SetServerAccessGrant(&database.ServerAccessGrant{
+		ServerID: server.ID, SubjectType: "user", Subject: "test@example.com",
+		Effect: "allow", Capabilities: []string{"start"},
+	}); err != nil {
+		t.Fatal(err)
+	}
 
 	// Create a constraint that always blocks
 	store.DB.Exec("INSERT INTO constraints (name, condition, strategy, priority, enabled) VALUES (?, ?, ?, ?, ?)",

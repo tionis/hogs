@@ -39,6 +39,14 @@ func managedAuthorizationFixture(t *testing.T, operators []string, acl string) (
 		server.ID, "managed-test.service", "/srv/managed-test", operatorsJSON); err != nil {
 		t.Fatal(err)
 	}
+	if len(operators) == 1 {
+		if err := store.SetServerAccessGrant(&database.ServerAccessGrant{
+			ServerID: server.ID, SubjectType: "group", Subject: operators[0], Effect: "allow",
+			Capabilities: []string{"console.read", "backup.list", "status"},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
 	authenticator := auth.NewTestAuthenticator(store, "managed-authorization-test-secret")
 	eng := engine.NewEngine(store, &config.Config{}, query.NewServerStatusCache())
 	return store, authenticator, eng
@@ -109,7 +117,7 @@ func TestManagedConsoleAllowsConfiguredNonAdminOperator(t *testing.T) {
 	store, authenticator, eng := managedAuthorizationFixture(t, []string{"game-moderators"}, `inList("game-moderators", user.Groups)`)
 	req := managedTestRequest(t, store, authenticator, "moderator@example.test", "user", "game-moderators")
 
-	_, user, status, err := authorizeManagedCapability(store, eng, authenticator, req, "managed-test", managedConsole)
+	_, user, status, err := authorizeManagedCapability(store, eng, authenticator, req, "managed-test", managedConsoleRead)
 	if err != nil || status != http.StatusOK {
 		t.Fatalf("operator authorization failed: status=%d err=%v", status, err)
 	}
@@ -122,19 +130,26 @@ func TestManagedConsoleRejectsUnlistedNonAdmin(t *testing.T) {
 	store, authenticator, eng := managedAuthorizationFixture(t, []string{"game-moderators"}, `true`)
 	req := managedTestRequest(t, store, authenticator, "player@example.test", "user")
 
-	_, _, status, err := authorizeManagedCapability(store, eng, authenticator, req, "managed-test", managedConsole)
+	_, _, status, err := authorizeManagedCapability(store, eng, authenticator, req, "managed-test", managedConsoleRead)
 	if err == nil || status != http.StatusForbidden {
 		t.Fatalf("unlisted user status=%d err=%v, want forbidden", status, err)
 	}
 }
 
-func TestManagedConsoleStillAppliesServerACL(t *testing.T) {
+func TestManagedConsoleExplicitDenyOverridesAllow(t *testing.T) {
 	store, authenticator, eng := managedAuthorizationFixture(t, []string{"game-moderators"}, `user.Role == "admin"`)
+	server, _ := store.GetServerByName("managed-test")
+	if err := store.SetServerAccessGrant(&database.ServerAccessGrant{
+		ServerID: server.ID, SubjectType: "group", Subject: "game-moderators", Effect: "deny",
+		Capabilities: []string{"console.read"},
+	}); err != nil {
+		t.Fatal(err)
+	}
 	req := managedTestRequest(t, store, authenticator, "moderator@example.test", "user", "game-moderators")
 
-	_, _, status, err := authorizeManagedCapability(store, eng, authenticator, req, "managed-test", managedConsole)
+	_, _, status, err := authorizeManagedCapability(store, eng, authenticator, req, "managed-test", managedConsoleRead)
 	if err == nil || status != http.StatusForbidden {
-		t.Fatalf("ACL-denied operator status=%d err=%v, want forbidden", status, err)
+		t.Fatalf("explicitly denied operator status=%d err=%v, want forbidden", status, err)
 	}
 }
 
@@ -146,13 +161,13 @@ func TestManagedFileAccessUsesReconciledWritablePaths(t *testing.T) {
 	}
 	req := managedTestRequest(t, store, authenticator, "admin@example.test", "admin")
 
-	if status, err := authorizeManagedPath(store, eng, authenticator, req, "managed-test", "config/settings.json"); err != nil || status != http.StatusOK {
+	if status, err := authorizeManagedPath(store, eng, authenticator, req, "managed-test", "config/settings.json", managedFileRead); err != nil || status != http.StatusOK {
 		t.Fatalf("allowlisted path status=%d err=%v", status, err)
 	}
-	if status, err := authorizeManagedPath(store, eng, authenticator, req, "managed-test", "world/level.dat"); err == nil || status != http.StatusForbidden {
+	if status, err := authorizeManagedPath(store, eng, authenticator, req, "managed-test", "world/level.dat", managedFileRead); err == nil || status != http.StatusForbidden {
 		t.Fatalf("unlisted path status=%d err=%v, want forbidden", status, err)
 	}
-	if status, err := authorizeManagedPath(store, eng, authenticator, req, "managed-test", "/srv/managed-test/config/settings.json"); err == nil || status != http.StatusBadRequest {
+	if status, err := authorizeManagedPath(store, eng, authenticator, req, "managed-test", "/srv/managed-test/config/settings.json", managedFileRead); err == nil || status != http.StatusBadRequest {
 		t.Fatalf("absolute path status=%d err=%v, want bad request", status, err)
 	}
 }
@@ -164,7 +179,7 @@ func TestManagedFileAccessRejectsNonAdminOperator(t *testing.T) {
 		t.Fatal(err)
 	}
 	req := managedTestRequest(t, store, authenticator, "moderator@example.test", "user", "game-moderators")
-	if status, err := authorizeManagedPath(store, eng, authenticator, req, "managed-test", "config/settings.json"); err == nil || status != http.StatusForbidden {
+	if status, err := authorizeManagedPath(store, eng, authenticator, req, "managed-test", "config/settings.json", managedFileRead); err == nil || status != http.StatusForbidden {
 		t.Fatalf("non-admin operator status=%d err=%v, want forbidden", status, err)
 	}
 }
@@ -177,10 +192,10 @@ func TestManagedBackupAllowsOperatorWithoutGrantingRestore(t *testing.T) {
 	}
 	req := managedTestRequest(t, store, authenticator, "moderator@example.test", "user", "game-moderators")
 
-	if _, _, status, err := authorizeManagedCapability(store, eng, authenticator, req, "managed-test", managedBackup); err != nil || status != http.StatusOK {
+	if _, _, status, err := authorizeManagedCapability(store, eng, authenticator, req, "managed-test", managedBackupList); err != nil || status != http.StatusOK {
 		t.Fatalf("backup authorization status=%d err=%v", status, err)
 	}
-	if _, _, status, err := authorizeManagedCapability(store, eng, authenticator, req, "managed-test", managedRestore); err == nil || status != http.StatusForbidden {
+	if _, _, status, err := authorizeManagedCapability(store, eng, authenticator, req, "managed-test", managedBackupRestore); err == nil || status != http.StatusForbidden {
 		t.Fatalf("restore authorization status=%d err=%v, want forbidden", status, err)
 	}
 }

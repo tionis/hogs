@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/tionis/hogs/access"
 	"github.com/tionis/hogs/agent"
 	"github.com/tionis/hogs/auth"
 	"github.com/tionis/hogs/backend"
@@ -558,6 +559,21 @@ func (h *PterodactylHandler) AdminWhitelist(w http.ResponseWriter, r *http.Reque
 	if server == nil {
 		http.Error(w, "Server not found", http.StatusNotFound)
 		return
+	}
+	user := h.getUserEnv(r)
+	if user.Role != "admin" && user.Role != "system" {
+		decision, accessErr := h.Store.EvaluateServerAccess(server.ID, user.Email, user.Groups, access.WhitelistManage)
+		if accessErr != nil {
+			http.Error(w, "Failed to evaluate server access", http.StatusInternalServerError)
+			return
+		}
+		if !decision.Allowed {
+			if h.Engine != nil {
+				h.Engine.LogAction(server.Name, access.WhitelistManage, user.Email, "denied", decision.Reason, "web", nil)
+			}
+			http.Error(w, "Whitelist management permission required: "+decision.Reason, http.StatusForbidden)
+			return
+		}
 	}
 	link, err := h.Store.GetPterodactylLink(server.ID)
 	if err != nil || link == nil {

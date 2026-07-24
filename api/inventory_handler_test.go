@@ -40,6 +40,10 @@ func testManifest() InventoryManifest {
 				Operators: []string{"games-admins"}, Console: true, Start: true, Stop: true, Backup: true, Restore: true,
 				WritablePaths: []string{"/srv/cog/config", "/srv/cog/world"}},
 			Commands: []InventoryCommand{{Name: "say", DisplayName: "Say", Template: "say {message}", Params: json.RawMessage(`{"message":{"type":"string","required":true}}`), Enabled: true}},
+			AccessGrants: []InventoryAccessGrant{
+				{SubjectType: "authenticated", Subject: "*", Effect: "allow", Capabilities: []string{"status", "view"}},
+				{SubjectType: "group", Subject: "games-admins", Effect: "allow", Capabilities: []string{"console.read", "start", "stop"}},
+			},
 		}},
 		Constraints:   []InventoryConstraint{{Name: "one_game", Condition: "true", Strategy: "deny", Priority: 10, Enabled: true}},
 		Schedules:     []InventorySchedule{{Name: "nightly_restart", Schedule: "0 0 4 * * *", ServerName: "cog", Action: "restart", Params: json.RawMessage(`{}`), Enabled: true}},
@@ -101,6 +105,10 @@ func TestInventoryApplyIsIdempotentAndNeverReturnsAgentToken(t *testing.T) {
 	link, err := store.GetPterodactylLink(server.ID)
 	if err != nil || link == nil || link.Node != "destiny" {
 		t.Fatalf("agent backend not persisted: %#v err=%v", link, err)
+	}
+	decision, err := store.EvaluateServerAccess(server.ID, "operator@example.test", []string{"games-admins"}, "console.read")
+	if err != nil || !decision.Allowed {
+		t.Fatalf("inventory access grant not persisted: %#v err=%v", decision, err)
 	}
 
 	secondPlan := httptest.NewRecorder()

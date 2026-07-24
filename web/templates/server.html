@@ -107,10 +107,10 @@
       </div>
       <div class="card-body p-0">
         <div id="console-output" style="background:var(--bg-input);color:var(--text-primary);font-family:monospace;font-size:0.85rem;height:300px;overflow-y:auto;padding:0.75rem;"></div>
-        <div class="input-group input-group-sm p-2" style="background:var(--bg-card);border-top:1px solid var(--border-color);">
+        {{if .ConsoleWrite}}<div class="input-group input-group-sm p-2" style="background:var(--bg-card);border-top:1px solid var(--border-color);">
           <input type="text" id="console-input" class="form-control form-control-sm" placeholder="Enter command..." autocomplete="off" disabled>
           <button class="btn btn-primary btn-sm" id="console-send" onclick="sendConsoleInput()" disabled>Send</button>
-        </div>
+        </div>{{else}}<div class="small p-2 text-muted">Read-only console access</div>{{end}}
       </div>
     </div>
     {{end}}
@@ -119,14 +119,14 @@
     <div class="card mb-4" id="file-browser-card">
       <div class="card-header d-flex justify-content-between align-items-center">
         <span>Managed Files</span>
-        <select id="file-root" class="form-select form-select-sm w-auto" aria-label="Writable root"></select>
+        <select id="file-root" class="form-select form-select-sm w-auto" aria-label="Managed root"></select>
       </div>
       <div class="card-body">
         <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
           <button type="button" id="file-up" class="btn btn-sm btn-outline-secondary">Up</button>
           <code id="file-path" class="flex-grow-1"></code>
-          <label class="btn btn-sm btn-outline-primary mb-0">Upload<input id="file-upload" type="file" hidden></label>
-          <button type="button" id="file-mkdir" class="btn btn-sm btn-outline-secondary">New folder</button>
+          {{if .FileWrite}}<label class="btn btn-sm btn-outline-primary mb-0">Upload<input id="file-upload" type="file" hidden></label>
+          <button type="button" id="file-mkdir" class="btn btn-sm btn-outline-secondary">New folder</button>{{end}}
         </div>
         <div id="file-feedback" class="small mb-2" role="status"></div>
         <div id="file-browser">Loading files...</div>
@@ -212,6 +212,78 @@
        </ul>
        <div class="card-footer small" style="color: var(--text-secondary);">
          CPU usage uses 100% per processor core. Updated <time id="resource-sampled-at">—</time>.
+       </div>
+     </div>
+     {{end}}
+
+     {{if .Authenticated}}
+     <details class="card mb-4">
+       <summary class="card-header">Your server access</summary>
+       <div class="card-body">
+         <p class="small text-muted">These are your effective per-server permissions. Deny grants take precedence over allows.</p>
+         <div class="row g-2">
+           {{range .EffectiveAccess}}
+           <div class="col-md-6">
+             <div class="d-flex justify-content-between gap-2 small">
+               <span>{{.Label}} <code>{{.Name}}</code></span>
+               <span class="badge {{if .Allowed}}bg-success{{else}}bg-secondary{{end}}" title="{{.Reason}}">{{if .Allowed}}allowed{{else}}denied{{end}}</span>
+             </div>
+           </div>
+           {{end}}
+         </div>
+       </div>
+     </details>
+     {{end}}
+
+     {{if .ManageAccess}}
+     <div class="card mb-4" id="access-control">
+       <div class="card-header">Manage server access</div>
+       <div class="card-body">
+         <p class="small text-muted">Changes apply only to this server. Explicit denies override allows.</p>
+         {{if .AccessGrants}}
+         <div class="table-responsive mb-3">
+           <table class="table table-sm align-middle">
+             <thead><tr><th>Effect</th><th>Subject</th><th>Capabilities</th><th></th></tr></thead>
+             <tbody>{{range .AccessGrants}}<tr>
+               <td><span class="badge {{if eq .Effect "deny"}}bg-danger{{else}}bg-success{{end}}">{{.Effect}}</span></td>
+               <td><span class="badge bg-secondary">{{.SubjectType}}</span> {{.Subject}}</td>
+               <td>{{range .Capabilities}}<span class="badge bg-info me-1">{{.}}</span>{{end}}</td>
+               <td><form action="/admin/access-grants/delete" method="POST">
+                 <input type="hidden" name="server_id" value="{{$.Server.ID}}">
+                 <input type="hidden" name="grant_id" value="{{.ID}}">
+                 <button class="btn btn-sm btn-outline-danger" type="submit">Remove</button>
+               </form></td>
+             </tr>{{end}}</tbody>
+           </table>
+         </div>
+         {{end}}
+         <form action="/admin/access-grants/set" method="POST">
+           <input type="hidden" name="server_id" value="{{.Server.ID}}">
+           <div class="row g-2 mb-2">
+             <div class="col-md-2"><select class="form-select form-select-sm" name="effect"><option value="allow">Allow</option><option value="deny">Deny</option></select></div>
+             <div class="col-md-3"><select class="form-select form-select-sm" name="subject_type"><option value="group">OIDC group</option><option value="user">User email</option><option value="authenticated">Any authenticated user</option><option value="everyone">Everyone, including public</option></select></div>
+             <div class="col-md-7"><input class="form-control form-control-sm" name="subject" placeholder="Group name or user email"></div>
+           </div>
+           <div class="d-flex flex-wrap gap-2 mb-3">{{range .AccessCatalog}}
+             <label class="form-check form-check-inline me-1"><input class="form-check-input" type="checkbox" name="capability" value="{{.Name}}"><span class="form-check-label" title="{{.Description}}">{{.Label}}</span></label>
+           {{end}}</div>
+           <button class="btn btn-sm btn-primary" type="submit">Add or replace grant</button>
+         </form>
+       </div>
+     </div>
+     {{end}}
+
+     {{if .WhitelistManage}}
+     <div class="card mb-4">
+       <div class="card-header">Manage whitelist</div>
+       <div class="card-body">
+         <div id="managed-whitelist-current" class="small mb-3">Loading current whitelist…</div>
+         <form id="managed-whitelist-form" class="row g-2">
+           <div class="col-md-5"><input class="form-control form-control-sm" name="username" placeholder="In-game username" required></div>
+           <div class="col-md-5"><input class="form-control form-control-sm" name="user_email" type="email" placeholder="Optional linked panel user"></div>
+           <div class="col-md-2 d-flex gap-1"><button class="btn btn-sm btn-success" type="button" data-managed-whitelist="add">Add</button><button class="btn btn-sm btn-outline-danger" type="button" data-managed-whitelist="remove">Remove</button></div>
+         </form>
+         <div id="managed-whitelist-feedback" class="small mt-2" role="status"></div>
        </div>
      </div>
      {{end}}
@@ -405,15 +477,15 @@ document.addEventListener("DOMContentLoaded", function() {
         consoleWs.onopen = function() {
             consoleStatus.className = 'badge bg-success';
             consoleStatus.textContent = 'Connected';
-            consoleInput.disabled = false;
-            consoleSend.disabled = false;
+            if (consoleInput) consoleInput.disabled = false;
+            if (consoleSend) consoleSend.disabled = false;
         };
 
         consoleWs.onclose = function() {
             consoleStatus.className = 'badge bg-secondary';
             consoleStatus.textContent = 'Disconnected';
-            consoleInput.disabled = true;
-            consoleSend.disabled = true;
+            if (consoleInput) consoleInput.disabled = true;
+            if (consoleSend) consoleSend.disabled = true;
             consoleWs = null;
             // Auto-reconnect after 5s
             setTimeout(connectConsole, 5000);
@@ -439,7 +511,7 @@ document.addEventListener("DOMContentLoaded", function() {
         };
     }
 
-    window.sendConsoleInput = function() {
+    {{if .ConsoleWrite}}window.sendConsoleInput = function() {
         if (!consoleWs || consoleWs.readyState !== WebSocket.OPEN) return;
         const input = consoleInput.value.trim();
         if (!input) return;
@@ -449,7 +521,7 @@ document.addEventListener("DOMContentLoaded", function() {
 
     consoleInput.addEventListener('keydown', function(e) {
         if (e.key === 'Enter') sendConsoleInput();
-    });
+    });{{end}}
 
     connectConsole();
     {{end}}
@@ -525,6 +597,40 @@ document.addEventListener("DOMContentLoaded", function() {
             selfWhitelistFeedback.textContent = error.message;
         }
     }
+
+    {{if .WhitelistManage}}
+    const managedWhitelistEndpoint = `/admin/servers/${encodeURIComponent(serverName)}/whitelist`;
+    const managedWhitelistCurrent = document.getElementById('managed-whitelist-current');
+    const managedWhitelistFeedback = document.getElementById('managed-whitelist-feedback');
+    const managedWhitelistForm = document.getElementById('managed-whitelist-form');
+    const loadManagedWhitelist = async () => {
+      try {
+        const response = await fetch(managedWhitelistEndpoint);
+        if (!response.ok) throw new Error((await response.text()) || `HTTP ${response.status}`);
+        const result = await response.json();
+        managedWhitelistCurrent.textContent = result.output || 'The server returned an empty whitelist.';
+      } catch (error) {
+        managedWhitelistCurrent.textContent = `Could not load the whitelist: ${error.message}`;
+      }
+    };
+    document.querySelectorAll('[data-managed-whitelist]').forEach(button => button.addEventListener('click', async () => {
+      if (!managedWhitelistForm.reportValidity()) return;
+      const body = new URLSearchParams(new FormData(managedWhitelistForm));
+      body.set('op', button.dataset.managedWhitelist);
+      try {
+        const response = await fetch(managedWhitelistEndpoint, {method: 'POST', body});
+        if (!response.ok) throw new Error((await response.text()) || `HTTP ${response.status}`);
+        const result = await response.json();
+        managedWhitelistFeedback.className = 'small mt-2 text-success';
+        managedWhitelistFeedback.textContent = result.message;
+        await loadManagedWhitelist();
+      } catch (error) {
+        managedWhitelistFeedback.className = 'small mt-2 text-danger';
+        managedWhitelistFeedback.textContent = error.message;
+      }
+    }));
+    loadManagedWhitelist();
+    {{end}}
     if (selfWhitelistForm) {
         selfWhitelistForm.addEventListener('submit', event => {
             event.preventDefault();
@@ -655,10 +761,9 @@ async function initManagedFiles(serverName) {
                     item.appendChild(button);
                     menu.appendChild(item);
                 };
-                if (!entry.isDir) {
-                    addAction('Edit', () => editFile(entryPath));
-                    addAction('Download', () => downloadFile(entryPath, entry.name));
-                }
+                if (!entry.isDir) addAction('Download', () => downloadFile(entryPath, entry.name));
+                {{if .FileWrite}}
+                if (!entry.isDir) addAction('Edit', () => editFile(entryPath));
                 addAction('Rename', () => renameEntry(entryPath, entry.name));
                 if (!entry.isDir) addAction('Copy', () => copyEntry(entryPath));
                 addAction('Move', () => moveEntry(entryPath));
@@ -668,6 +773,7 @@ async function initManagedFiles(serverName) {
                     menu.appendChild(divider);
                     addAction('Delete', () => deleteFile(entryPath), true);
                 }
+                {{end}}
                 actions.append(toggle, menu);
                 row.appendChild(actions);
                 list.appendChild(row);
@@ -765,6 +871,7 @@ async function initManagedFiles(serverName) {
 
     document.getElementById('file-up').addEventListener('click', () => loadFiles(parentPath(currentPath)));
     rootSelect.addEventListener('change', () => { root = rootSelect.value; loadFiles(root); });
+    {{if .FileWrite}}
     document.getElementById('file-mkdir').addEventListener('click', async () => {
         const name = prompt('New folder name');
         if (!name || name.includes('/') || name === '.' || name === '..') return;
@@ -821,6 +928,7 @@ async function initManagedFiles(serverName) {
             await loadFiles(currentPath);
         } catch (error) { showFeedback(error.message, true); }
     });
+    {{end}}
 
     try {
         const data = await proxyRequest(endpoint('/roots'));

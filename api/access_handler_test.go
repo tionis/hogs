@@ -31,7 +31,13 @@ func TestAccessGrantAPI(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &grants); err != nil {
 		t.Fatal(err)
 	}
-	if len(grants) != 1 || grants[0].Subject != "Operators" {
+	found := false
+	for _, grant := range grants {
+		if grant.Subject == "Operators" && grant.Effect == "allow" {
+			found = true
+		}
+	}
+	if !found {
 		t.Fatalf("grants=%#v", grants)
 	}
 }

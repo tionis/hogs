@@ -280,17 +280,17 @@
       <div class="card-header">Server Access</div>
       <div class="card-body">
         <p class="small text-muted">
-          Administrators always have access. Grants assign individual capabilities to an OIDC user,
-          group, or any authenticated user. Once the first grant exists, these grants replace the
-          legacy operator/ACL rule for non-administrators.
+          Instance administrators always have access. Explicit grants are deny-by-default and can
+          target an OIDC user, group, or every authenticated user. Deny grants take precedence.
         </p>
         {{if .AccessGrants}}
         <div class="table-responsive mb-3">
           <table class="table table-sm align-middle">
-            <thead><tr><th>Subject</th><th>Capabilities</th><th></th></tr></thead>
+            <thead><tr><th>Effect</th><th>Subject</th><th>Capabilities</th><th></th></tr></thead>
             <tbody>
               {{range .AccessGrants}}
               <tr>
+                <td><span class="badge {{if eq .Effect "deny"}}bg-danger{{else}}bg-success{{end}}">{{.Effect}}</span></td>
                 <td><span class="badge bg-secondary">{{.SubjectType}}</span> {{.Subject}}</td>
                 <td>{{range .Capabilities}}<span class="badge bg-info me-1">{{.}}</span>{{end}}</td>
                 <td>
@@ -306,27 +306,34 @@
           </table>
         </div>
         {{else}}
-        <div class="alert alert-secondary py-2 small">No structured grants yet; legacy operators and the advanced ACL rule remain active.</div>
+        <div class="alert alert-warning py-2 small">No grants exist. Non-administrators cannot access this server.</div>
         {{end}}
         <form action="/admin/access-grants/set" method="POST">
           <input type="hidden" name="server_id" value="{{.Server.ID}}">
           <div class="row g-2 mb-2">
-            <div class="col-4">
+            <div class="col-3">
+              <select class="form-select form-select-sm" name="effect">
+                <option value="allow">Allow</option>
+                <option value="deny">Deny</option>
+              </select>
+            </div>
+            <div class="col-3">
               <select class="form-select form-select-sm" name="subject_type">
                 <option value="group">OIDC group</option>
                 <option value="user">User email</option>
                 <option value="authenticated">Any authenticated user</option>
+                <option value="everyone">Everyone, including public</option>
               </select>
             </div>
-            <div class="col-8">
+            <div class="col-6">
               <input class="form-control form-control-sm" name="subject" placeholder="Group name or user email">
             </div>
           </div>
           <div class="d-flex flex-wrap gap-2 mb-3">
             {{range .AccessCapabilities}}
             <label class="form-check form-check-inline me-1">
-              <input class="form-check-input" type="checkbox" name="capability" value="{{.}}">
-            <span class="form-check-label">{{if eq . "whitelist"}}whitelist own account{{else}}{{.}}{{end}}</span>
+              <input class="form-check-input" type="checkbox" name="capability" value="{{.Name}}">
+              <span class="form-check-label" title="{{.Description}}">{{.Label}}</span>
             </label>
             {{end}}
           </div>
@@ -345,22 +352,6 @@
       </div>
     </div>
 
-    {{if .PteroConfigured}}
-    {{if .PteroLink}}
-    <div class="card mt-3">
-      <div class="card-header">Advanced ACL Fallback</div>
-      <div class="card-body">
-        <form action="/admin/acl/{{.Server.ID}}" method="POST">
-          <div class="mb-3">
-            <textarea class="form-control form-control-sm" name="acl_rule" rows="3" placeholder='user.Role == "admin" || action in ["start", "stop", "restart"]'>{{.PteroLink.ACLRule}}</textarea>
-            <div class="form-text">Used only while no structured Server Access grants exist. Constraints remain separate and always apply.</div>
-          </div>
-          <button type="submit" class="btn btn-sm btn-primary">Save ACL Rule</button>
-        </form>
-      </div>
-    </div>
-    {{end}}
-    {{end}}
   </div>
 </div>
 

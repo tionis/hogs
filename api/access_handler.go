@@ -8,20 +8,22 @@ import (
 	"strings"
 
 	"github.com/gorilla/mux"
+	"github.com/tionis/hogs/access"
+	"github.com/tionis/hogs/auth"
 	"github.com/tionis/hogs/database"
 )
 
 type AccessHandler struct {
 	Store *database.Store
+	Auth  *auth.Authenticator
 }
 
-func NewAccessHandler(store *database.Store) *AccessHandler {
-	return &AccessHandler{Store: store}
-}
-
-var accessCapabilities = map[string]bool{
-	"status": true, "start": true, "stop": true, "restart": true,
-	"command": true, "console": true, "whitelist": true, "backup": true,
+func NewAccessHandler(store *database.Store, authenticator ...*auth.Authenticator) *AccessHandler {
+	handler := &AccessHandler{Store: store}
+	if len(authenticator) > 0 {
+		handler.Auth = authenticator[0]
+	}
+	return handler
 }
 
 func (h *AccessHandler) ListGrants(w http.ResponseWriter, r *http.Request) {
@@ -48,6 +50,7 @@ func (h *AccessHandler) SetGrant(w http.ResponseWriter, r *http.Request) {
 	var request struct {
 		SubjectType  string   `json:"subjectType"`
 		Subject      string   `json:"subject"`
+		Effect       string   `json:"effect"`
 		Capabilities []string `json:"capabilities"`
 	}
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10))
@@ -56,33 +59,67 @@ func (h *AccessHandler) SetGrant(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid access grant", http.StatusBadRequest)
 		return
 	}
-	if request.SubjectType != "user" && request.SubjectType != "group" && request.SubjectType != "authenticated" {
+	if request.SubjectType != "user" && request.SubjectType != "group" && request.SubjectType != "authenticated" && request.SubjectType != "everyone" {
 		http.Error(w, "Invalid subject type", http.StatusBadRequest)
 		return
 	}
 	request.Subject = strings.TrimSpace(request.Subject)
-	if request.SubjectType == "authenticated" {
+	if request.SubjectType == "authenticated" || request.SubjectType == "everyone" {
 		request.Subject = "*"
 	}
 	if request.Subject == "" || len(request.Capabilities) == 0 {
 		http.Error(w, "Subject and capabilities are required", http.StatusBadRequest)
 		return
 	}
+	if request.Effect == "" {
+		request.Effect = "allow"
+	}
+	if request.Effect != "allow" && request.Effect != "deny" {
+		http.Error(w, "Effect must be allow or deny", http.StatusBadRequest)
+		return
+	}
 	for _, capability := range request.Capabilities {
-		if !accessCapabilities[capability] {
+		if !access.Known(capability) {
 			http.Error(w, "Unknown capability: "+capability, http.StatusBadRequest)
 			return
 		}
 	}
 	grant := &database.ServerAccessGrant{
 		ServerID: server.ID, SubjectType: request.SubjectType,
-		Subject: request.Subject, Capabilities: request.Capabilities,
+		Subject: request.Subject, Effect: request.Effect, Capabilities: request.Capabilities,
 	}
 	if err := h.Store.SetServerAccessGrant(grant); err != nil {
 		http.Error(w, "Failed to save access grant", http.StatusInternalServerError)
 		return
 	}
 	writeJSON(w, http.StatusOK, grant)
+}
+
+func (h *AccessHandler) EffectiveAccess(w http.ResponseWriter, r *http.Request) {
+	server, ok := h.server(w, r)
+	if !ok {
+		return
+	}
+	user := userEnvFromRequest(h.Store, h.Auth, r)
+	decisions := make(map[string]database.ServerAccessDecision, len(access.Capabilities))
+	for _, capability := range access.Capabilities {
+		if user.Role == "admin" || user.Role == "system" {
+			decisions[capability.Name] = database.ServerAccessDecision{
+				Allowed: true, Governed: true, Reason: "instance administrator",
+			}
+			continue
+		}
+		decision, err := h.Store.EvaluateServerAccess(server.ID, user.Email, user.Groups, capability.Name)
+		if err != nil {
+			http.Error(w, "Failed to evaluate access", http.StatusInternalServerError)
+			return
+		}
+		decisions[capability.Name] = decision
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"server": server.Name, "user": user.Email, "role": user.Role,
+		"groups": user.Groups, "capabilities": decisions,
+	})
 }
 
 func (h *AccessHandler) DeleteGrant(w http.ResponseWriter, r *http.Request) {

@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/tionis/hogs/access"
 	"github.com/tionis/hogs/auth"
 	"github.com/tionis/hogs/config"
 	"github.com/tionis/hogs/database"
@@ -60,11 +61,14 @@ func (h *ServerHandler) GetServers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	isAdmin := h.Auth != nil && h.Auth.IsAuthenticated(r)
+	user := userEnvFromRequest(h.Store, h.Auth, r)
 
 	var public []interface{}
 	for i := range servers {
-		if isAdmin {
+		if !h.canViewServer(r, &servers[i]) {
+			continue
+		}
+		if user.Role == "admin" || user.Role == "system" {
 			public = append(public, servers[i])
 		} else {
 			public = append(public, servers[i].ToPublic())
@@ -89,6 +93,10 @@ func (h *ServerHandler) GetServerStatus(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
+	if server == nil || !h.canViewServer(r, server) || !h.canAccessServer(r, server, access.Status) {
+		http.Error(w, "Server not found", http.StatusNotFound)
+		return
+	}
 
 	cachedStatus, cached := h.Cache.Get(serverName)
 	// Agent observations intentionally contain only process and occupancy data.
@@ -103,11 +111,6 @@ func (h *ServerHandler) GetServerStatus(w http.ResponseWriter, r *http.Request) 
 		}
 		return
 	}
-	if server == nil {
-		http.Error(w, "Server not found", http.StatusNotFound)
-		return
-	}
-
 	if server.State != "online" && server.State != "auto" {
 		stateStatus := &query.ServerStatus{
 			Online:      false,
@@ -243,6 +246,10 @@ func (h *ServerHandler) MapProxy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Server not found", http.StatusNotFound)
 		return
 	}
+	if !h.canViewServer(r, server) {
+		http.Error(w, "Server not found", http.StatusNotFound)
+		return
+	}
 	if server.MapURL == "" {
 		http.Error(w, "Map URL not configured for this server", http.StatusNotFound)
 		return
@@ -288,6 +295,22 @@ func (h *ServerHandler) MapProxy(w http.ResponseWriter, r *http.Request) {
 		h.writeMapUnavailable(rw, request, server)
 	}
 	proxy.ServeHTTP(w, r)
+}
+
+func (h *ServerHandler) canViewServer(r *http.Request, server *database.Server) bool {
+	return h.canAccessServer(r, server, access.View)
+}
+
+func (h *ServerHandler) canAccessServer(r *http.Request, server *database.Server, capability string) bool {
+	if server == nil {
+		return false
+	}
+	user := userEnvFromRequest(h.Store, h.Auth, r)
+	if user.Role == "admin" || user.Role == "system" {
+		return true
+	}
+	decision, err := h.Store.EvaluateServerAccess(server.ID, user.Email, user.Groups, capability)
+	return err == nil && decision.Allowed
 }
 
 func mapTargetURL(base, request *url.URL, serverName string) *url.URL {

@@ -219,12 +219,13 @@ type ServerAccessGrant struct {
 	ServerID     int      `json:"serverId"`
 	SubjectType  string   `json:"subjectType"`
 	Subject      string   `json:"subject"`
+	Effect       string   `json:"effect"`
 	Capabilities []string `json:"capabilities"`
 }
 
 func (s *Store) ListServerAccessGrants(serverID int) ([]ServerAccessGrant, error) {
-	rows, err := s.DB.Query(`SELECT id,server_id,subject_type,subject,capabilities
-		FROM server_access_grants WHERE server_id=? ORDER BY subject_type,subject`, serverID)
+	rows, err := s.DB.Query(`SELECT id,server_id,subject_type,subject,effect,capabilities
+		FROM server_access_grants WHERE server_id=? ORDER BY effect,subject_type,subject`, serverID)
 	if err != nil {
 		return nil, err
 	}
@@ -233,7 +234,7 @@ func (s *Store) ListServerAccessGrants(serverID int) ([]ServerAccessGrant, error
 	for rows.Next() {
 		var grant ServerAccessGrant
 		var capabilities string
-		if err := rows.Scan(&grant.ID, &grant.ServerID, &grant.SubjectType, &grant.Subject, &capabilities); err != nil {
+		if err := rows.Scan(&grant.ID, &grant.ServerID, &grant.SubjectType, &grant.Subject, &grant.Effect, &capabilities); err != nil {
 			return nil, err
 		}
 		if err := json.Unmarshal([]byte(capabilities), &grant.Capabilities); err != nil {
@@ -245,14 +246,17 @@ func (s *Store) ListServerAccessGrants(serverID int) ([]ServerAccessGrant, error
 }
 
 func (s *Store) SetServerAccessGrant(grant *ServerAccessGrant) error {
+	if grant.Effect == "" {
+		grant.Effect = "allow"
+	}
 	capabilities, err := json.Marshal(grant.Capabilities)
 	if err != nil {
 		return err
 	}
-	result, err := s.DB.Exec(`INSERT INTO server_access_grants(server_id,subject_type,subject,capabilities)
-		VALUES(?,?,?,?) ON CONFLICT(server_id,subject_type,subject)
+	result, err := s.DB.Exec(`INSERT INTO server_access_grants(server_id,subject_type,subject,effect,capabilities)
+		VALUES(?,?,?,?,?) ON CONFLICT(server_id,subject_type,subject,effect)
 		DO UPDATE SET capabilities=excluded.capabilities`,
-		grant.ServerID, grant.SubjectType, grant.Subject, string(capabilities))
+		grant.ServerID, grant.SubjectType, grant.Subject, grant.Effect, string(capabilities))
 	if err != nil {
 		return err
 	}
@@ -268,22 +272,29 @@ func (s *Store) DeleteServerAccessGrant(id, serverID int) error {
 	return err
 }
 
-// ServerAccessAllowed reports whether structured access grants govern a server
-// and whether one grants the requested capability to this identity.
-func (s *Store) ServerAccessAllowed(serverID int, email string, groups []string, capability string) (bool, bool, error) {
+type ServerAccessDecision struct {
+	Allowed  bool   `json:"allowed"`
+	Governed bool   `json:"governed"`
+	Reason   string `json:"reason"`
+}
+
+// EvaluateServerAccess applies matching grants with explicit deny precedence.
+func (s *Store) EvaluateServerAccess(serverID int, email string, groups []string, capability string) (ServerAccessDecision, error) {
 	grants, err := s.ListServerAccessGrants(serverID)
 	if err != nil {
-		return false, false, err
+		return ServerAccessDecision{}, err
 	}
 	if len(grants) == 0 {
-		return false, false, nil
+		return ServerAccessDecision{Reason: "server has no access grants"}, nil
 	}
 	groupSet := make(map[string]struct{}, len(groups))
 	for _, group := range groups {
 		groupSet[group] = struct{}{}
 	}
+	allowedBy := ""
 	for _, grant := range grants {
-		matches := grant.SubjectType == "authenticated" ||
+		matches := grant.SubjectType == "everyone" ||
+			(grant.SubjectType == "authenticated" && email != "" && email != "anonymous") ||
 			(grant.SubjectType == "user" && strings.EqualFold(grant.Subject, email))
 		if grant.SubjectType == "group" {
 			_, matches = groupSet[grant.Subject]
@@ -291,14 +302,33 @@ func (s *Store) ServerAccessAllowed(serverID int, email string, groups []string,
 		if !matches {
 			continue
 		}
-		for _, allowed := range grant.Capabilities {
-			if allowed == "*" || allowed == capability ||
-				(allowed == "command" && strings.HasPrefix(capability, "command:")) {
-				return true, true, nil
+		for _, granted := range grant.Capabilities {
+			if granted == "*" || granted == capability ||
+				(granted == "command" && strings.HasPrefix(capability, "command:")) {
+				matchedBy := grant.SubjectType + ":" + grant.Subject
+				if grant.Effect == "deny" {
+					return ServerAccessDecision{
+						Governed: true,
+						Reason:   "explicit deny from " + matchedBy,
+					}, nil
+				}
+				allowedBy = matchedBy
 			}
 		}
 	}
-	return false, true, nil
+	if allowedBy != "" {
+		return ServerAccessDecision{
+			Allowed: true, Governed: true, Reason: "granted by " + allowedBy,
+		}, nil
+	}
+	return ServerAccessDecision{
+		Governed: true, Reason: "no matching grant for capability " + capability,
+	}, nil
+}
+
+func (s *Store) ServerAccessAllowed(serverID int, email string, groups []string, capability string) (bool, bool, error) {
+	decision, err := s.EvaluateServerAccess(serverID, email, groups, capability)
+	return decision.Allowed, decision.Governed, err
 }
 
 type GameIdentity struct {

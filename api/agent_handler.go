@@ -121,7 +121,12 @@ func (h *AgentHandler) AgentFileAccess(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "valid path is required", http.StatusBadRequest)
 		return
 	}
-	if status, err := authorizeManagedPath(h.Store, h.Engine, h.Auth, r, serverName, filePath); err != nil {
+	operation := r.URL.Query().Get("operation")
+	capability := managedFileRead
+	if operation != "list" && operation != "read" && operation != "download" {
+		capability = managedFileWrite
+	}
+	if status, err := authorizeManagedPath(h.Store, h.Engine, h.Auth, r, serverName, filePath, capability); err != nil {
 		http.Error(w, err.Error(), status)
 		return
 	}
@@ -131,7 +136,6 @@ func (h *AgentHandler) AgentFileAccess(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	operation := r.URL.Query().Get("operation")
 	targetPath := r.URL.Query().Get("target")
 	method, route, maxBytes := "", "", int64(0)
 	switch operation {
@@ -163,7 +167,7 @@ func (h *AgentHandler) AgentFileAccess(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "valid target path is required", http.StatusBadRequest)
 			return
 		}
-		if status, err := authorizeManagedPath(h.Store, h.Engine, h.Auth, r, serverName, targetPath); err != nil {
+		if status, err := authorizeManagedPath(h.Store, h.Engine, h.Auth, r, serverName, targetPath, managedFileWrite); err != nil {
 			http.Error(w, err.Error(), status)
 			return
 		}
@@ -363,7 +367,7 @@ func (h *AgentHandler) AgentFileList(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid path", http.StatusBadRequest)
 		return
 	}
-	if status, err := authorizeManagedPath(h.Store, h.Engine, h.Auth, r, serverName, path); err != nil {
+	if status, err := authorizeManagedPath(h.Store, h.Engine, h.Auth, r, serverName, path, managedFileRead); err != nil {
 		http.Error(w, err.Error(), status)
 		return
 	}
@@ -380,7 +384,7 @@ func (h *AgentHandler) AgentFileList(w http.ResponseWriter, r *http.Request) {
 
 func (h *AgentHandler) AgentFileRoots(w http.ResponseWriter, r *http.Request) {
 	serverName := mux.Vars(r)["serverName"]
-	server, _, status, err := authorizeManagedCapability(h.Store, h.Engine, h.Auth, r, serverName, managedFile)
+	server, _, status, err := authorizeManagedCapability(h.Store, h.Engine, h.Auth, r, serverName, managedFileRead)
 	if err != nil {
 		http.Error(w, err.Error(), status)
 		return
@@ -419,7 +423,7 @@ func (h *AgentHandler) AgentFileRead(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid path", http.StatusBadRequest)
 		return
 	}
-	if status, err := authorizeManagedPath(h.Store, h.Engine, h.Auth, r, serverName, path); err != nil {
+	if status, err := authorizeManagedPath(h.Store, h.Engine, h.Auth, r, serverName, path, managedFileRead); err != nil {
 		http.Error(w, err.Error(), status)
 		return
 	}
@@ -454,7 +458,7 @@ func (h *AgentHandler) AgentFileWrite(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid path", http.StatusBadRequest)
 		return
 	}
-	if status, err := authorizeManagedPath(h.Store, h.Engine, h.Auth, r, serverName, path); err != nil {
+	if status, err := authorizeManagedPath(h.Store, h.Engine, h.Auth, r, serverName, path, managedFileWrite); err != nil {
 		http.Error(w, err.Error(), status)
 		return
 	}
@@ -488,7 +492,7 @@ func (h *AgentHandler) AgentFileDelete(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid path", http.StatusBadRequest)
 		return
 	}
-	if status, err := authorizeManagedPath(h.Store, h.Engine, h.Auth, r, serverName, path); err != nil {
+	if status, err := authorizeManagedPath(h.Store, h.Engine, h.Auth, r, serverName, path, managedFileWrite); err != nil {
 		http.Error(w, err.Error(), status)
 		return
 	}
@@ -514,7 +518,7 @@ func (h *AgentHandler) AgentMkdir(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid path", http.StatusBadRequest)
 		return
 	}
-	if status, err := authorizeManagedPath(h.Store, h.Engine, h.Auth, r, serverName, path); err != nil {
+	if status, err := authorizeManagedPath(h.Store, h.Engine, h.Auth, r, serverName, path, managedFileWrite); err != nil {
 		http.Error(w, err.Error(), status)
 		return
 	}
@@ -552,7 +556,7 @@ func (h *AgentHandler) AgentFileOperation(w http.ResponseWriter, r *http.Request
 		return
 	}
 	for _, path := range []string{request.Path, request.Target} {
-		if status, err := authorizeManagedPath(h.Store, h.Engine, h.Auth, r, serverName, path); err != nil {
+		if status, err := authorizeManagedPath(h.Store, h.Engine, h.Auth, r, serverName, path, managedFileWrite); err != nil {
 			http.Error(w, err.Error(), status)
 			return
 		}
@@ -568,7 +572,7 @@ func (h *AgentHandler) AgentFileOperation(w http.ResponseWriter, r *http.Request
 
 func (h *AgentHandler) AgentBackupCreate(w http.ResponseWriter, r *http.Request) {
 	serverName := mux.Vars(r)["serverName"]
-	if _, _, status, err := authorizeManagedCapability(h.Store, h.Engine, h.Auth, r, serverName, managedBackup); err != nil {
+	if _, _, status, err := authorizeManagedCapability(h.Store, h.Engine, h.Auth, r, serverName, managedBackupCreate); err != nil {
 		http.Error(w, err.Error(), status)
 		return
 	}
@@ -596,7 +600,7 @@ func (h *AgentHandler) AgentBackupCreate(w http.ResponseWriter, r *http.Request)
 
 func (h *AgentHandler) AgentBackupRestore(w http.ResponseWriter, r *http.Request) {
 	serverName := mux.Vars(r)["serverName"]
-	if _, _, status, err := authorizeManagedCapability(h.Store, h.Engine, h.Auth, r, serverName, managedRestore); err != nil {
+	if _, _, status, err := authorizeManagedCapability(h.Store, h.Engine, h.Auth, r, serverName, managedBackupRestore); err != nil {
 		http.Error(w, err.Error(), status)
 		return
 	}
@@ -629,7 +633,7 @@ func (h *AgentHandler) AgentBackupRestore(w http.ResponseWriter, r *http.Request
 
 func (h *AgentHandler) AgentBackupList(w http.ResponseWriter, r *http.Request) {
 	serverName := mux.Vars(r)["serverName"]
-	if _, _, status, err := authorizeManagedCapability(h.Store, h.Engine, h.Auth, r, serverName, managedBackup); err != nil {
+	if _, _, status, err := authorizeManagedCapability(h.Store, h.Engine, h.Auth, r, serverName, managedBackupList); err != nil {
 		http.Error(w, err.Error(), status)
 		return
 	}

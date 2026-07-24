@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 
@@ -28,7 +29,14 @@ func NewConsoleHandler(service *agent.AgentService, authenticator *auth.Authenti
 }
 
 var consoleUpgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool { return true },
+	CheckOrigin: func(r *http.Request) bool {
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			return true
+		}
+		parsed, err := url.Parse(origin)
+		return err == nil && strings.EqualFold(parsed.Host, r.Host)
+	},
 }
 
 func (h *ConsoleHandler) ServeWS(w http.ResponseWriter, r *http.Request) {
@@ -37,11 +45,12 @@ func (h *ConsoleHandler) ServeWS(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
-	server, _, status, err := authorizeManagedCapability(h.Store, h.Engine, h.Auth, r, serverName, managedConsole)
+	server, _, status, err := authorizeManagedCapability(h.Store, h.Engine, h.Auth, r, serverName, managedConsoleRead)
 	if err != nil {
 		http.Error(w, err.Error(), status)
 		return
 	}
+	_, _, _, writeErr := authorizeManagedCapability(h.Store, h.Engine, h.Auth, r, serverName, managedConsoleWrite)
 	history, _ := h.Store.ListConsoleHistory(server.ID, 500)
 	agentStream, streamErr := h.Service.Console(r.Context(), serverName)
 	conn, err := consoleUpgrader.Upgrade(w, r, nil)
@@ -100,6 +109,10 @@ func (h *ConsoleHandler) ServeWS(w http.ResponseWriter, r *http.Request) {
 			Input string `json:"input"`
 		}
 		if json.Unmarshal(message, &request) != nil || strings.TrimSpace(request.Input) == "" {
+			continue
+		}
+		if writeErr != nil {
+			_ = writeLine("error", "You have read-only console access.", false)
 			continue
 		}
 		_ = writeLine("command", "> "+request.Input, true)

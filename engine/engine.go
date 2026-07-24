@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
 	"regexp"
 	"strconv"
 	"time"
@@ -224,73 +225,21 @@ func ParseWeekday(name string) time.Weekday {
 }
 
 func (e *Engine) EvaluateACL(link *database.PterodactylLink, server *database.Server, action string, user *UserEnv) (bool, error) {
-	if user != nil {
-		if user.Role == "admin" || user.Role == "system" {
-			return isActionAllowed(link.AllowedActions, action), nil
-		}
-		allowed, governed, err := e.Store.ServerAccessAllowed(server.ID, user.Email, user.Groups, action)
-		if err != nil {
-			return false, fmt.Errorf("evaluate structured access grants: %w", err)
-		}
-		if governed {
-			if !isActionAllowed(link.AllowedActions, action) {
-				return false, nil
-			}
-			return allowed, nil
-		}
+	if link == nil || server == nil || user == nil {
+		return false, nil
 	}
-	if link.ACLRule != "" {
-		env, err := e.buildEnv(server, user)
-		if err != nil {
-			return false, err
-		}
-		env["action"] = action
-
-		program, err := expr.Compile(link.ACLRule, expr.Env(env), expr.AllowUndefinedVariables())
-		if err != nil {
-			return false, fmt.Errorf("ACL rule compile error: %w", err)
-		}
-
-		result, err := expr.Run(program, env)
-		if err != nil {
-			return false, fmt.Errorf("ACL rule evaluation error: %w", err)
-		}
-
-		allowed, ok := result.(bool)
-		if !ok {
-			return false, fmt.Errorf("ACL rule must return boolean, got %T", result)
-		}
-		return allowed, nil
+	if user.Role == "admin" || user.Role == "system" {
+		return isActionAllowed(link.AllowedActions, action), nil
 	}
-
-	return isActionAllowed(link.AllowedActions, action), nil
-}
-
-// EvaluateACLRule evaluates only the optional legacy expression. Managed
-// capabilities have their own availability policy and must not be rejected
-// merely because they are absent from the power/RCON allowed-actions list.
-func (e *Engine) EvaluateACLRule(link *database.PterodactylLink, server *database.Server, action string, user *UserEnv) (bool, error) {
-	if link == nil || link.ACLRule == "" || (user != nil && (user.Role == "admin" || user.Role == "system")) {
-		return true, nil
+	capability := action
+	if action == "whitelist" {
+		capability = "whitelist.self"
 	}
-	env, err := e.buildEnv(server, user)
+	decision, err := e.Store.EvaluateServerAccess(server.ID, user.Email, user.Groups, capability)
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("evaluate server access: %w", err)
 	}
-	env["action"] = action
-	program, err := expr.Compile(link.ACLRule, expr.Env(env), expr.AllowUndefinedVariables())
-	if err != nil {
-		return false, fmt.Errorf("ACL rule compile error: %w", err)
-	}
-	result, err := expr.Run(program, env)
-	if err != nil {
-		return false, fmt.Errorf("ACL rule evaluation error: %w", err)
-	}
-	allowed, ok := result.(bool)
-	if !ok {
-		return false, fmt.Errorf("ACL rule must return boolean, got %T", result)
-	}
-	return allowed, nil
+	return decision.Allowed && isActionAllowed(link.AllowedActions, action), nil
 }
 
 func (e *Engine) EvaluateConstraints(server *database.Server, action string, user *UserEnv) (*ActionResult, error) {
@@ -481,6 +430,11 @@ func (e *Engine) Evaluate(server *database.Server, action string, params map[str
 	if user != nil {
 		auditEntry.UserEmail = user.Email
 	}
+	defer func() {
+		if err := e.Store.CreateAuditLog(auditEntry); err != nil {
+			log.Printf("Warning: audit log creation failed: %v", err)
+		}
+	}()
 
 	link, err := e.Store.GetPterodactylLink(server.ID)
 	if err != nil {
@@ -502,8 +456,17 @@ func (e *Engine) Evaluate(server *database.Server, action string, params map[str
 	}
 	if !aclAllowed {
 		auditEntry.Result = "denied"
-		auditEntry.Reason = fmt.Sprintf("ACL denied action %s", action)
-		return &ActionResult{Allowed: false, Result: "denied", Reason: fmt.Sprintf("ACL denied action %s", action)}
+		capability := action
+		if action == "whitelist" {
+			capability = "whitelist.self"
+		}
+		auditEntry.Reason = fmt.Sprintf("access denied for capability %s", capability)
+		if user != nil && user.Role != "admin" && user.Role != "system" {
+			if decision, decisionErr := e.Store.EvaluateServerAccess(server.ID, user.Email, user.Groups, capability); decisionErr == nil {
+				auditEntry.Reason = decision.Reason
+			}
+		}
+		return &ActionResult{Allowed: false, Result: "denied", Reason: auditEntry.Reason, Status: http.StatusForbidden}
 	}
 
 	constraintResult, err := e.EvaluateConstraints(server, action, user)
@@ -520,10 +483,6 @@ func (e *Engine) Evaluate(server *database.Server, action string, params map[str
 
 	if e.Notifier != nil {
 		go e.Notifier.Send(fmt.Sprintf("server_%s", action), fmt.Sprintf("Action %s on server %s by %s", action, server.Name, auditEntry.UserEmail))
-	}
-
-	if err := e.Store.CreateAuditLog(auditEntry); err != nil {
-		log.Printf("Warning: audit log creation failed: %v", err)
 	}
 
 	return &ActionResult{Allowed: true, Result: "allowed", Status: 200}

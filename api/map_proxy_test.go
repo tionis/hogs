@@ -53,6 +53,13 @@ func mapProxyFixture(t *testing.T, lifecycle string, transport http.RoundTripper
 	if err := store.CreateServer(server); err != nil {
 		t.Fatal(err)
 	}
+	server, _ = store.GetServerByName(server.Name)
+	if err := store.SetServerAccessGrant(&database.ServerAccessGrant{
+		ServerID: server.ID, SubjectType: "everyone", Subject: "*", Effect: "allow",
+		Capabilities: []string{"status", "view"},
+	}); err != nil {
+		t.Fatal(err)
+	}
 	statusCache := query.NewServerStatusCache()
 	handler := NewServerHandler(store, &config.Config{
 		MapCacheDir: t.TempDir(), MapCacheMaxBytes: 1 << 20,
