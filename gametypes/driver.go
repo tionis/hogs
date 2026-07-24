@@ -40,18 +40,25 @@ type DetailField struct {
 }
 
 type WhitelistDriver struct {
+	Commands *CommandWhitelistDriver
+	File     *FileWhitelistDriver
+}
+
+type CommandWhitelistDriver struct {
 	ListCommand   string
 	AddCommand    PlayerCommand
 	RemoveCommand PlayerCommand
 	ParseList     WhitelistListParser
-	Offline       *OfflineWhitelistDriver
 }
 
-type OfflineWhitelistDriver struct {
-	File       string
-	Decode     func([]byte) ([]backend.WhitelistEntry, error)
-	Encode     func([]backend.WhitelistEntry) ([]byte, error)
-	BuildEntry func(username, externalID string, readRelative func(string) ([]byte, error)) (backend.WhitelistEntry, error)
+type FileWhitelistDriver struct {
+	Path                   string
+	AllowReadWhileRunning  bool
+	AllowWriteWhileRunning bool
+	ChangesRequireRestart  bool
+	Decode                 func([]byte) ([]backend.WhitelistEntry, error)
+	Encode                 func([]backend.WhitelistEntry) ([]byte, error)
+	BuildEntry             func(username, externalID string, readRelative func(string) ([]byte, error)) (backend.WhitelistEntry, error)
 }
 
 type Driver struct {
@@ -64,13 +71,15 @@ type Driver struct {
 	StatusProtocol string
 	Details        []DetailField
 
-	PlayerStatusCommand  string
-	ParsePlayerStatus    PlayerStatusParser
-	VersionCommand       string
-	ValidateIdentity     IdentityValidator
-	ResolveIdentity      IdentityResolver
-	Whitelist            *WhitelistDriver
-	IsRoutineConsoleLine ConsoleLineFilter
+	PlayerStatusCommand   string
+	ParsePlayerStatus     PlayerStatusParser
+	VersionCommand        string
+	ValidateIdentity      IdentityValidator
+	ResolveIdentity       IdentityResolver
+	IdentityCaseSensitive bool
+	IdentityLabel         string
+	Whitelist             *WhitelistDriver
+	IsRoutineConsoleLine  ConsoleLineFilter
 }
 
 var embedded = map[string]Driver{}
@@ -120,8 +129,21 @@ func Resolve(slug, kind string, enabled bool) Driver {
 }
 
 func (d Driver) SupportsWhitelist() bool {
-	return d.Whitelist != nil && d.Whitelist.ListCommand != "" &&
-		d.Whitelist.AddCommand != nil && d.Whitelist.RemoveCommand != nil
+	return d.SupportsCommandWhitelist() || d.SupportsFileWhitelist()
+}
+
+func (d Driver) SupportsCommandWhitelist() bool {
+	return d.Whitelist != nil && d.Whitelist.Commands != nil &&
+		d.Whitelist.Commands.ListCommand != "" &&
+		d.Whitelist.Commands.AddCommand != nil &&
+		d.Whitelist.Commands.RemoveCommand != nil
+}
+
+func (d Driver) SupportsFileWhitelist() bool {
+	return d.Whitelist != nil && d.Whitelist.File != nil &&
+		d.Whitelist.File.Path != "" &&
+		d.Whitelist.File.Decode != nil &&
+		d.Whitelist.File.Encode != nil
 }
 
 func (d Driver) IdentityValid(username string) bool {
@@ -129,4 +151,18 @@ func (d Driver) IdentityValid(username string) bool {
 		return username != ""
 	}
 	return d.ValidateIdentity(username)
+}
+
+func (d Driver) IdentitiesEqual(first, second string) bool {
+	if d.IdentityCaseSensitive {
+		return first == second
+	}
+	return strings.EqualFold(first, second)
+}
+
+func (d Driver) IdentityFieldLabel() string {
+	if d.IdentityLabel != "" {
+		return d.IdentityLabel
+	}
+	return "In-game username"
 }

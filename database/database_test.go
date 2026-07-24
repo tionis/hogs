@@ -638,3 +638,32 @@ func TestUserWhitelistLinksAreUniquePerServerUsername(t *testing.T) {
 		t.Fatalf("links after case-insensitive removal=%#v err=%v", entries, err)
 	}
 }
+
+func TestCaseSensitiveUserWhitelistLinksRemainDistinct(t *testing.T) {
+	store := testStore(t)
+	if err := store.CreateServer(&Server{Name: "Viking Hall", GameType: "valheim", State: "online"}); err != nil {
+		t.Fatal(err)
+	}
+	server, _ := store.GetServerByName("Viking Hall")
+	if err := store.SetUserWhitelistForIdentity(
+		"first@example.test", server.ID, "Steam_ABC", true,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetUserWhitelistForIdentity(
+		"second@example.test", server.ID, "steam_ABC", true,
+	); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := store.ListUserWhitelists(server.ID)
+	if err != nil || len(entries) != 2 {
+		t.Fatalf("case-sensitive links=%#v err=%v", entries, err)
+	}
+	if err := store.DeleteUserWhitelistsByIdentity(server.ID, "Steam_ABC", true); err != nil {
+		t.Fatal(err)
+	}
+	entries, err = store.ListUserWhitelists(server.ID)
+	if err != nil || len(entries) != 1 || entries[0].Username != "steam_ABC" {
+		t.Fatalf("links after exact removal=%#v err=%v", entries, err)
+	}
+}

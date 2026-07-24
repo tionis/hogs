@@ -60,7 +60,7 @@ func TestMinecraftIdentityResolverValidatesOfficialProfile(t *testing.T) {
 
 func TestMinecraftWhitelistListParser(t *testing.T) {
 	driver, _ := Embedded("minecraft")
-	got := driver.Whitelist.ParseList("There are 3 whitelisted player(s): Alex, Builder_42, Steve")
+	got := driver.Whitelist.Commands.ParseList("There are 3 whitelisted player(s): Alex, Builder_42, Steve")
 	want := []string{"Alex", "Builder_42", "Steve"}
 	if len(got) != len(want) {
 		t.Fatalf("parsed whitelist=%#v, want %#v", got, want)
@@ -70,7 +70,7 @@ func TestMinecraftWhitelistListParser(t *testing.T) {
 			t.Fatalf("parsed whitelist=%#v, want %#v", got, want)
 		}
 	}
-	if got := driver.Whitelist.ParseList("There are no whitelisted players"); len(got) != 0 {
+	if got := driver.Whitelist.Commands.ParseList("There are no whitelisted players"); len(got) != 0 {
 		t.Fatalf("empty whitelist parsed as %#v", got)
 	}
 }
@@ -90,38 +90,79 @@ func TestFactorioWhitelistDriver(t *testing.T) {
 			t.Errorf("invalid Factorio username %q was accepted", username)
 		}
 	}
-	if driver.Whitelist.ListCommand != "/whitelist get" ||
-		driver.Whitelist.AddCommand("Engineer_42") != "/whitelist add Engineer_42" ||
-		driver.Whitelist.RemoveCommand("Engineer_42") != "/whitelist remove Engineer_42" {
+	if driver.Whitelist.Commands.ListCommand != "/whitelist get" ||
+		driver.Whitelist.Commands.AddCommand("Engineer_42") != "/whitelist add Engineer_42" ||
+		driver.Whitelist.Commands.RemoveCommand("Engineer_42") != "/whitelist remove Engineer_42" {
 		t.Fatalf("unexpected Factorio whitelist commands: %#v", driver.Whitelist)
 	}
-	got := driver.Whitelist.ParseList("Whitelisted players: Alice, Bob")
+	got := driver.Whitelist.Commands.ParseList("Whitelisted players: Alice, Bob")
 	if len(got) != 2 || got[0] != "Alice" || got[1] != "Bob" {
 		t.Fatalf("parsed whitelist=%#v", got)
 	}
-	if got := driver.Whitelist.ParseList("The whitelist is empty."); len(got) != 0 {
+	if got := driver.Whitelist.Commands.ParseList("The whitelist is empty."); len(got) != 0 {
 		t.Fatalf("empty whitelist parsed as %#v", got)
 	}
 }
 
 func TestFactorioOfflineWhitelistCodec(t *testing.T) {
 	driver, _ := Embedded("factorio")
-	offline := driver.Whitelist.Offline
-	entries, err := offline.Decode([]byte(`["Alice","Space Cadet"]`))
+	fileBackend := driver.Whitelist.File
+	entries, err := fileBackend.Decode([]byte(`["Alice","Space Cadet"]`))
 	if err != nil || len(entries) != 2 || entries[0].Name != "Alice" ||
 		entries[1].Name != "Space Cadet" || entries[0].UUID != "" {
 		t.Fatalf("decoded entries=%#v err=%v", entries, err)
 	}
-	encoded, err := offline.Encode(entries)
+	encoded, err := fileBackend.Encode(entries)
 	if err != nil || string(encoded) != "[\n  \"Alice\",\n  \"Space Cadet\"\n]\n" {
 		t.Fatalf("encoded whitelist=%q err=%v", encoded, err)
 	}
-	entry, err := offline.BuildEntry("Engineer_42", "", nil)
+	entry, err := fileBackend.BuildEntry("Engineer_42", "", nil)
 	if err != nil || entry.Name != "Engineer_42" || entry.UUID != "" {
 		t.Fatalf("built entry=%#v err=%v", entry, err)
 	}
-	if _, err := offline.Decode([]byte(`["valid","invalid/name"]`)); err == nil {
+	if _, err := fileBackend.Decode([]byte(`["valid","invalid/name"]`)); err == nil {
 		t.Fatal("invalid Factorio whitelist entry was accepted")
+	}
+}
+
+func TestValheimFileBackedWhitelistDriver(t *testing.T) {
+	driver, ok := Embedded("valheim")
+	if !ok || !driver.SupportsWhitelist() || driver.SupportsCommandWhitelist() ||
+		!driver.SupportsFileWhitelist() || !driver.Whitelist.File.AllowReadWhileRunning ||
+		!driver.Whitelist.File.AllowWriteWhileRunning || !driver.Whitelist.File.ChangesRequireRestart {
+		t.Fatalf("unexpected Valheim whitelist driver: %#v", driver)
+	}
+	for _, identity := range []string{
+		"Steam_76561198000000000",
+		"Xbox_2533274800000000",
+		"PlayFab_ABCDEF0123456789",
+	} {
+		if !driver.IdentityValid(identity) {
+			t.Errorf("valid Valheim platform ID %q was rejected", identity)
+		}
+	}
+	for _, identity := range []string{
+		"", "Steam_", "_1234", "Steam_123 456", " Steam_123", "Steam_123\n",
+	} {
+		if driver.IdentityValid(identity) {
+			t.Errorf("invalid Valheim platform ID %q was accepted", identity)
+		}
+	}
+	if driver.IdentitiesEqual("Steam_ABC", "steam_ABC") {
+		t.Fatal("Valheim platform IDs were compared case-insensitively")
+	}
+
+	fileBackend := driver.Whitelist.File
+	entries, err := fileBackend.Decode([]byte("// List permitted players ID ONE per line\r\nSteam_123\r\nXbox_456\r\nSteam_123\r\n"))
+	if err != nil || len(entries) != 2 || entries[0].Name != "Steam_123" || entries[1].Name != "Xbox_456" {
+		t.Fatalf("decoded permitted list=%#v err=%v", entries, err)
+	}
+	encoded, err := fileBackend.Encode(entries)
+	if err != nil || string(encoded) != "// List permitted players ID ONE per line\nSteam_123\nXbox_456\n" {
+		t.Fatalf("encoded permitted list=%q err=%v", encoded, err)
+	}
+	if _, err := fileBackend.Decode([]byte("Steam_123\nnot a platform id\n")); err == nil {
+		t.Fatal("invalid Valheim permitted-list entry was accepted")
 	}
 }
 

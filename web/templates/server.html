@@ -86,7 +86,7 @@
     <div id="managed-whitelist-current" class="mb-4" aria-live="polite">Loading current whitelist…</div>
     <h3 class="h6">Add an entry</h3>
     <form id="managed-whitelist-form" class="row g-2">
-      <div class="col-md-5"><input class="form-control" name="username" placeholder="In-game username" required></div>
+      <div class="col-md-5"><input class="form-control" name="username" placeholder="{{.IdentityLabel}}" aria-label="{{.IdentityLabel}}" required></div>
       <div class="col-md-5"><input class="form-control" name="user_email" type="email" placeholder="Optional linked panel user"></div>
       <div class="col-md-2"><button class="btn btn-success w-100" type="submit">Add entry</button></div>
     </form>
@@ -737,6 +737,7 @@ document.addEventListener("DOMContentLoaded", function() {
     const selfWhitelistAdd = document.getElementById('self-whitelist-add');
     const selfWhitelistRemove = document.getElementById('self-whitelist-remove');
     const selfWhitelistFeedback = document.getElementById('self-whitelist-feedback');
+    const whitelistIdentityKey = value => {{if .IdentityCaseSensitive}}String(value || ''){{else}}String(value || '').toLowerCase(){{end}};
     const whitelistElement = (tag, className, text) => {
       const element = document.createElement(tag);
       if (className) element.className = className;
@@ -783,7 +784,9 @@ document.addEventListener("DOMContentLoaded", function() {
     const renderManagedWhitelist = result => {
       managedWhitelistCurrent.className = 'mb-4';
       managedWhitelistCurrent.replaceChildren();
-      const source = result.mode === 'offline' ? 'Saved whitelist · server stopped' : 'Live whitelist';
+      const source = result.mode === 'offline'
+        ? 'Saved whitelist · server stopped'
+        : (result.mode === 'pending_restart' ? 'Saved whitelist · restart required to apply changes' : 'Live whitelist');
       managedWhitelistCurrent.append(whitelistElement('p', 'small text-muted mb-2', source));
       const entries = Array.isArray(result.entries) ? result.entries : [];
       if (entries.length === 0) {
@@ -792,13 +795,13 @@ document.addEventListener("DOMContentLoaded", function() {
       }
       const linkedByUsername = new Map();
       (Array.isArray(result.linked) ? result.linked : []).forEach(link => {
-        linkedByUsername.set(String(link.username || '').toLowerCase(), link);
+        linkedByUsername.set(whitelistIdentityKey(link.username), link);
       });
       const wrapper = whitelistElement('div', 'table-responsive');
       const table = whitelistElement('table', 'table table-sm align-middle mb-0');
       const head = document.createElement('thead');
       const headRow = document.createElement('tr');
-      ['In-game username', 'Panel user (optional)', 'Actions'].forEach(label => {
+      ['{{.IdentityLabel}}', 'Panel user (optional)', 'Actions'].forEach(label => {
         headRow.append(whitelistElement('th', '', label));
       });
       head.append(headRow);
@@ -811,7 +814,7 @@ document.addEventListener("DOMContentLoaded", function() {
         usernameCell.append(whitelistElement('strong', '', username));
         row.append(usernameCell);
 
-        const link = linkedByUsername.get(username.toLowerCase());
+        const link = linkedByUsername.get(whitelistIdentityKey(username));
         const panelCell = document.createElement('td');
         const email = document.createElement('input');
         email.type = 'email';
@@ -932,7 +935,7 @@ document.addEventListener("DOMContentLoaded", function() {
           if (statusEl) {
             statusEl.replaceChildren();
             statusEl.append('You are whitelisted as ', whitelistElement('strong', '', data.username), '.');
-            if (data.linkedUsername && data.linkedUsername.toLowerCase() !== data.username.toLowerCase()) {
+            if (data.linkedUsername && whitelistIdentityKey(data.linkedUsername) !== whitelistIdentityKey(data.username)) {
               statusEl.append(` Your linked account is now ${data.linkedUsername}; remove the old entry before adding the new one.`);
             }
           }

@@ -432,14 +432,22 @@ func (s *Store) GetUserWhitelist(email string, serverID int) (*UserWhitelist, er
 }
 
 func (s *Store) SetUserWhitelist(email string, serverID int, username string) error {
+	return s.SetUserWhitelistForIdentity(email, serverID, username, false)
+}
+
+func (s *Store) SetUserWhitelistForIdentity(email string, serverID int, username string, caseSensitive bool) error {
 	tx, err := s.DB.Begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	if _, err = tx.Exec(`DELETE FROM user_whitelists
-		WHERE server_id=? AND lower(username)=lower(?) AND lower(user_email)<>lower(?)`,
-		serverID, username, email); err != nil {
+	deleteQuery := `DELETE FROM user_whitelists
+		WHERE server_id=? AND lower(username)=lower(?) AND lower(user_email)<>lower(?)`
+	if caseSensitive {
+		deleteQuery = `DELETE FROM user_whitelists
+			WHERE server_id=? AND username=? AND lower(user_email)<>lower(?)`
+	}
+	if _, err = tx.Exec(deleteQuery, serverID, username, email); err != nil {
 		return err
 	}
 	if _, err = tx.Exec(`INSERT INTO user_whitelists (user_email, server_id, username)
@@ -456,7 +464,15 @@ func (s *Store) DeleteUserWhitelist(email string, serverID int) error {
 }
 
 func (s *Store) DeleteUserWhitelistsByUsername(serverID int, username string) error {
-	_, err := s.DB.Exec("DELETE FROM user_whitelists WHERE server_id=? AND lower(username)=lower(?)", serverID, username)
+	return s.DeleteUserWhitelistsByIdentity(serverID, username, false)
+}
+
+func (s *Store) DeleteUserWhitelistsByIdentity(serverID int, username string, caseSensitive bool) error {
+	query := "DELETE FROM user_whitelists WHERE server_id=? AND lower(username)=lower(?)"
+	if caseSensitive {
+		query = "DELETE FROM user_whitelists WHERE server_id=? AND username=?"
+	}
+	_, err := s.DB.Exec(query, serverID, username)
 	return err
 }
 

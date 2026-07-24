@@ -121,8 +121,8 @@ user.Role == "admin" || action in ["start", "stop", "restart"]
 // Allow commands only for users in a specific tag
 action in ["start", "stop"] || (hasTag(server, "minecraft") && user.Role == "user" && action matches "^command:")
 
-// Whitelist only for minecraft servers
-action != "whitelist" || server.GameType == "minecraft"
+// Whitelist only for game types whose embedded drivers support it
+action != "whitelist" || server.GameType in ["minecraft", "factorio", "valheim"]
 ```
 
 ### Cron Jobs

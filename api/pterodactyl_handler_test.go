@@ -54,6 +54,19 @@ func TestWhitelistBackendReadyHidesTransportErrors(t *testing.T) {
 	}
 }
 
+func TestWhitelistSuccessMessageReportsPendingRestart(t *testing.T) {
+	result := &backend.WhitelistResult{Mode: "pending_restart"}
+	got := whitelistSuccessMessage("Steam_123 is now whitelisted", result)
+	want := "Steam_123 is now whitelisted. Restart the game server to apply this change."
+	if got != want {
+		t.Fatalf("whitelistSuccessMessage() = %q, want %q", got, want)
+	}
+
+	if got := whitelistSuccessMessage("saved", &backend.WhitelistResult{Mode: "online"}); got != "saved" {
+		t.Fatalf("online message = %q, want %q", got, "saved")
+	}
+}
+
 type identityRetryWhitelistBackend struct {
 	requests []backend.WhitelistRequest
 }

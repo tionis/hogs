@@ -36,12 +36,23 @@ executable.
    free of all specialized hooks.
 
 Minecraft and Factorio embedded drivers declare their RCON commands and native
-offline whitelist codecs. The worker selects the online or offline backend from
-the managed systemd unit state; callers do not implement separate stopped-server
-logic. Minecraft uses object entries in `whitelist.json` and Factorio uses a
-string array in `server-whitelist.json`. Verified external identity IDs are
-stored with linked Minecraft identities so future offline changes do not
-require another profile lookup.
+file codecs. The worker uses RCON while those servers run and their files while
+they are stopped. Minecraft uses object entries in `whitelist.json`; Factorio
+uses a string array in `server-whitelist.json`.
+
+Valheim has no dedicated-server command for editing or reloading its allowlist.
+Its embedded driver safely reads and atomically updates `permittedlist.txt`
+while the server is either running or stopped. Changes saved while it runs are
+reported as pending until the next restart. Identities are the case-sensitive
+Platform User IDs emitted by Valheim, not display names.
+
+Satisfactory and StarRupture currently provide join-password admission rather
+than a native per-player allowlist. Their embedded drivers therefore do not
+advertise whitelist support. Password management is a separate server-secret
+workflow and must not be represented as identity-based whitelisting.
+
+Verified external identity IDs are stored with linked Minecraft identities so
+future offline changes do not require another profile lookup.
 
 Callers should use `Store.ResolveGameDriver`; they must not infer special
 behavior from `Server.GameType` directly.

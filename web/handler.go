@@ -444,55 +444,59 @@ func (h *WebHandler) renderServerPage(w http.ResponseWriter, r *http.Request, pa
 	}
 
 	data := struct {
-		Server          *database.Server
-		Authenticated   bool
-		UserRole        string
-		UserEmail       string
-		SiteName        string
-		BackgroundURLs  BackgroundURLs
-		PteroConfigured bool
-		PteroLink       *database.PterodactylLink
-		PteroCommands   []database.PterodactylCommand
-		AllowedActions  []string
-		HasAgent        bool
-		ShowConsole     bool
-		ConsoleWrite    bool
-		ShowFiles       bool
-		FileWrite       bool
-		ShowResources   bool
-		EffectiveAccess []EffectiveAccessEntry
-		ManageAccess    bool
-		AccessGrants    []database.ServerAccessGrant
-		AccessCatalog   []access.Capability
-		WhitelistSelf   bool
-		WhitelistManage bool
-		BackupList      bool
-		BackupCreate    bool
-		BackupRestore   bool
-		Page            string
-		FilesPage       bool
+		Server                *database.Server
+		Authenticated         bool
+		UserRole              string
+		UserEmail             string
+		SiteName              string
+		BackgroundURLs        BackgroundURLs
+		PteroConfigured       bool
+		PteroLink             *database.PterodactylLink
+		PteroCommands         []database.PterodactylCommand
+		AllowedActions        []string
+		HasAgent              bool
+		ShowConsole           bool
+		ConsoleWrite          bool
+		ShowFiles             bool
+		FileWrite             bool
+		ShowResources         bool
+		EffectiveAccess       []EffectiveAccessEntry
+		ManageAccess          bool
+		AccessGrants          []database.ServerAccessGrant
+		AccessCatalog         []access.Capability
+		WhitelistSelf         bool
+		WhitelistManage       bool
+		IdentityCaseSensitive bool
+		IdentityLabel         string
+		BackupList            bool
+		BackupCreate          bool
+		BackupRestore         bool
+		Page                  string
+		FilesPage             bool
 	}{
-		Server:          server,
-		Authenticated:   isAuthenticated,
-		UserRole:        userRole,
-		UserEmail:       h.Auth.GetUserEmail(r),
-		SiteName:        h.siteName(),
-		BackgroundURLs:  h.pickBackgrounds([]string{server.GameType}),
-		PteroConfigured: h.Config.PterodactylURL != "",
-		PteroLink:       nil,
-		PteroCommands:   nil,
-		AllowedActions:  nil,
-		HasAgent:        hasAgent,
-		ShowConsole:     false,
-		ConsoleWrite:    false,
-		ShowFiles:       false,
-		FileWrite:       false,
-		ShowResources:   false,
-		EffectiveAccess: []EffectiveAccessEntry{},
-		AccessGrants:    []database.ServerAccessGrant{},
-		AccessCatalog:   access.Capabilities,
-		Page:            page,
-		FilesPage:       page == "files",
+		Server:                server,
+		Authenticated:         isAuthenticated,
+		UserRole:              userRole,
+		UserEmail:             h.Auth.GetUserEmail(r),
+		SiteName:              h.siteName(),
+		BackgroundURLs:        h.pickBackgrounds([]string{server.GameType}),
+		PteroConfigured:       h.Config.PterodactylURL != "",
+		PteroLink:             nil,
+		PteroCommands:         nil,
+		AllowedActions:        nil,
+		HasAgent:              hasAgent,
+		ShowConsole:           false,
+		ConsoleWrite:          false,
+		ShowFiles:             false,
+		FileWrite:             false,
+		ShowResources:         false,
+		EffectiveAccess:       []EffectiveAccessEntry{},
+		AccessGrants:          []database.ServerAccessGrant{},
+		AccessCatalog:         access.Capabilities,
+		Page:                  page,
+		FilesPage:             page == "files",
+		IdentityCaseSensitive: h.Store.ResolveGameDriver(server.GameType).IdentityCaseSensitive,
+		IdentityLabel:         h.Store.ResolveGameDriver(server.GameType).IdentityFieldLabel(),
 	}
 	if isAuthenticated {
 		for _, capability := range access.Capabilities {
@@ -1303,7 +1307,7 @@ func (h *WebHandler) canManageServerAccess(r *http.Request, serverID int) bool {
 	return err == nil && decision.Allowed
 }
 
-var safeGameUsernamePattern = regexp.MustCompile(`^[A-Za-z0-9_. -]{1,64}$`)
+var safeGameUsernamePattern = regexp.MustCompile(`^[A-Za-z0-9_. -]{1,192}$`)
 
 func validGameUsername(gameType, username string) bool {
 	return safeGameUsernamePattern.MatchString(username)
@@ -1331,7 +1335,7 @@ func (h *WebHandler) HandleGameIdentitySet(w http.ResponseWriter, r *http.Reques
 	}
 	externalID := ""
 	if existing, _ := h.Store.GetGameIdentity(email, gameType); existing != nil &&
-		strings.EqualFold(existing.Username, username) {
+		driver.IdentitiesEqual(existing.Username, username) {
 		externalID = existing.ExternalID
 	}
 	if err := h.Store.SetGameIdentity(&database.GameIdentity{

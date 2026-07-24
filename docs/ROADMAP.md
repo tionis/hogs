@@ -167,9 +167,13 @@ All action paths (user-triggered, cron-triggered, API-triggered) go through the 
 - `PterodactylHandler` takes `AgentHub` parameter; `main.go` wires it up
 
 #### 1.8 Agent Whitelist Support ✅
-- Whitelist (add/remove player) now routes through the correct backend (agent or Pterodactyl)
-- For agent-managed servers: whitelist command sent through agent's command channel
-- Game-specific whitelist commands (minecraft `whitelist add`, etc.) work identically regardless of backend
+- Whitelist operations route through the selected backend and embedded game driver
+- Agent-managed Minecraft and Factorio servers use RCON while running and native
+  whitelist files while stopped
+- Agent-managed Valheim servers use native `permittedlist.txt` management in
+  both states, with running-server changes reported as pending a restart
+- Backends without structured file-whitelist support only support command-backed
+  game drivers
 
 #### 1.9 Request-Response Agent Protocol ✅
 - Currently agent operations are fire-and-forget: `SendAction`/`SendCommand` push messages but callers only get "sent" back

@@ -125,7 +125,12 @@ Game-driver operations use dedicated endpoints rather than general file access.
 For Minecraft and Factorio, `GET` and `POST
 /v1/servers/{serverID}/whitelist` use RCON while the unit is running and
 atomically read or update the game's native whitelist file while it is stopped.
-Offline updates reject symlinks and malformed JSON, preserve ownership and
+Valheim uses its native `permittedlist.txt` in both states because its dedicated
+server has no corresponding management command. A running Valheim server does
+not reload this file through an administrative command, so the API marks those
+saved changes as requiring a restart.
+
+File-backed updates reject symlinks and malformed data, preserve ownership and
 permissions, sync before rename, and recheck the unit state immediately before
 replacement. Lifecycle and whitelist changes share a per-server lock. An
 online-mode Minecraft addition requires a profile UUID verified by HOGS;

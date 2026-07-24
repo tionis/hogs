@@ -167,11 +167,11 @@ func handleWhitelist(w http.ResponseWriter, r *http.Request, server *ServerConfi
 			status = http.StatusBadRequest
 		case "identity_required":
 			status = http.StatusUnprocessableEntity
-		case "server_started":
+		case "server_started", "server_stopped":
 			status = http.StatusConflict
 		case "status_unknown":
 			status = http.StatusServiceUnavailable
-		case "unsupported", "offline_unsupported":
+		case "unsupported", "online_unsupported", "offline_unsupported":
 			status = http.StatusNotImplemented
 		}
 		writeJSONResponse(w, status, map[string]interface{}{

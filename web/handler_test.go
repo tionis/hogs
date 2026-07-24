@@ -642,7 +642,7 @@ func TestServerTabsAndAccessPage(t *testing.T) {
 	whitelistBody := whitelistRecorder.Body.String()
 	for _, expected := range []string{
 		"Your whitelist entry", "Edit linked game account", "Manage server whitelist",
-		"In-game username", "Panel user (optional)", "Save link", "Add entry",
+		"Minecraft username", "Panel user (optional)", "Save link", "Add entry",
 	} {
 		if !contains(whitelistBody, expected) {
 			t.Fatalf("whitelist page missing %q", expected)

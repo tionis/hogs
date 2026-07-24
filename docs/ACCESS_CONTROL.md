@@ -52,9 +52,12 @@ whitelisting reuses the linked identity and records the server-specific
 membership separately.
 
 Whitelist commands are game-type adapters, not administrator-provided command
-templates. Minecraft Java and Factorio each use their native whitelist commands
-and offline file format; unsupported game types do not expose whitelist
-actions. This avoids turning identity fields into arbitrary console commands.
+templates. Minecraft Java and Factorio use their native whitelist commands and
+file formats. Valheim uses its case-sensitive Platform User IDs and
+`permittedlist.txt`. Game types that only provide a shared join password, such
+as Satisfactory and StarRupture, do not expose identity whitelist actions. This
+avoids turning identity fields into arbitrary console commands or conflating a
+shared secret with per-user access.
 
 Direct file transfers use short-lived, exact-request capability tokens as
 described in [the agent contract](AGENT.md). Server access is decided by HOGS;

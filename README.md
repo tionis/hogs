@@ -240,6 +240,9 @@ Uses RCON to query the Factorio server. Add `rcon_password` to server metadata w
 
 #### Valheim
 Uses the Steam A2S query protocol. Set the address to `host:port` (default query port is 2457). No additional metadata required.
+Agent-managed servers can also manage the case-sensitive Platform User IDs in
+the native `permittedlist.txt`; changes made while the server runs apply after
+its next restart.
 
 ## Architecture
 

@@ -69,3 +69,19 @@ func TestGameIdentityAPIAcceptsFactorioNameWithSpace(t *testing.T) {
 		t.Fatalf("identity=%#v err=%v", identity, err)
 	}
 }
+
+func TestGameIdentityAPIAcceptsValheimPlatformID(t *testing.T) {
+	serverHandler, _ := mapProxyFixture(t, "game", nil)
+	handler := NewAccessHandler(serverHandler.Store)
+	request := httptest.NewRequest(http.MethodPut, "/api/v1/game-identities",
+		bytes.NewBufferString(`{"userEmail":"viking@example.test","gameType":"valheim","username":"Steam_76561198000000000"}`))
+	recorder := httptest.NewRecorder()
+	handler.SetGameIdentity(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	identity, err := serverHandler.Store.GetGameIdentity("viking@example.test", "valheim")
+	if err != nil || identity == nil || identity.Username != "Steam_76561198000000000" {
+		t.Fatalf("identity=%#v err=%v", identity, err)
+	}
+}

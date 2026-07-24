@@ -54,27 +54,41 @@ func whitelistOperation(server *ServerConfig, request backend.WhitelistRequest) 
 			Code: "status_unknown", Message: "could not determine the managed service state: " + stateErr.Error(),
 		}
 	}
-	if active {
+	if active && driver.SupportsCommandWhitelist() {
 		return onlineWhitelistOperation(server, driver, request)
 	}
-	return offlineWhitelistOperation(server, driver, request)
+	fileAllowed := driver.SupportsFileWhitelist() && (!active ||
+		(request.Operation == "list" && driver.Whitelist.File.AllowReadWhileRunning) ||
+		(request.Operation != "list" && driver.Whitelist.File.AllowWriteWhileRunning))
+	if fileAllowed {
+		return fileWhitelistOperation(server, driver, request, active)
+	}
+	if active {
+		return nil, &backend.WhitelistError{
+			Code: "online_unsupported", Message: "online whitelist management is not supported for this game type",
+		}
+	}
+	return nil, &backend.WhitelistError{
+		Code: "offline_unsupported", Message: "offline whitelist management is not supported for this game type",
+	}
 }
 
 func onlineWhitelistOperation(server *ServerConfig, driver gametypes.Driver, request backend.WhitelistRequest) (*backend.WhitelistResult, *backend.WhitelistError) {
+	commands := driver.Whitelist.Commands
 	var command string
 	switch request.Operation {
 	case "list":
-		command = driver.Whitelist.ListCommand
+		command = commands.ListCommand
 	case "add":
 		if !driver.IdentityValid(request.Username) {
 			return nil, &backend.WhitelistError{Code: "invalid_identity", Message: "invalid in-game username"}
 		}
-		command = driver.Whitelist.AddCommand(request.Username)
+		command = commands.AddCommand(request.Username)
 	case "remove":
 		if !driver.IdentityValid(request.Username) {
 			return nil, &backend.WhitelistError{Code: "invalid_identity", Message: "invalid in-game username"}
 		}
-		command = driver.Whitelist.RemoveCommand(request.Username)
+		command = commands.RemoveCommand(request.Username)
 	default:
 		return nil, &backend.WhitelistError{Code: "invalid_operation", Message: "invalid whitelist operation"}
 	}
@@ -83,11 +97,11 @@ func onlineWhitelistOperation(server *ServerConfig, driver gametypes.Driver, req
 		return nil, &backend.WhitelistError{Code: "rcon_failed", Message: "RCON whitelist operation failed: " + err.Error()}
 	}
 	if request.Operation == "add" && request.PreviousUsername != "" &&
-		!strings.EqualFold(request.PreviousUsername, request.Username) {
+		!driver.IdentitiesEqual(request.PreviousUsername, request.Username) {
 		if !driver.IdentityValid(request.PreviousUsername) {
 			return nil, &backend.WhitelistError{Code: "invalid_identity", Message: "invalid previous in-game username"}
 		}
-		removeOutput, removeErr := executeCommand(server, driver.Whitelist.RemoveCommand(request.PreviousUsername))
+		removeOutput, removeErr := executeCommand(server, commands.RemoveCommand(request.PreviousUsername))
 		if removeErr != nil {
 			return nil, &backend.WhitelistError{
 				Code: "rcon_failed", Message: "new whitelist entry was added but the previous entry could not be removed: " + removeErr.Error(),
@@ -102,35 +116,42 @@ func onlineWhitelistOperation(server *ServerConfig, driver gametypes.Driver, req
 }
 
 func onlineWhitelistEntries(server *ServerConfig, driver gametypes.Driver, output string) []backend.WhitelistEntry {
-	if driver.Whitelist.Offline != nil {
-		if entries, path, err := readOfflineWhitelist(server, driver.Whitelist.Offline); err == nil {
+	if driver.Whitelist.File != nil {
+		if entries, path, err := readFileWhitelist(server, driver.Whitelist.File); err == nil {
 			if _, statErr := os.Stat(path); statErr == nil {
 				return entries
 			}
 		}
 	}
 	var entries []backend.WhitelistEntry
-	if driver.Whitelist.ParseList != nil {
-		for _, name := range driver.Whitelist.ParseList(output) {
+	if driver.Whitelist.Commands != nil && driver.Whitelist.Commands.ParseList != nil {
+		for _, name := range driver.Whitelist.Commands.ParseList(output) {
 			entries = append(entries, backend.WhitelistEntry{Name: name})
 		}
 	}
 	return entries
 }
 
-func offlineWhitelistOperation(server *ServerConfig, driver gametypes.Driver, request backend.WhitelistRequest) (*backend.WhitelistResult, *backend.WhitelistError) {
-	offline := driver.Whitelist.Offline
-	if offline == nil || offline.File == "" || offline.Decode == nil || offline.Encode == nil {
+func fileWhitelistOperation(server *ServerConfig, driver gametypes.Driver, request backend.WhitelistRequest, running bool) (*backend.WhitelistResult, *backend.WhitelistError) {
+	fileBackend := driver.Whitelist.File
+	if fileBackend == nil || fileBackend.Path == "" || fileBackend.Decode == nil || fileBackend.Encode == nil {
 		return nil, &backend.WhitelistError{
 			Code: "offline_unsupported", Message: "offline whitelist management is not supported for this game type",
 		}
 	}
-	entries, path, err := readOfflineWhitelist(server, offline)
+	entries, path, err := readFileWhitelist(server, fileBackend)
 	if err != nil {
 		return nil, &backend.WhitelistError{Code: "read_failed", Message: err.Error()}
 	}
+	mode := "offline"
+	if running {
+		mode = "online"
+		if fileBackend.ChangesRequireRestart {
+			mode = "pending_restart"
+		}
+	}
 	if request.Operation == "list" {
-		return &backend.WhitelistResult{Mode: "offline", Entries: entries}, nil
+		return &backend.WhitelistResult{Mode: mode, Entries: entries}, nil
 	}
 	if request.Operation != "add" && request.Operation != "remove" {
 		return nil, &backend.WhitelistError{Code: "invalid_operation", Message: "invalid whitelist operation"}
@@ -143,7 +164,7 @@ func offlineWhitelistOperation(server *ServerConfig, driver gametypes.Driver, re
 	if request.Operation == "remove" {
 		filtered := entries[:0]
 		for _, entry := range entries {
-			if strings.EqualFold(entry.Name, request.Username) {
+			if driver.IdentitiesEqual(entry.Name, request.Username) {
 				changed = true
 				continue
 			}
@@ -152,8 +173,8 @@ func offlineWhitelistOperation(server *ServerConfig, driver gametypes.Driver, re
 		entries = filtered
 	} else {
 		entry := backend.WhitelistEntry{Name: request.Username, UUID: request.ExternalID}
-		if offline.BuildEntry != nil {
-			entry, err = offline.BuildEntry(request.Username, request.ExternalID, func(relativePath string) ([]byte, error) {
+		if fileBackend.BuildEntry != nil {
+			entry, err = fileBackend.BuildEntry(request.Username, request.ExternalID, func(relativePath string) ([]byte, error) {
 				path, resolveErr := resolvePath(server, relativePath)
 				if resolveErr != nil {
 					return nil, resolveErr
@@ -172,10 +193,10 @@ func offlineWhitelistOperation(server *ServerConfig, driver gametypes.Driver, re
 				Code: "invalid_identity", Message: err.Error(),
 			}
 		}
-		if request.PreviousUsername != "" && !strings.EqualFold(request.PreviousUsername, request.Username) {
+		if request.PreviousUsername != "" && !driver.IdentitiesEqual(request.PreviousUsername, request.Username) {
 			filtered := entries[:0]
 			for _, entry := range entries {
-				if strings.EqualFold(entry.Name, request.PreviousUsername) {
+				if driver.IdentitiesEqual(entry.Name, request.PreviousUsername) {
 					changed = true
 					continue
 				}
@@ -185,7 +206,7 @@ func offlineWhitelistOperation(server *ServerConfig, driver gametypes.Driver, re
 		}
 		found := false
 		for i := range entries {
-			if strings.EqualFold(entries[i].Name, request.Username) ||
+			if driver.IdentitiesEqual(entries[i].Name, request.Username) ||
 				(entry.UUID != "" && strings.EqualFold(entries[i].UUID, entry.UUID)) {
 				found = true
 				if entries[i] != entry {
@@ -211,24 +232,29 @@ func offlineWhitelistOperation(server *ServerConfig, driver gametypes.Driver, re
 				Code: "status_unknown", Message: "could not recheck the managed service state: " + stateErr.Error(),
 			}
 		}
-		if active {
+		if active != running {
+			if running {
+				return nil, &backend.WhitelistError{
+					Code: "server_stopped", Message: "the game server stopped while its whitelist was being changed; retry the operation",
+				}
+			}
 			return nil, &backend.WhitelistError{
 				Code: "server_started", Message: "the game server started while its offline whitelist was being changed; retry the operation",
 			}
 		}
-		encoded, encodeErr := offline.Encode(entries)
+		encoded, encodeErr := fileBackend.Encode(entries)
 		if encodeErr != nil {
 			return nil, &backend.WhitelistError{Code: "write_failed", Message: "encode whitelist without modifying it: " + encodeErr.Error()}
 		}
-		if err := writeOfflineWhitelist(path, server.DataDir, encoded); err != nil {
+		if err := writeFileWhitelist(path, server.DataDir, encoded); err != nil {
 			return nil, &backend.WhitelistError{Code: "write_failed", Message: err.Error()}
 		}
 	}
-	return &backend.WhitelistResult{Mode: "offline", Entries: entries}, nil
+	return &backend.WhitelistResult{Mode: mode, Entries: entries}, nil
 }
 
-func readOfflineWhitelist(server *ServerConfig, offline *gametypes.OfflineWhitelistDriver) ([]backend.WhitelistEntry, string, error) {
-	path, err := resolvePath(server, offline.File)
+func readFileWhitelist(server *ServerConfig, fileBackend *gametypes.FileWhitelistDriver) ([]backend.WhitelistEntry, string, error) {
+	path, err := resolvePath(server, fileBackend.Path)
 	if err != nil {
 		return nil, "", fmt.Errorf("resolve whitelist file: %w", err)
 	}
@@ -242,7 +268,7 @@ func readOfflineWhitelist(server *ServerConfig, offline *gametypes.OfflineWhitel
 	if len(strings.TrimSpace(string(raw))) == 0 {
 		return []backend.WhitelistEntry{}, path, nil
 	}
-	entries, err := offline.Decode(raw)
+	entries, err := fileBackend.Decode(raw)
 	if err != nil {
 		return nil, "", fmt.Errorf("parse whitelist file without modifying it: %w", err)
 	}
@@ -252,7 +278,7 @@ func readOfflineWhitelist(server *ServerConfig, offline *gametypes.OfflineWhitel
 	return entries, path, nil
 }
 
-func writeOfflineWhitelist(path, dataDir string, encoded []byte) error {
+func writeFileWhitelist(path, dataDir string, encoded []byte) error {
 	dir := filepath.Dir(path)
 	mode := os.FileMode(0644)
 	ownershipSource := path

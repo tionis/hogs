@@ -19,6 +19,9 @@ var minecraftPlayerCount = regexp.MustCompile(`(?i)there are\s+(\d+)\s+of a max 
 var minecraftUsername = regexp.MustCompile(`^[a-zA-Z0-9_]{3,16}$`)
 var minecraftUUID = regexp.MustCompile(`^[0-9a-fA-F]{32}$`)
 var factorioUsername = regexp.MustCompile(`^[a-zA-Z0-9_. -]{1,60}$`)
+var valheimPlatformID = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9]{0,31}_[A-Za-z0-9][A-Za-z0-9-]{0,127}$`)
+
+const valheimPermittedListHeader = "// List permitted players ID ONE per line"
 
 func encodeJSON(value interface{}) ([]byte, error) {
 	encoded, err := json.MarshalIndent(value, "", "  ")
@@ -115,6 +118,40 @@ func encodeFactorioWhitelist(entries []backend.WhitelistEntry) ([]byte, error) {
 	return encodeJSON(usernames)
 }
 
+func validValheimPlatformID(value string) bool {
+	return value == strings.TrimSpace(value) && valheimPlatformID.MatchString(value)
+}
+
+func decodeValheimPermittedList(raw []byte) ([]backend.WhitelistEntry, error) {
+	var entries []backend.WhitelistEntry
+	seen := map[string]bool{}
+	for _, line := range strings.Split(strings.ReplaceAll(string(raw), "\r\n", "\n"), "\n") {
+		if line == "" || strings.HasPrefix(line, "//") {
+			continue
+		}
+		if !validValheimPlatformID(line) {
+			return nil, fmt.Errorf("invalid Valheim platform user ID in permitted list")
+		}
+		if !seen[line] {
+			entries = append(entries, backend.WhitelistEntry{Name: line})
+			seen[line] = true
+		}
+	}
+	return entries, nil
+}
+
+func encodeValheimPermittedList(entries []backend.WhitelistEntry) ([]byte, error) {
+	identities := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if !validValheimPlatformID(entry.Name) {
+			return nil, fmt.Errorf("invalid Valheim platform user ID in permitted list")
+		}
+		identities = append(identities, entry.Name)
+	}
+	lines := append([]string{valheimPermittedListHeader}, identities...)
+	return []byte(strings.Join(lines, "\n") + "\n"), nil
+}
+
 func resolveMinecraftIdentity(ctx context.Context, client *http.Client, username string) (ResolvedIdentity, error) {
 	if !minecraftUsername.MatchString(username) {
 		return ResolvedIdentity{}, fmt.Errorf("invalid Minecraft username")
@@ -173,25 +210,28 @@ func init() {
 		},
 		ValidateIdentity: minecraftUsername.MatchString,
 		ResolveIdentity:  resolveMinecraftIdentity,
+		IdentityLabel:    "Minecraft username",
 		Whitelist: &WhitelistDriver{
-			ListCommand:   "whitelist list",
-			AddCommand:    func(player string) string { return fmt.Sprintf("whitelist add %s", player) },
-			RemoveCommand: func(player string) string { return fmt.Sprintf("whitelist remove %s", player) },
-			ParseList: func(output string) []string {
-				_, players, found := strings.Cut(output, ":")
-				if !found {
-					return nil
-				}
-				var names []string
-				for _, player := range strings.Split(players, ",") {
-					if player = strings.TrimSpace(player); minecraftUsername.MatchString(player) {
-						names = append(names, player)
+			Commands: &CommandWhitelistDriver{
+				ListCommand:   "whitelist list",
+				AddCommand:    func(player string) string { return fmt.Sprintf("whitelist add %s", player) },
+				RemoveCommand: func(player string) string { return fmt.Sprintf("whitelist remove %s", player) },
+				ParseList: func(output string) []string {
+					_, players, found := strings.Cut(output, ":")
+					if !found {
+						return nil
 					}
-				}
-				return names
+					var names []string
+					for _, player := range strings.Split(players, ",") {
+						if player = strings.TrimSpace(player); minecraftUsername.MatchString(player) {
+							names = append(names, player)
+						}
+					}
+					return names
+				},
 			},
-			Offline: &OfflineWhitelistDriver{
-				File:       "whitelist.json",
+			File: &FileWhitelistDriver{
+				Path:       "whitelist.json",
 				Decode:     decodeMinecraftWhitelist,
 				Encode:     func(entries []backend.WhitelistEntry) ([]byte, error) { return encodeJSON(entries) },
 				BuildEntry: minecraftWhitelistEntry,
@@ -217,28 +257,31 @@ func init() {
 			return players, 0, true
 		},
 		ValidateIdentity: validFactorioUsername,
+		IdentityLabel:    "Factorio username",
 		Whitelist: &WhitelistDriver{
-			ListCommand:   "/whitelist get",
-			AddCommand:    func(player string) string { return fmt.Sprintf("/whitelist add %s", player) },
-			RemoveCommand: func(player string) string { return fmt.Sprintf("/whitelist remove %s", player) },
-			ParseList: func(output string) []string {
-				for _, line := range strings.Split(output, "\n") {
-					prefix, players, found := strings.Cut(strings.TrimSpace(line), ":")
-					if !found || !strings.EqualFold(strings.TrimSpace(prefix), "Whitelisted players") {
-						continue
-					}
-					var names []string
-					for _, player := range strings.Split(players, ",") {
-						if player = strings.TrimSpace(player); validFactorioUsername(player) {
-							names = append(names, player)
+			Commands: &CommandWhitelistDriver{
+				ListCommand:   "/whitelist get",
+				AddCommand:    func(player string) string { return fmt.Sprintf("/whitelist add %s", player) },
+				RemoveCommand: func(player string) string { return fmt.Sprintf("/whitelist remove %s", player) },
+				ParseList: func(output string) []string {
+					for _, line := range strings.Split(output, "\n") {
+						prefix, players, found := strings.Cut(strings.TrimSpace(line), ":")
+						if !found || !strings.EqualFold(strings.TrimSpace(prefix), "Whitelisted players") {
+							continue
 						}
+						var names []string
+						for _, player := range strings.Split(players, ",") {
+							if player = strings.TrimSpace(player); validFactorioUsername(player) {
+								names = append(names, player)
+							}
+						}
+						return names
 					}
-					return names
-				}
-				return nil
+					return nil
+				},
 			},
-			Offline: &OfflineWhitelistDriver{
-				File:   "factorio/server-whitelist.json",
+			File: &FileWhitelistDriver{
+				Path:   "factorio/server-whitelist.json",
 				Decode: decodeFactorioWhitelist,
 				Encode: encodeFactorioWhitelist,
 				BuildEntry: func(username, _ string, _ func(string) ([]byte, error)) (backend.WhitelistEntry, error) {
@@ -260,9 +303,25 @@ func init() {
 	})
 	Register(Driver{
 		Slug: "valheim", DisplayName: "Valheim", PlayerNoun: "Vikings",
-		AccentColor:    "#3e2723",
-		Icon:           `<svg class="game-icon" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1L3 5v2l2-1v4l-2 2v2h3v-2l1-1 1 1v2h3v-2l-2-2V6l2 1V5L8 1z"/></svg>`,
-		StatusProtocol: "valheim",
+		AccentColor:           "#3e2723",
+		Icon:                  `<svg class="game-icon" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1L3 5v2l2-1v4l-2 2v2h3v-2l1-1 1 1v2h3v-2l-2-2V6l2 1V5L8 1z"/></svg>`,
+		StatusProtocol:        "valheim",
+		ValidateIdentity:      validValheimPlatformID,
+		IdentityCaseSensitive: true,
+		IdentityLabel:         "Platform User ID",
+		Whitelist: &WhitelistDriver{
+			File: &FileWhitelistDriver{
+				Path:                   "permittedlist.txt",
+				AllowReadWhileRunning:  true,
+				AllowWriteWhileRunning: true,
+				ChangesRequireRestart:  true,
+				Decode:                 decodeValheimPermittedList,
+				Encode:                 encodeValheimPermittedList,
+				BuildEntry: func(platformID, _ string, _ func(string) ([]byte, error)) (backend.WhitelistEntry, error) {
+					return backend.WhitelistEntry{Name: platformID}, nil
+				},
+			},
+		},
 	})
 	Register(Driver{
 		Slug: "starrupture", DisplayName: "Star Rupture", PlayerNoun: "Players",

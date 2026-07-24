@@ -490,7 +490,6 @@ func (h *PterodactylHandler) WhitelistSet(w http.ResponseWriter, r *http.Request
 			json.NewEncoder(w).Encode(map[string]string{"status": "ok", "message": "not whitelisted"})
 			return
 		}
-		removeCmd := driver.Whitelist.RemoveCommand(existing.Username)
 		b, bErr := h.resolveBackend(server, link)
 		if bErr != nil {
 			http.Error(w, bErr.Error(), http.StatusServiceUnavailable)
@@ -499,14 +498,20 @@ func (h *PterodactylHandler) WhitelistSet(w http.ResponseWriter, r *http.Request
 		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 		defer cancel()
 		var operationErr error
+		var operationResult *backend.WhitelistResult
 		if managed, ok := b.(backend.WhitelistBackend); ok {
-			_, _, operationErr = h.structuredWhitelist(ctx, managed, driver, backend.WhitelistRequest{
+			operationResult, _, operationErr = h.structuredWhitelist(ctx, managed, driver, backend.WhitelistRequest{
 				Operation: "remove", Username: existing.Username,
 			})
-		} else if whitelistBackendReady(w, ctx, b) {
-			operationErr = b.SendCommand(ctx, removeCmd)
 		} else {
-			return
+			if !driver.SupportsCommandWhitelist() {
+				http.Error(w, "This backend cannot manage the game type's file-backed whitelist.", http.StatusNotImplemented)
+				return
+			}
+			if !whitelistBackendReady(w, ctx, b) {
+				return
+			}
+			operationErr = b.SendCommand(ctx, driver.Whitelist.Commands.RemoveCommand(existing.Username))
 		}
 		if operationErr != nil {
 			http.Error(w, fmt.Sprintf("%s whitelist removal failed: %s", b.Name(), operationErr), http.StatusInternalServerError)
@@ -517,7 +522,10 @@ func (h *PterodactylHandler) WhitelistSet(w http.ResponseWriter, r *http.Request
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"status": "ok", "message": "removed from whitelist"})
+		json.NewEncoder(w).Encode(map[string]string{
+			"status":  "ok",
+			"message": whitelistSuccessMessage("removed from whitelist", operationResult),
+		})
 		return
 	}
 	identity, _ := h.Store.GetGameIdentity(userEmail, server.GameType)
@@ -526,7 +534,6 @@ func (h *PterodactylHandler) WhitelistSet(w http.ResponseWriter, r *http.Request
 		return
 	}
 	username := identity.Username
-	addCmd := driver.Whitelist.AddCommand(username)
 	b, bErr := h.resolveBackend(server, link)
 	if bErr != nil {
 		http.Error(w, bErr.Error(), http.StatusServiceUnavailable)
@@ -538,22 +545,27 @@ func (h *PterodactylHandler) WhitelistSet(w http.ResponseWriter, r *http.Request
 	externalID := identity.ExternalID
 	var resolved *gametypes.ResolvedIdentity
 	var operationErr error
+	var operationResult *backend.WhitelistResult
 	previousUsername := ""
-	if existing != nil && !strings.EqualFold(existing.Username, username) {
+	if existing != nil && !driver.IdentitiesEqual(existing.Username, username) {
 		previousUsername = existing.Username
 	}
 	if managed, ok := b.(backend.WhitelistBackend); ok {
-		_, resolved, operationErr = h.structuredWhitelist(ctx, managed, driver, backend.WhitelistRequest{
+		operationResult, resolved, operationErr = h.structuredWhitelist(ctx, managed, driver, backend.WhitelistRequest{
 			Operation: "add", Username: username, PreviousUsername: previousUsername,
 			ExternalID: externalID,
 		})
 	} else {
+		if !driver.SupportsCommandWhitelist() {
+			http.Error(w, "This backend cannot manage the game type's file-backed whitelist.", http.StatusNotImplemented)
+			return
+		}
 		if !whitelistBackendReady(w, ctx, b) {
 			return
 		}
-		operationErr = b.SendCommand(ctx, addCmd)
+		operationErr = b.SendCommand(ctx, driver.Whitelist.Commands.AddCommand(username))
 		if operationErr == nil && previousUsername != "" {
-			operationErr = b.SendCommand(ctx, driver.Whitelist.RemoveCommand(previousUsername))
+			operationErr = b.SendCommand(ctx, driver.Whitelist.Commands.RemoveCommand(previousUsername))
 		}
 	}
 	if operationErr != nil {
@@ -574,7 +586,9 @@ func (h *PterodactylHandler) WhitelistSet(w http.ResponseWriter, r *http.Request
 			return
 		}
 	}
-	if err := h.Store.SetUserWhitelist(userEmail, server.ID, username); err != nil {
+	if err := h.Store.SetUserWhitelistForIdentity(
+		userEmail, server.ID, username, driver.IdentityCaseSensitive,
+	); err != nil {
 		http.Error(w, "Failed to save whitelist entry", http.StatusInternalServerError)
 		return
 	}
@@ -582,7 +596,7 @@ func (h *PterodactylHandler) WhitelistSet(w http.ResponseWriter, r *http.Request
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{
 		"status": "ok", "username": username,
-		"message": username + " is now whitelisted",
+		"message": whitelistSuccessMessage(username+" is now whitelisted", operationResult),
 	})
 }
 
@@ -640,25 +654,29 @@ func (h *PterodactylHandler) AdminWhitelist(w http.ResponseWriter, r *http.Reque
 			if result != nil {
 				output, entries, mode = result.Output, result.Entries, result.Mode
 			}
+		} else if !driver.SupportsCommandWhitelist() {
+			http.Error(w, "This backend cannot manage the game type's file-backed whitelist.", http.StatusNotImplemented)
+			return
 		} else if resultBackend, ok := gameBackend.(interface {
 			SendCommandOutput(context.Context, string) (string, error)
 		}); ok {
 			if !whitelistBackendReady(w, ctx, gameBackend) {
 				return
 			}
-			output, err = resultBackend.SendCommandOutput(ctx, driver.Whitelist.ListCommand)
+			output, err = resultBackend.SendCommandOutput(ctx, driver.Whitelist.Commands.ListCommand)
 		} else {
 			if !whitelistBackendReady(w, ctx, gameBackend) {
 				return
 			}
-			err = gameBackend.SendCommand(ctx, driver.Whitelist.ListCommand)
+			err = gameBackend.SendCommand(ctx, driver.Whitelist.Commands.ListCommand)
 		}
 		if err != nil {
 			http.Error(w, fmt.Sprintf("%s whitelist query failed: %s", gameBackend.Name(), err), http.StatusBadGateway)
 			return
 		}
-		if len(entries) == 0 && output != "" && driver.Whitelist.ParseList != nil {
-			for _, name := range driver.Whitelist.ParseList(output) {
+		if len(entries) == 0 && output != "" && driver.Whitelist.Commands != nil &&
+			driver.Whitelist.Commands.ParseList != nil {
+			for _, name := range driver.Whitelist.Commands.ParseList(output) {
 				entries = append(entries, backend.WhitelistEntry{Name: name})
 			}
 		}
@@ -686,7 +704,9 @@ func (h *PterodactylHandler) AdminWhitelist(w http.ResponseWriter, r *http.Reque
 	}
 	if op == "link" {
 		if email == "" {
-			if err := h.Store.DeleteUserWhitelistsByUsername(server.ID, username); err != nil {
+			if err := h.Store.DeleteUserWhitelistsByIdentity(
+				server.ID, username, driver.IdentityCaseSensitive,
+			); err != nil {
 				http.Error(w, "Failed to remove the panel-user link", http.StatusInternalServerError)
 				return
 			}
@@ -698,7 +718,7 @@ func (h *PterodactylHandler) AdminWhitelist(w http.ResponseWriter, r *http.Reque
 		}
 		externalID := ""
 		if identity, _ := h.Store.GetGameIdentity(email, server.GameType); identity != nil &&
-			strings.EqualFold(identity.Username, username) {
+			driver.IdentitiesEqual(identity.Username, username) {
 			externalID = identity.ExternalID
 		}
 		if err := h.Store.SetGameIdentity(&database.GameIdentity{
@@ -708,7 +728,9 @@ func (h *PterodactylHandler) AdminWhitelist(w http.ResponseWriter, r *http.Reque
 			http.Error(w, "Failed to save the linked game identity", http.StatusInternalServerError)
 			return
 		}
-		if err := h.Store.SetUserWhitelist(email, server.ID, username); err != nil {
+		if err := h.Store.SetUserWhitelistForIdentity(
+			email, server.ID, username, driver.IdentityCaseSensitive,
+		); err != nil {
 			http.Error(w, "Failed to save the panel-user link", http.StatusInternalServerError)
 			return
 		}
@@ -718,26 +740,31 @@ func (h *PterodactylHandler) AdminWhitelist(w http.ResponseWriter, r *http.Reque
 		})
 		return
 	}
-	command := driver.Whitelist.AddCommand(username)
-	if op == "remove" {
-		command = driver.Whitelist.RemoveCommand(username)
-	}
 	externalID := ""
 	if email != "" && op == "add" {
 		if identity, _ := h.Store.GetGameIdentity(email, server.GameType); identity != nil &&
-			strings.EqualFold(identity.Username, username) {
+			driver.IdentitiesEqual(identity.Username, username) {
 			externalID = identity.ExternalID
 		}
 	}
 	var resolved *gametypes.ResolvedIdentity
 	var operationErr error
+	var operationResult *backend.WhitelistResult
 	if managed, ok := gameBackend.(backend.WhitelistBackend); ok {
-		_, resolved, operationErr = h.structuredWhitelist(ctx, managed, driver, backend.WhitelistRequest{
+		operationResult, resolved, operationErr = h.structuredWhitelist(ctx, managed, driver, backend.WhitelistRequest{
 			Operation: op, Username: username, ExternalID: externalID,
 		})
 	} else {
+		if !driver.SupportsCommandWhitelist() {
+			http.Error(w, "This backend cannot manage the game type's file-backed whitelist.", http.StatusNotImplemented)
+			return
+		}
 		if !whitelistBackendReady(w, ctx, gameBackend) {
 			return
+		}
+		command := driver.Whitelist.Commands.AddCommand(username)
+		if op == "remove" {
+			command = driver.Whitelist.Commands.RemoveCommand(username)
 		}
 		operationErr = gameBackend.SendCommand(ctx, command)
 	}
@@ -749,7 +776,9 @@ func (h *PterodactylHandler) AdminWhitelist(w http.ResponseWriter, r *http.Reque
 		username, externalID = resolved.Username, resolved.ExternalID
 	}
 	if op == "remove" {
-		if err := h.Store.DeleteUserWhitelistsByUsername(server.ID, username); err != nil {
+		if err := h.Store.DeleteUserWhitelistsByIdentity(
+			server.ID, username, driver.IdentityCaseSensitive,
+		); err != nil {
 			http.Error(w, "Player was removed, but the panel-user link could not be cleared", http.StatusInternalServerError)
 			return
 		}
@@ -761,7 +790,9 @@ func (h *PterodactylHandler) AdminWhitelist(w http.ResponseWriter, r *http.Reque
 			http.Error(w, "Player was added, but the linked game identity could not be saved", http.StatusInternalServerError)
 			return
 		}
-		if err := h.Store.SetUserWhitelist(email, server.ID, username); err != nil {
+		if err := h.Store.SetUserWhitelistForIdentity(
+			email, server.ID, username, driver.IdentityCaseSensitive,
+		); err != nil {
 			http.Error(w, "Player was added, but the panel-user link could not be saved", http.StatusInternalServerError)
 			return
 		}
@@ -772,8 +803,18 @@ func (h *PterodactylHandler) AdminWhitelist(w http.ResponseWriter, r *http.Reque
 		verb = "removed from"
 	}
 	_ = json.NewEncoder(w).Encode(map[string]string{
-		"status": "ok", "message": fmt.Sprintf("%s was %s the whitelist", username, verb),
+		"status": "ok",
+		"message": whitelistSuccessMessage(
+			fmt.Sprintf("%s was %s the whitelist", username, verb), operationResult,
+		),
 	})
+}
+
+func whitelistSuccessMessage(message string, result *backend.WhitelistResult) string {
+	if result != nil && result.Mode == "pending_restart" {
+		return message + ". Restart the game server to apply this change."
+	}
+	return message
 }
 
 func whitelistBackendReady(w http.ResponseWriter, ctx context.Context, backend backend.Backend) bool {
