@@ -148,8 +148,7 @@
     </div>
     {{end}}
 
-    {{if and .Authenticated .PteroLink}}
-    {{if inList "status" .AllowedActions}}
+    {{if .ShowResources}}
     <div class="card mb-4" id="resource-usage-card">
       <div class="card-header">Resource Usage</div>
       <ul class="list-group list-group-flush">
@@ -182,7 +181,6 @@
         CPU usage uses 100% per processor core. Updated <time id="resource-sampled-at">—</time>.
       </div>
     </div>
-    {{end}}
     {{end}}
 
   </div>
@@ -546,8 +544,7 @@ document.addEventListener("DOMContentLoaded", function() {
 
     if (container) initManagedFiles(serverName);
 
-    {{if and (not .FilesPage) .Authenticated .PteroLink}}
-    {{if inList "status" .AllowedActions}}
+    {{if and (not .FilesPage) .ShowResources}}
     const formatBytes = value => {
         if (value === null || value === undefined) return 'Unavailable';
         const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
@@ -587,6 +584,7 @@ document.addEventListener("DOMContentLoaded", function() {
     window.setInterval(loadResourceUsage, 15000);
     {{end}}
 
+    {{if and (not .FilesPage) .Authenticated .PteroLink}}
     const selfWhitelistForm = document.getElementById('self-whitelist-form');
     const selfWhitelistRemove = document.getElementById('self-whitelist-remove');
     const selfWhitelistFeedback = document.getElementById('self-whitelist-feedback');

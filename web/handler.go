@@ -428,6 +428,7 @@ func (h *WebHandler) renderServerPage(w http.ResponseWriter, r *http.Request, fi
 		ConsoleWrite    bool
 		ShowFiles       bool
 		FileWrite       bool
+		ShowResources   bool
 		EffectiveAccess []EffectiveAccessEntry
 		ManageAccess    bool
 		AccessGrants    []database.ServerAccessGrant
@@ -450,6 +451,7 @@ func (h *WebHandler) renderServerPage(w http.ResponseWriter, r *http.Request, fi
 		ConsoleWrite:    false,
 		ShowFiles:       false,
 		FileWrite:       false,
+		ShowResources:   false,
 		EffectiveAccess: []EffectiveAccessEntry{},
 		AccessGrants:    []database.ServerAccessGrant{},
 		AccessCatalog:   access.Capabilities,
@@ -486,13 +488,16 @@ func (h *WebHandler) renderServerPage(w http.ResponseWriter, r *http.Request, fi
 		if userRole == "admin" {
 			data.ShowConsole, data.ConsoleWrite = true, true
 			data.ShowFiles, data.FileWrite = true, true
+			data.ShowResources = true
 		} else {
 			consoleRead, _ := h.Store.EvaluateServerAccess(server.ID, userEnv.Email, userEnv.Groups, access.ConsoleRead)
 			consoleWrite, _ := h.Store.EvaluateServerAccess(server.ID, userEnv.Email, userEnv.Groups, access.ConsoleWrite)
 			fileRead, _ := h.Store.EvaluateServerAccess(server.ID, userEnv.Email, userEnv.Groups, access.FileRead)
 			fileWrite, _ := h.Store.EvaluateServerAccess(server.ID, userEnv.Email, userEnv.Groups, access.FileWrite)
+			status, _ := h.Store.EvaluateServerAccess(server.ID, userEnv.Email, userEnv.Groups, access.Status)
 			data.ShowConsole, data.ConsoleWrite = consoleRead.Allowed, consoleWrite.Allowed
 			data.ShowFiles, data.FileWrite = fileRead.Allowed, fileWrite.Allowed
+			data.ShowResources = status.Allowed
 		}
 	}
 	if filesPage {

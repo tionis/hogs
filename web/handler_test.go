@@ -343,7 +343,7 @@ func TestServerDetailRendersAuthenticatedResourceUsage(t *testing.T) {
 	}
 	if err := store.CreatePterodactylLink(&database.PterodactylLink{
 		ServerID: server.ID, PteroServerID: "agent:ManagedSrv",
-		AllowedActions: `["status"]`, Node: "managed-node",
+		AllowedActions: `[]`, Node: "managed-node",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -383,7 +383,7 @@ func TestServerDetailAndFilesHonorCapabilities(t *testing.T) {
 	}
 	if err := store.CreatePterodactylLink(&database.PterodactylLink{
 		ServerID: server.ID, PteroServerID: "agent:CapabilitySrv",
-		AllowedActions: `["status"]`, Node: "capability-node",
+		AllowedActions: `[]`, Node: "capability-node",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -422,6 +422,9 @@ func TestServerDetailAndFilesHonorCapabilities(t *testing.T) {
 	}
 	if contains(detail.Body.String(), `id="console-output"`) || contains(detail.Body.String(), "Manage Files") {
 		t.Fatal("console or file navigation rendered without its capability")
+	}
+	if !contains(detail.Body.String(), `id="resource-usage-card"`) {
+		t.Fatal("resource usage missing for a user with status capability")
 	}
 	if files := renderFiles(); files.Code != http.StatusForbidden {
 		t.Fatalf("files status without file.read=%d body=%s", files.Code, files.Body.String())
