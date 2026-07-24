@@ -578,6 +578,12 @@ func TestServerTabsAndAccessPage(t *testing.T) {
 		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 	body := recorder.Body.String()
+	if !contains(body, "server-section-bar") {
+		t.Fatal("server tabs are not rendered in the title/status bar")
+	}
+	if count := strings.Count(body, `class="server-status-poller`); count != 1 {
+		t.Fatalf("server status rendered %d times, want once in the section bar", count)
+	}
 	for _, tab := range []string{"Dashboard", "Console", "Files", "Whitelist", "Access", "Backups"} {
 		if !contains(body, ">"+tab+"</a>") {
 			t.Fatalf("missing server tab %q", tab)
