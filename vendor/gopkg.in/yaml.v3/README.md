@@ -122,7 +122,6 @@ func main() {
         fmt.Printf("--- m dump:\n%s\n\n", string(d))
 }
 ```
-
 This example will generate the following output:
 
 ```

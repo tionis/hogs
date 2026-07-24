@@ -1,6 +1,6 @@
 module github.com/tionis/hogs
 
-go 1.24.4
+go 1.26.5
 
 require (
 	github.com/containrrr/shoutrrr v0.8.0
@@ -19,7 +19,7 @@ require (
 
 require (
 	github.com/fatih/color v1.15.0 // indirect
-	github.com/go-jose/go-jose/v4 v4.1.3 // indirect
+	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/google/go-cmp v0.6.0 // indirect
 	github.com/gorilla/securecookie v1.1.2 // indirect
