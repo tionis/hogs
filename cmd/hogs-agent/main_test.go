@@ -146,6 +146,18 @@ func TestRoutineRCONConnectionLineFilter(t *testing.T) {
 	}
 }
 
+func TestCommitConsoleStreamFlushesHeadersImmediately(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	commitConsoleStream(recorder, recorder)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("console stream status=%d, want %d", recorder.Code, http.StatusOK)
+	}
+	if !recorder.Flushed {
+		t.Fatal("console stream did not flush its response headers")
+	}
+}
+
 func TestParseSystemdResourceValues(t *testing.T) {
 	bytes := parseSystemdBytes("1073741824")
 	if bytes == nil || *bytes != 1073741824 {

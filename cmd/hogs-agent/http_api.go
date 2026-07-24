@@ -172,6 +172,7 @@ func handleConsole(w http.ResponseWriter, r *http.Request, server *ServerConfig)
 		return
 	}
 	defer cmd.Wait()
+	commitConsoleStream(w, flusher)
 	scanner := bufio.NewScanner(stdout)
 	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
 	encoder := json.NewEncoder(w)
@@ -189,6 +190,11 @@ func handleConsole(w http.ResponseWriter, r *http.Request, server *ServerConfig)
 		}
 		flusher.Flush()
 	}
+}
+
+func commitConsoleStream(w http.ResponseWriter, flusher http.Flusher) {
+	w.WriteHeader(http.StatusOK)
+	flusher.Flush()
 }
 
 func handleFileList(w http.ResponseWriter, r *http.Request, server *ServerConfig) {
