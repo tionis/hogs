@@ -35,11 +35,13 @@ executable.
 4. Add driver and protocol tests. Generic and disabled resolution must remain
    free of all specialized hooks.
 
-Minecraft's embedded driver declares both its RCON commands and
-`whitelist.json` storage. The worker selects the online or offline backend from
+Minecraft and Factorio embedded drivers declare their RCON commands and native
+offline whitelist codecs. The worker selects the online or offline backend from
 the managed systemd unit state; callers do not implement separate stopped-server
-logic. Verified external identity IDs are stored with linked game identities so
-future offline changes do not require another profile lookup.
+logic. Minecraft uses object entries in `whitelist.json` and Factorio uses a
+string array in `server-whitelist.json`. Verified external identity IDs are
+stored with linked Minecraft identities so future offline changes do not
+require another profile lookup.
 
 Callers should use `Store.ResolveGameDriver`; they must not infer special
 behavior from `Server.GameType` directly.

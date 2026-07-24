@@ -1,8 +1,7 @@
 package main
 
 import (
-	"crypto/md5"
-	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -103,8 +102,8 @@ func onlineWhitelistOperation(server *ServerConfig, driver gametypes.Driver, req
 }
 
 func onlineWhitelistEntries(server *ServerConfig, driver gametypes.Driver, output string) []backend.WhitelistEntry {
-	if driver.Whitelist.OfflineFile != "" {
-		if entries, path, err := readOfflineWhitelist(server, driver.Whitelist.OfflineFile); err == nil {
+	if driver.Whitelist.Offline != nil {
+		if entries, path, err := readOfflineWhitelist(server, driver.Whitelist.Offline); err == nil {
 			if _, statErr := os.Stat(path); statErr == nil {
 				return entries
 			}
@@ -120,12 +119,13 @@ func onlineWhitelistEntries(server *ServerConfig, driver gametypes.Driver, outpu
 }
 
 func offlineWhitelistOperation(server *ServerConfig, driver gametypes.Driver, request backend.WhitelistRequest) (*backend.WhitelistResult, *backend.WhitelistError) {
-	if driver.Whitelist.OfflineFile == "" {
+	offline := driver.Whitelist.Offline
+	if offline == nil || offline.File == "" || offline.Decode == nil || offline.Encode == nil {
 		return nil, &backend.WhitelistError{
 			Code: "offline_unsupported", Message: "offline whitelist management is not supported for this game type",
 		}
 	}
-	entries, path, err := readOfflineWhitelist(server, driver.Whitelist.OfflineFile)
+	entries, path, err := readOfflineWhitelist(server, offline)
 	if err != nil {
 		return nil, &backend.WhitelistError{Code: "read_failed", Message: err.Error()}
 	}
@@ -151,15 +151,25 @@ func offlineWhitelistOperation(server *ServerConfig, driver gametypes.Driver, re
 		}
 		entries = filtered
 	} else {
-		uuid := request.ExternalID
-		if !minecraftServerOnlineMode(server) {
-			uuid = offlineMinecraftUUID(request.Username)
+		entry := backend.WhitelistEntry{Name: request.Username, UUID: request.ExternalID}
+		if offline.BuildEntry != nil {
+			entry, err = offline.BuildEntry(request.Username, request.ExternalID, func(relativePath string) ([]byte, error) {
+				path, resolveErr := resolvePath(server, relativePath)
+				if resolveErr != nil {
+					return nil, resolveErr
+				}
+				return os.ReadFile(path)
+			})
 		}
-		uuid, err = formatMinecraftUUID(uuid)
 		if err != nil {
+			if errors.Is(err, gametypes.ErrExternalIdentityRequired) {
+				return nil, &backend.WhitelistError{
+					Code:    "identity_required",
+					Message: "a verified external identity is required for this offline whitelist change",
+				}
+			}
 			return nil, &backend.WhitelistError{
-				Code:    "identity_required",
-				Message: "a verified Minecraft UUID is required for offline whitelist changes on an online-mode server",
+				Code: "invalid_identity", Message: err.Error(),
 			}
 		}
 		if request.PreviousUsername != "" && !strings.EqualFold(request.PreviousUsername, request.Username) {
@@ -175,17 +185,18 @@ func offlineWhitelistOperation(server *ServerConfig, driver gametypes.Driver, re
 		}
 		found := false
 		for i := range entries {
-			if strings.EqualFold(entries[i].Name, request.Username) || strings.EqualFold(entries[i].UUID, uuid) {
+			if strings.EqualFold(entries[i].Name, request.Username) ||
+				(entry.UUID != "" && strings.EqualFold(entries[i].UUID, entry.UUID)) {
 				found = true
-				if entries[i].Name != request.Username || entries[i].UUID != uuid {
-					entries[i] = backend.WhitelistEntry{UUID: uuid, Name: request.Username}
+				if entries[i] != entry {
+					entries[i] = entry
 					changed = true
 				}
 				break
 			}
 		}
 		if !found {
-			entries = append(entries, backend.WhitelistEntry{UUID: uuid, Name: request.Username})
+			entries = append(entries, entry)
 			changed = true
 		}
 	}
@@ -205,15 +216,19 @@ func offlineWhitelistOperation(server *ServerConfig, driver gametypes.Driver, re
 				Code: "server_started", Message: "the game server started while its offline whitelist was being changed; retry the operation",
 			}
 		}
-		if err := writeOfflineWhitelist(path, server.DataDir, entries); err != nil {
+		encoded, encodeErr := offline.Encode(entries)
+		if encodeErr != nil {
+			return nil, &backend.WhitelistError{Code: "write_failed", Message: "encode whitelist without modifying it: " + encodeErr.Error()}
+		}
+		if err := writeOfflineWhitelist(path, server.DataDir, encoded); err != nil {
 			return nil, &backend.WhitelistError{Code: "write_failed", Message: err.Error()}
 		}
 	}
 	return &backend.WhitelistResult{Mode: "offline", Entries: entries}, nil
 }
 
-func readOfflineWhitelist(server *ServerConfig, relativePath string) ([]backend.WhitelistEntry, string, error) {
-	path, err := resolvePath(server, relativePath)
+func readOfflineWhitelist(server *ServerConfig, offline *gametypes.OfflineWhitelistDriver) ([]backend.WhitelistEntry, string, error) {
+	path, err := resolvePath(server, offline.File)
 	if err != nil {
 		return nil, "", fmt.Errorf("resolve whitelist file: %w", err)
 	}
@@ -227,8 +242,8 @@ func readOfflineWhitelist(server *ServerConfig, relativePath string) ([]backend.
 	if len(strings.TrimSpace(string(raw))) == 0 {
 		return []backend.WhitelistEntry{}, path, nil
 	}
-	var entries []backend.WhitelistEntry
-	if err := json.Unmarshal(raw, &entries); err != nil {
+	entries, err := offline.Decode(raw)
+	if err != nil {
 		return nil, "", fmt.Errorf("parse whitelist file without modifying it: %w", err)
 	}
 	if entries == nil {
@@ -237,7 +252,7 @@ func readOfflineWhitelist(server *ServerConfig, relativePath string) ([]backend.
 	return entries, path, nil
 }
 
-func writeOfflineWhitelist(path, dataDir string, entries []backend.WhitelistEntry) error {
+func writeOfflineWhitelist(path, dataDir string, encoded []byte) error {
 	dir := filepath.Dir(path)
 	mode := os.FileMode(0644)
 	ownershipSource := path
@@ -271,11 +286,9 @@ func writeOfflineWhitelist(path, dataDir string, entries []backend.WhitelistEntr
 			return fmt.Errorf("preserve whitelist ownership: %w", err)
 		}
 	}
-	encoder := json.NewEncoder(temp)
-	encoder.SetIndent("", "  ")
-	if err := encoder.Encode(entries); err != nil {
+	if _, err := temp.Write(encoded); err != nil {
 		temp.Close()
-		return fmt.Errorf("encode whitelist file: %w", err)
+		return fmt.Errorf("write whitelist file: %w", err)
 	}
 	if err := temp.Sync(); err != nil {
 		temp.Close()
@@ -292,47 +305,4 @@ func writeOfflineWhitelist(path, dataDir string, entries []backend.WhitelistEntr
 		_ = directory.Close()
 	}
 	return nil
-}
-
-func minecraftServerOnlineMode(server *ServerConfig) bool {
-	path, err := resolvePath(server, "server.properties")
-	if err != nil {
-		return true
-	}
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return true
-	}
-	for _, line := range strings.Split(string(raw), "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "#") {
-			continue
-		}
-		key, value, found := strings.Cut(line, "=")
-		if found && strings.TrimSpace(key) == "online-mode" {
-			return !strings.EqualFold(strings.TrimSpace(value), "false")
-		}
-	}
-	return true
-}
-
-func offlineMinecraftUUID(username string) string {
-	sum := md5.Sum([]byte("OfflinePlayer:" + username))
-	sum[6] = (sum[6] & 0x0f) | 0x30
-	sum[8] = (sum[8] & 0x3f) | 0x80
-	return fmt.Sprintf("%x-%x-%x-%x-%x", sum[0:4], sum[4:6], sum[6:8], sum[8:10], sum[10:16])
-}
-
-func formatMinecraftUUID(value string) (string, error) {
-	compact := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(value), "-", ""))
-	if len(compact) != 32 {
-		return "", fmt.Errorf("invalid Minecraft UUID")
-	}
-	for _, char := range compact {
-		if !strings.ContainsRune("0123456789abcdef", char) {
-			return "", fmt.Errorf("invalid Minecraft UUID")
-		}
-	}
-	return compact[0:8] + "-" + compact[8:12] + "-" + compact[12:16] + "-" +
-		compact[16:20] + "-" + compact[20:32], nil
 }

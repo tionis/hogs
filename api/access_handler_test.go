@@ -53,3 +53,19 @@ func TestGameIdentityAPIValidatesMinecraftName(t *testing.T) {
 		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 }
+
+func TestGameIdentityAPIAcceptsFactorioNameWithSpace(t *testing.T) {
+	serverHandler, _ := mapProxyFixture(t, "game", nil)
+	handler := NewAccessHandler(serverHandler.Store)
+	request := httptest.NewRequest(http.MethodPut, "/api/v1/game-identities",
+		bytes.NewBufferString(`{"userEmail":"player@example.test","gameType":"factorio","username":"Space Cadet"}`))
+	recorder := httptest.NewRecorder()
+	handler.SetGameIdentity(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	identity, err := serverHandler.Store.GetGameIdentity("player@example.test", "factorio")
+	if err != nil || identity == nil || identity.Username != "Space Cadet" {
+		t.Fatalf("identity=%#v err=%v", identity, err)
+	}
+}

@@ -7,9 +7,12 @@ package gametypes
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"sort"
 	"strings"
+
+	"github.com/tionis/hogs/backend"
 )
 
 const (
@@ -23,6 +26,8 @@ type IdentityResolver func(context.Context, *http.Client, string) (ResolvedIdent
 type PlayerCommand func(string) string
 type ConsoleLineFilter func(string) bool
 type WhitelistListParser func(string) []string
+
+var ErrExternalIdentityRequired = errors.New("verified external identity required")
 
 type ResolvedIdentity struct {
 	Username   string
@@ -38,8 +43,15 @@ type WhitelistDriver struct {
 	ListCommand   string
 	AddCommand    PlayerCommand
 	RemoveCommand PlayerCommand
-	OfflineFile   string
 	ParseList     WhitelistListParser
+	Offline       *OfflineWhitelistDriver
+}
+
+type OfflineWhitelistDriver struct {
+	File       string
+	Decode     func([]byte) ([]backend.WhitelistEntry, error)
+	Encode     func([]backend.WhitelistEntry) ([]byte, error)
+	BuildEntry func(username, externalID string, readRelative func(string) ([]byte, error)) (backend.WhitelistEntry, error)
 }
 
 type Driver struct {

@@ -52,9 +52,9 @@ whitelisting reuses the linked identity and records the server-specific
 membership separately.
 
 Whitelist commands are game-type adapters, not administrator-provided command
-templates. Minecraft Java currently uses `whitelist add` and `whitelist
-remove`; unsupported game types do not expose whitelist actions. This avoids
-turning identity fields into arbitrary console commands.
+templates. Minecraft Java and Factorio each use their native whitelist commands
+and offline file format; unsupported game types do not expose whitelist
+actions. This avoids turning identity fields into arbitrary console commands.
 
 Direct file transfers use short-lived, exact-request capability tokens as
 described in [the agent contract](AGENT.md). Server access is decided by HOGS;

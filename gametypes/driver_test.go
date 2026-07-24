@@ -75,6 +75,56 @@ func TestMinecraftWhitelistListParser(t *testing.T) {
 	}
 }
 
+func TestFactorioWhitelistDriver(t *testing.T) {
+	driver, ok := Embedded("factorio")
+	if !ok || !driver.SupportsWhitelist() {
+		t.Fatal("Factorio whitelist driver is not available")
+	}
+	for _, username := range []string{"Engineer_42", "Space Cadet", "player.name-1"} {
+		if !driver.IdentityValid(username) {
+			t.Errorf("valid Factorio username %q was rejected", username)
+		}
+	}
+	for _, username := range []string{"", " leading", "trailing ", "line\nbreak", "slash/name", strings.Repeat("a", 61)} {
+		if driver.IdentityValid(username) {
+			t.Errorf("invalid Factorio username %q was accepted", username)
+		}
+	}
+	if driver.Whitelist.ListCommand != "/whitelist get" ||
+		driver.Whitelist.AddCommand("Engineer_42") != "/whitelist add Engineer_42" ||
+		driver.Whitelist.RemoveCommand("Engineer_42") != "/whitelist remove Engineer_42" {
+		t.Fatalf("unexpected Factorio whitelist commands: %#v", driver.Whitelist)
+	}
+	got := driver.Whitelist.ParseList("Whitelisted players: Alice, Bob")
+	if len(got) != 2 || got[0] != "Alice" || got[1] != "Bob" {
+		t.Fatalf("parsed whitelist=%#v", got)
+	}
+	if got := driver.Whitelist.ParseList("The whitelist is empty."); len(got) != 0 {
+		t.Fatalf("empty whitelist parsed as %#v", got)
+	}
+}
+
+func TestFactorioOfflineWhitelistCodec(t *testing.T) {
+	driver, _ := Embedded("factorio")
+	offline := driver.Whitelist.Offline
+	entries, err := offline.Decode([]byte(`["Alice","Space Cadet"]`))
+	if err != nil || len(entries) != 2 || entries[0].Name != "Alice" ||
+		entries[1].Name != "Space Cadet" || entries[0].UUID != "" {
+		t.Fatalf("decoded entries=%#v err=%v", entries, err)
+	}
+	encoded, err := offline.Encode(entries)
+	if err != nil || string(encoded) != "[\n  \"Alice\",\n  \"Space Cadet\"\n]\n" {
+		t.Fatalf("encoded whitelist=%q err=%v", encoded, err)
+	}
+	entry, err := offline.BuildEntry("Engineer_42", "", nil)
+	if err != nil || entry.Name != "Engineer_42" || entry.UUID != "" {
+		t.Fatalf("built entry=%#v err=%v", entry, err)
+	}
+	if _, err := offline.Decode([]byte(`["valid","invalid/name"]`)); err == nil {
+		t.Fatal("invalid Factorio whitelist entry was accepted")
+	}
+}
+
 func TestEmbeddedDriversHaveUniqueDefinitions(t *testing.T) {
 	drivers := AllEmbedded()
 	if len(drivers) < 5 {

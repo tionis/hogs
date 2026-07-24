@@ -122,10 +122,11 @@ Commands, status queries, backups, file transfers, and console streams use
 independent requests. RCON and restic credentials remain in node-local files.
 
 Game-driver operations use dedicated endpoints rather than general file access.
-For Minecraft, `GET` and `POST /v1/servers/{serverID}/whitelist` use RCON while
-the unit is running and atomically read or update `whitelist.json` while it is
-stopped. Offline updates reject symlinks and malformed JSON, preserve ownership
-and permissions, sync before rename, and recheck the unit state immediately
-before replacement. Lifecycle and whitelist changes share a per-server lock.
-An online-mode offline addition requires a profile UUID verified by HOGS;
+For Minecraft and Factorio, `GET` and `POST
+/v1/servers/{serverID}/whitelist` use RCON while the unit is running and
+atomically read or update the game's native whitelist file while it is stopped.
+Offline updates reject symlinks and malformed JSON, preserve ownership and
+permissions, sync before rename, and recheck the unit state immediately before
+replacement. Lifecycle and whitelist changes share a per-server lock. An
+online-mode Minecraft addition requires a profile UUID verified by HOGS;
 offline-mode UUIDs are derived locally using Minecraft's standard algorithm.

@@ -165,7 +165,7 @@ func (h *AccessHandler) ListGameIdentities(w http.ResponseWriter, r *http.Reques
 }
 
 var apiGameTypePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,31}$`)
-var apiGameUsernamePattern = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,64}$`)
+var apiGameUsernamePattern = regexp.MustCompile(`^[A-Za-z0-9_. -]{1,64}$`)
 
 func (h *AccessHandler) SetGameIdentity(w http.ResponseWriter, r *http.Request) {
 	var identity database.GameIdentity

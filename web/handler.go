@@ -1303,7 +1303,7 @@ func (h *WebHandler) canManageServerAccess(r *http.Request, serverID int) bool {
 	return err == nil && decision.Allowed
 }
 
-var safeGameUsernamePattern = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,64}$`)
+var safeGameUsernamePattern = regexp.MustCompile(`^[A-Za-z0-9_. -]{1,64}$`)
 
 func validGameUsername(gameType, username string) bool {
 	return safeGameUsernamePattern.MatchString(username)

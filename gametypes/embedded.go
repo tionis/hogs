@@ -2,6 +2,7 @@ package gametypes
 
 import (
 	"context"
+	"crypto/md5"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -10,11 +11,109 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/tionis/hogs/backend"
 )
 
 var minecraftPlayerCount = regexp.MustCompile(`(?i)there are\s+(\d+)\s+of a max of\s+(\d+)\s+players online`)
 var minecraftUsername = regexp.MustCompile(`^[a-zA-Z0-9_]{3,16}$`)
 var minecraftUUID = regexp.MustCompile(`^[0-9a-fA-F]{32}$`)
+var factorioUsername = regexp.MustCompile(`^[a-zA-Z0-9_. -]{1,60}$`)
+
+func encodeJSON(value interface{}) ([]byte, error) {
+	encoded, err := json.MarshalIndent(value, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	return append(encoded, '\n'), nil
+}
+
+func decodeMinecraftWhitelist(raw []byte) ([]backend.WhitelistEntry, error) {
+	var entries []backend.WhitelistEntry
+	if err := json.Unmarshal(raw, &entries); err != nil {
+		return nil, err
+	}
+	if entries == nil {
+		entries = []backend.WhitelistEntry{}
+	}
+	return entries, nil
+}
+
+func minecraftWhitelistEntry(username, externalID string, readRelative func(string) ([]byte, error)) (backend.WhitelistEntry, error) {
+	onlineMode := true
+	if raw, err := readRelative("server.properties"); err == nil {
+		for _, line := range strings.Split(string(raw), "\n") {
+			line = strings.TrimSpace(line)
+			if strings.HasPrefix(line, "#") {
+				continue
+			}
+			key, value, found := strings.Cut(line, "=")
+			if found && strings.TrimSpace(key) == "online-mode" {
+				onlineMode = !strings.EqualFold(strings.TrimSpace(value), "false")
+				break
+			}
+		}
+	}
+	if !onlineMode {
+		externalID = offlineMinecraftUUID(username)
+	}
+	formatted, err := formatMinecraftUUID(externalID)
+	if err != nil {
+		return backend.WhitelistEntry{}, ErrExternalIdentityRequired
+	}
+	return backend.WhitelistEntry{UUID: formatted, Name: username}, nil
+}
+
+func offlineMinecraftUUID(username string) string {
+	sum := md5.Sum([]byte("OfflinePlayer:" + username))
+	sum[6] = (sum[6] & 0x0f) | 0x30
+	sum[8] = (sum[8] & 0x3f) | 0x80
+	return fmt.Sprintf("%x-%x-%x-%x-%x", sum[0:4], sum[4:6], sum[6:8], sum[8:10], sum[10:16])
+}
+
+func formatMinecraftUUID(value string) (string, error) {
+	compact := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(value), "-", ""))
+	if len(compact) != 32 {
+		return "", fmt.Errorf("invalid Minecraft UUID")
+	}
+	for _, char := range compact {
+		if !strings.ContainsRune("0123456789abcdef", char) {
+			return "", fmt.Errorf("invalid Minecraft UUID")
+		}
+	}
+	return compact[0:8] + "-" + compact[8:12] + "-" + compact[12:16] + "-" +
+		compact[16:20] + "-" + compact[20:32], nil
+}
+
+func validFactorioUsername(username string) bool {
+	return username == strings.TrimSpace(username) && factorioUsername.MatchString(username)
+}
+
+func decodeFactorioWhitelist(raw []byte) ([]backend.WhitelistEntry, error) {
+	var usernames []string
+	if err := json.Unmarshal(raw, &usernames); err != nil {
+		return nil, err
+	}
+	entries := make([]backend.WhitelistEntry, 0, len(usernames))
+	for _, username := range usernames {
+		if !validFactorioUsername(username) {
+			return nil, fmt.Errorf("invalid Factorio username in whitelist")
+		}
+		entries = append(entries, backend.WhitelistEntry{Name: username})
+	}
+	return entries, nil
+}
+
+func encodeFactorioWhitelist(entries []backend.WhitelistEntry) ([]byte, error) {
+	usernames := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if !validFactorioUsername(entry.Name) {
+			return nil, fmt.Errorf("invalid Factorio username in whitelist")
+		}
+		usernames = append(usernames, entry.Name)
+	}
+	return encodeJSON(usernames)
+}
 
 func resolveMinecraftIdentity(ctx context.Context, client *http.Client, username string) (ResolvedIdentity, error) {
 	if !minecraftUsername.MatchString(username) {
@@ -78,7 +177,6 @@ func init() {
 			ListCommand:   "whitelist list",
 			AddCommand:    func(player string) string { return fmt.Sprintf("whitelist add %s", player) },
 			RemoveCommand: func(player string) string { return fmt.Sprintf("whitelist remove %s", player) },
-			OfflineFile:   "whitelist.json",
 			ParseList: func(output string) []string {
 				_, players, found := strings.Cut(output, ":")
 				if !found {
@@ -91,6 +189,12 @@ func init() {
 					}
 				}
 				return names
+			},
+			Offline: &OfflineWhitelistDriver{
+				File:       "whitelist.json",
+				Decode:     decodeMinecraftWhitelist,
+				Encode:     func(entries []backend.WhitelistEntry) ([]byte, error) { return encodeJSON(entries) },
+				BuildEntry: minecraftWhitelistEntry,
 			},
 		},
 		IsRoutineConsoleLine: func(line string) bool {
@@ -111,6 +215,36 @@ func init() {
 				}
 			}
 			return players, 0, true
+		},
+		ValidateIdentity: validFactorioUsername,
+		Whitelist: &WhitelistDriver{
+			ListCommand:   "/whitelist get",
+			AddCommand:    func(player string) string { return fmt.Sprintf("/whitelist add %s", player) },
+			RemoveCommand: func(player string) string { return fmt.Sprintf("/whitelist remove %s", player) },
+			ParseList: func(output string) []string {
+				for _, line := range strings.Split(output, "\n") {
+					prefix, players, found := strings.Cut(strings.TrimSpace(line), ":")
+					if !found || !strings.EqualFold(strings.TrimSpace(prefix), "Whitelisted players") {
+						continue
+					}
+					var names []string
+					for _, player := range strings.Split(players, ",") {
+						if player = strings.TrimSpace(player); validFactorioUsername(player) {
+							names = append(names, player)
+						}
+					}
+					return names
+				}
+				return nil
+			},
+			Offline: &OfflineWhitelistDriver{
+				File:   "factorio/server-whitelist.json",
+				Decode: decodeFactorioWhitelist,
+				Encode: encodeFactorioWhitelist,
+				BuildEntry: func(username, _ string, _ func(string) ([]byte, error)) (backend.WhitelistEntry, error) {
+					return backend.WhitelistEntry{Name: username}, nil
+				},
+			},
 		},
 		IsRoutineConsoleLine: func(line string) bool {
 			return strings.Contains(line, "RemoteCommandProcessor.cpp:") &&

@@ -36,6 +36,27 @@ func minecraftWhitelistFixture(t *testing.T, onlineMode bool, contents string) *
 	}
 }
 
+func factorioWhitelistFixture(t *testing.T, contents string) *ServerConfig {
+	t.Helper()
+	previousState := whitelistServiceRunningState
+	whitelistServiceRunningState = func(string) (bool, error) { return false, nil }
+	t.Cleanup(func() { whitelistServiceRunningState = previousState })
+	dataDir := t.TempDir()
+	installationDir := filepath.Join(dataDir, "factorio")
+	if err := os.MkdirAll(installationDir, 0750); err != nil {
+		t.Fatal(err)
+	}
+	if contents != "" {
+		if err := os.WriteFile(filepath.Join(installationDir, "server-whitelist.json"), []byte(contents), 0640); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return &ServerConfig{
+		Unit: "hogs-whitelist-test-does-not-exist.service", GameType: "factorio", DataDir: dataDir,
+		Console: ConsoleConfig{Type: "rcon"},
+	}
+}
+
 func TestOfflineWhitelistAddRemoveAndList(t *testing.T) {
 	server := minecraftWhitelistFixture(t, true, `[{"uuid":"00000000-0000-0000-0000-000000000001","name":"Alex"}]`)
 	driver, _ := gametypes.Embedded("minecraft")
@@ -135,6 +156,59 @@ func TestMalformedOfflineWhitelistIsNeverOverwritten(t *testing.T) {
 	raw, err := os.ReadFile(filepath.Join(server.DataDir, "whitelist.json"))
 	if err != nil || string(raw) != `{not-json` {
 		t.Fatalf("malformed whitelist was overwritten: %q err=%v", raw, err)
+	}
+}
+
+func TestFactorioOfflineWhitelistAddRemoveAndList(t *testing.T) {
+	server := factorioWhitelistFixture(t, `["Alice"]`)
+	driver, _ := gametypes.Embedded("factorio")
+	result, operationErr := offlineWhitelistOperation(server, driver, backend.WhitelistRequest{
+		Operation: "add", Username: "Space Cadet",
+	})
+	if operationErr != nil || result.Mode != "offline" || len(result.Entries) != 2 ||
+		result.Entries[1].Name != "Space Cadet" || result.Entries[1].UUID != "" {
+		t.Fatalf("unexpected add result=%#v err=%v", result, operationErr)
+	}
+	raw, err := os.ReadFile(filepath.Join(server.DataDir, "factorio", "server-whitelist.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var usernames []string
+	if err := json.Unmarshal(raw, &usernames); err != nil || len(usernames) != 2 ||
+		usernames[0] != "Alice" || usernames[1] != "Space Cadet" {
+		t.Fatalf("persisted Factorio whitelist=%q usernames=%#v err=%v", raw, usernames, err)
+	}
+
+	result, operationErr = offlineWhitelistOperation(server, driver, backend.WhitelistRequest{
+		Operation: "remove", Username: "alice",
+	})
+	if operationErr != nil || len(result.Entries) != 1 || result.Entries[0].Name != "Space Cadet" {
+		t.Fatalf("unexpected remove result=%#v err=%v", result, operationErr)
+	}
+}
+
+func TestFactorioMalformedOfflineWhitelistIsNeverOverwritten(t *testing.T) {
+	original := `{"not":"a string array"}`
+	server := factorioWhitelistFixture(t, original)
+	driver, _ := gametypes.Embedded("factorio")
+	_, operationErr := offlineWhitelistOperation(server, driver, backend.WhitelistRequest{
+		Operation: "add", Username: "Engineer",
+	})
+	if operationErr == nil || operationErr.Code != "read_failed" {
+		t.Fatalf("operation error=%#v, want read_failed", operationErr)
+	}
+	raw, err := os.ReadFile(filepath.Join(server.DataDir, "factorio", "server-whitelist.json"))
+	if err != nil || string(raw) != original {
+		t.Fatalf("malformed whitelist was overwritten: %q err=%v", raw, err)
+	}
+}
+
+func TestOnlineFactorioWhitelistEntriesPreferStructuredFile(t *testing.T) {
+	server := factorioWhitelistFixture(t, `["FileEngineer"]`)
+	driver, _ := gametypes.Embedded("factorio")
+	entries := onlineWhitelistEntries(server, driver, "Whitelisted players: OutputEngineer")
+	if len(entries) != 1 || entries[0].Name != "FileEngineer" || entries[0].UUID != "" {
+		t.Fatalf("structured entries=%#v", entries)
 	}
 }
 
