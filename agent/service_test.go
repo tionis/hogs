@@ -1,11 +1,14 @@
 package agent
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestAgentBackendStatusReadsLiveWorkerState(t *testing.T) {
-	status, err := decodeBackendStatus(map[string]interface{}{
-		"online": false, "players": float64(0), "maxPlayers": float64(20), "version": "1.21",
-	})
+	status, err := decodeBackendStatus(strings.NewReader(
+		`{"serverName":"cog","online":false,"substate":"dead","players":0,"maxPlayers":20,"version":"1.21"}`,
+	))
 	if err != nil {
 		t.Fatal(err)
 	}

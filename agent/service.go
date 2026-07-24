@@ -58,21 +58,18 @@ func (a *AgentBackend) SendCommandOutput(ctx context.Context, command string) (s
 }
 
 func (a *AgentBackend) Status(ctx context.Context) (*backend.ServerStatus, error) {
-	result, err := a.Manager.JSON(ctx, a.NodeName, http.MethodGet,
+	response, err := a.Manager.Stream(ctx, a.NodeName, http.MethodGet,
 		fmt.Sprintf("/v1/servers/%s/status", url.PathEscape(a.ServerName)), nil)
 	if err != nil {
 		return nil, err
 	}
-	return decodeBackendStatus(result.Data)
+	defer response.Body.Close()
+	return decodeBackendStatus(response.Body)
 }
 
-func decodeBackendStatus(data interface{}) (*backend.ServerStatus, error) {
-	encoded, err := json.Marshal(data)
-	if err != nil {
-		return nil, fmt.Errorf("encode agent status: %w", err)
-	}
+func decodeBackendStatus(reader io.Reader) (*backend.ServerStatus, error) {
 	var status backend.ServerStatus
-	if err := json.Unmarshal(encoded, &status); err != nil {
+	if err := json.NewDecoder(io.LimitReader(reader, 1<<20)).Decode(&status); err != nil {
 		return nil, fmt.Errorf("decode agent status: %w", err)
 	}
 	return &status, nil
