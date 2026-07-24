@@ -17,7 +17,6 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -25,6 +24,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/tionis/hogs/gametypes"
 	"gopkg.in/yaml.v3"
 )
 
@@ -59,28 +59,22 @@ var (
 	resourceSamples  = map[string]resourceCPUSample{}
 )
 
-var minecraftPlayerCount = regexp.MustCompile(`(?i)there are\s+(\d+)\s+of a max of\s+(\d+)\s+players online`)
-
-func playerStatus(server *ServerConfig) (players, maxPlayers int, known bool) {
-	if server.Console.Type != "rcon" {
+func playerStatus(server *ServerConfig, driver gametypes.Driver) (players, maxPlayers int, known bool) {
+	if server.Console.Type != "rcon" || driver.PlayerStatusCommand == "" || driver.ParsePlayerStatus == nil {
 		return 0, 0, false
 	}
-	command := "list"
-	if server.GameType == "factorio" {
-		command = "/players"
-	}
-	output, err := executeCommand(server, command)
+	output, err := executeCommand(server, driver.PlayerStatusCommand)
 	if err != nil {
 		return 0, 0, false
 	}
-	return parsePlayerStatus(server.GameType, output)
+	return driver.ParsePlayerStatus(output)
 }
 
-func serverVersion(server *ServerConfig) string {
-	if server.GameType != "factorio" || server.Console.Type != "rcon" {
+func serverVersion(server *ServerConfig, driver gametypes.Driver) string {
+	if server.Console.Type != "rcon" || driver.VersionCommand == "" {
 		return ""
 	}
-	output, err := executeCommand(server, "/version")
+	output, err := executeCommand(server, driver.VersionCommand)
 	if err != nil {
 		return ""
 	}
@@ -88,27 +82,11 @@ func serverVersion(server *ServerConfig) string {
 }
 
 func parsePlayerStatus(gameType, output string) (players, maxPlayers int, known bool) {
-	if gameType == "minecraft" {
-		matches := minecraftPlayerCount.FindStringSubmatch(output)
-		if len(matches) != 3 {
-			return 0, 0, false
-		}
-		players, err := strconv.Atoi(matches[1])
-		if err != nil {
-			return 0, 0, false
-		}
-		maxPlayers, err = strconv.Atoi(matches[2])
-		return players, maxPlayers, err == nil
+	driver, ok := gametypes.Embedded(gameType)
+	if !ok || driver.ParsePlayerStatus == nil {
+		return 0, 0, false
 	}
-	if gameType == "factorio" {
-		for _, line := range strings.Split(output, "\n") {
-			if strings.HasSuffix(strings.TrimSpace(line), "(online)") {
-				players++
-			}
-		}
-		return players, 0, true
-	}
-	return 0, 0, false
+	return driver.ParsePlayerStatus(output)
 }
 
 type AgentConfig struct {
@@ -279,12 +257,9 @@ func agentCapabilities() []string {
 	return capabilities
 }
 
-func isRoutineRCONConnectionLine(line string) bool {
-	minecraftConnection := strings.Contains(line, "Thread RCON Client /") &&
-		(strings.Contains(line, " started") || strings.Contains(line, " shutting down"))
-	factorioConnection := strings.Contains(line, "RemoteCommandProcessor.cpp:") &&
-		strings.Contains(line, "New RCON connection from IP ADDR:")
-	return minecraftConnection || factorioConnection
+func isRoutineConsoleLine(gameType, line string) bool {
+	driver, ok := gametypes.Embedded(gameType)
+	return ok && driver.IsRoutineConsoleLine != nil && driver.IsRoutineConsoleLine(line)
 }
 
 // ── Systemd / Podman Quadlet Process Management ──

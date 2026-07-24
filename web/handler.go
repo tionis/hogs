@@ -10,6 +10,7 @@ import (
 	"github.com/tionis/hogs/config"
 	"github.com/tionis/hogs/database"
 	"github.com/tionis/hogs/engine"
+	"github.com/tionis/hogs/gametypes"
 	"github.com/tionis/hogs/query"
 	"html/template"
 	"log"
@@ -94,16 +95,20 @@ func adminGameTypes(servers []database.Server) []string {
 }
 
 func (h *WebHandler) adminGameTypes(servers []database.Server) []string {
-	result := adminGameTypes(servers)
-	seen := make(map[string]struct{}, len(result))
-	for _, gameType := range result {
-		seen[gameType] = struct{}{}
+	seen := make(map[string]struct{})
+	for _, server := range servers {
+		if server.GameType != "" {
+			// Keep current assignments visible even after a type is disabled.
+			seen[server.GameType] = struct{}{}
+		}
 	}
 	gameTypes, _ := h.Store.ListGameTypes()
 	for _, info := range gameTypes {
-		seen[info.Slug] = struct{}{}
+		if info.Enabled {
+			seen[info.Slug] = struct{}{}
+		}
 	}
-	result = result[:0]
+	result := make([]string, 0, len(seen))
 	for gameType := range seen {
 		result = append(result, gameType)
 	}
@@ -122,15 +127,21 @@ func validGameType(value string) bool {
 	return gameTypePattern.MatchString(value)
 }
 
-func (h *WebHandler) ensureGameType(slug string) error {
+func (h *WebHandler) ensureGameType(slug string, allowDisabled bool) error {
 	existing, err := h.Store.GetGameType(slug)
-	if err != nil || existing != nil {
+	if err != nil {
 		return err
+	}
+	if existing != nil {
+		if !existing.Enabled && !allowDisabled {
+			return fmt.Errorf("game type %q is disabled", slug)
+		}
+		return nil
 	}
 	info := query.GetGameInfo(slug)
 	return h.Store.SetGameType(&database.GameType{
 		Slug: slug, DisplayName: info.DisplayName, PlayerNoun: info.PlayerNoun,
-		AccentColor: "#666666",
+		AccentColor: "#666666", Kind: gametypes.KindGeneric, Enabled: true,
 	})
 }
 
@@ -524,6 +535,10 @@ func (h *WebHandler) renderServerPage(w http.ResponseWriter, r *http.Request, pa
 		data.BackupList = backupListDecision.Allowed
 		data.BackupCreate = backupCreateDecision.Allowed
 		data.BackupRestore = backupRestoreDecision.Allowed
+		if !h.Store.ResolveGameDriver(server.GameType).SupportsWhitelist() {
+			data.WhitelistSelf = false
+			data.WhitelistManage = false
+		}
 	}
 	if isAuthenticated && hasAgent {
 		if userRole == "admin" {
@@ -668,8 +683,8 @@ func (h *WebHandler) HandleServerCreate(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "Game type must be a lowercase slug using letters, numbers, dashes, or underscores", http.StatusBadRequest)
 		return
 	}
-	if err := h.ensureGameType(gameType); err != nil {
-		http.Error(w, "Failed to register game type", http.StatusInternalServerError)
+	if err := h.ensureGameType(gameType, false); err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
 		return
 	}
 	server := &database.Server{
@@ -830,8 +845,13 @@ func (h *WebHandler) HandleServerUpdate(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "Game type must be a lowercase slug using letters, numbers, dashes, or underscores", http.StatusBadRequest)
 		return
 	}
-	if err := h.ensureGameType(gameType); err != nil {
-		http.Error(w, "Failed to register game type", http.StatusInternalServerError)
+	current, currentErr := h.Store.GetServer(id)
+	if currentErr != nil || current == nil {
+		http.Error(w, "Server not found", http.StatusNotFound)
+		return
+	}
+	if err := h.ensureGameType(gameType, current.GameType == gameType); err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
 		return
 	}
 	server := &database.Server{
@@ -1147,9 +1167,12 @@ func (h *WebHandler) HandleGameTypeSet(w http.ResponseWriter, r *http.Request) {
 	item := &database.GameType{
 		Slug: slug, DisplayName: displayName, PlayerNoun: playerNoun,
 		Icon: icon, AccentColor: strings.ToLower(accentColor),
+		Kind: gametypes.KindGeneric, Enabled: true,
 	}
 	if existing != nil {
 		item.Builtin = existing.Builtin
+		item.Kind = existing.Kind
+		item.Enabled = !existing.Builtin || r.FormValue("enabled") == "on"
 	}
 	if err := h.Store.SetGameType(item); err != nil {
 		http.Error(w, "Failed to save game type", http.StatusInternalServerError)
@@ -1269,9 +1292,6 @@ func (h *WebHandler) canManageServerAccess(r *http.Request, serverID int) bool {
 var safeGameUsernamePattern = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,64}$`)
 
 func validGameUsername(gameType, username string) bool {
-	if gameType == "minecraft" {
-		return regexp.MustCompile(`^[A-Za-z0-9_]{3,16}$`).MatchString(username)
-	}
 	return safeGameUsernamePattern.MatchString(username)
 }
 
@@ -1289,7 +1309,9 @@ func (h *WebHandler) HandleGameIdentitySet(w http.ResponseWriter, r *http.Reques
 	}
 	gameType := normalizeGameType(r.FormValue("game_type"))
 	username := strings.TrimSpace(r.FormValue("username"))
-	if email == "" || !validGameType(gameType) || !validGameUsername(gameType, username) {
+	driver := h.Store.ResolveGameDriver(gameType)
+	if email == "" || !validGameType(gameType) || !validGameUsername(gameType, username) ||
+		!driver.IdentityValid(username) {
 		http.Error(w, "Invalid game identity", http.StatusBadRequest)
 		return
 	}

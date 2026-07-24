@@ -184,8 +184,9 @@ func (h *AccessHandler) SetGameIdentity(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "Invalid game identity", http.StatusBadRequest)
 		return
 	}
-	if identity.GameType == "minecraft" && !minecraftUsernameRegex.MatchString(identity.Username) {
-		http.Error(w, "Invalid Minecraft username", http.StatusBadRequest)
+	driver := h.Store.ResolveGameDriver(identity.GameType)
+	if !driver.IdentityValid(identity.Username) {
+		http.Error(w, "Invalid username for game type", http.StatusBadRequest)
 		return
 	}
 	if err := h.Store.SetGameIdentity(&identity); err != nil {

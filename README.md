@@ -13,6 +13,7 @@ OIDC-protected operator UI.
 *   **Real-time Server Status:** Live player counts, version info, and online status using efficient caching (60s TTL).
 *   **Structured Server Access:** OIDC users and groups receive explicit per-server capabilities, deployment policy limits what can be granted, and operational constraints remain a separate decision layer. See [server access control](docs/ACCESS_CONTROL.md).
 *   **Linked Game Identities:** Users or administrators link one in-game identity per game type for safe, game-specific whitelist management.
+*   **Modular Game Types:** Common management works for every generic game type, while optional embedded drivers provide game-specific status, identity, whitelist, and console behavior. Embedded drivers can be disabled. See [game type drivers](docs/GAME_TYPES.md).
 *   **Pterodactyl Integration:** Link servers to a Pterodactyl panel for start/stop/restart and approved command execution — all configurable per-server via `allowed_actions`.
 *   **Admin Dashboard:** Complete web-based management interface for adding, editing, and deleting servers without touching the database.
 *   **Background Images:** Customizable, theme-aware background images with hash-addressed caching for performance.

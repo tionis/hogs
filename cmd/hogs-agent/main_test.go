@@ -132,16 +132,19 @@ func TestParsePlayerStatus(t *testing.T) {
 }
 
 func TestRoutineRCONConnectionLineFilter(t *testing.T) {
-	for _, line := range []string{
-		"[RCON Listener #2/INFO] Thread RCON Client /10.0.0.1 started",
-		"[RconClient] Thread RCON Client /10.0.0.1 shutting down",
-		"8378.028 Info RemoteCommandProcessor.cpp:245: New RCON connection from IP ADDR:({127.0.0.1:60184})",
+	for _, test := range []struct {
+		gameType string
+		line     string
+	}{
+		{"minecraft", "[RCON Listener #2/INFO] Thread RCON Client /10.0.0.1 started"},
+		{"minecraft", "[RconClient] Thread RCON Client /10.0.0.1 shutting down"},
+		{"factorio", "8378.028 Info RemoteCommandProcessor.cpp:245: New RCON connection from IP ADDR:({127.0.0.1:60184})"},
 	} {
-		if !isRoutineRCONConnectionLine(line) {
-			t.Fatalf("routine RCON line was not filtered: %q", line)
+		if !isRoutineConsoleLine(test.gameType, test.line) {
+			t.Fatalf("routine RCON line was not filtered: %q", test.line)
 		}
 	}
-	if isRoutineRCONConnectionLine("[Server thread/INFO] Player joined the game") {
+	if isRoutineConsoleLine("minecraft", "[Server thread/INFO] Player joined the game") {
 		t.Fatal("normal server output was filtered")
 	}
 }

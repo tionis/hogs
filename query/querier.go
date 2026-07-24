@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/tionis/hogs/database"
+	"github.com/tionis/hogs/gametypes"
 )
 
 type GameQuerier interface {
@@ -33,7 +34,18 @@ func RegisterQuerier(gameType string, q GameQuerier) {
 }
 
 func NewQuerier(gameType string) GameQuerier {
+	driver, ok := gametypes.Embedded(gameType)
+	if ok {
+		return NewQuerierForDriver(driver)
+	}
 	if q, ok := queriers[gameType]; ok {
+		return q
+	}
+	return &NoopQuerier{}
+}
+
+func NewQuerierForDriver(driver gametypes.Driver) GameQuerier {
+	if q, ok := queriers[driver.StatusProtocol]; ok && driver.StatusProtocol != "" {
 		return q
 	}
 	return &NoopQuerier{}

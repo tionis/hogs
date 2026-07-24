@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -262,7 +261,6 @@ func (h *PterodactylHandler) ServerAction(w http.ResponseWriter, r *http.Request
 		http.Error(w, "Server not found", http.StatusNotFound)
 		return
 	}
-
 	link, err := h.Store.GetPterodactylLink(server.ID)
 	if err != nil || link == nil {
 		http.Error(w, "Server not linked to any backend", http.StatusNotFound)
@@ -430,6 +428,11 @@ func (h *PterodactylHandler) WhitelistSet(w http.ResponseWriter, r *http.Request
 		http.Error(w, "Server not found", http.StatusNotFound)
 		return
 	}
+	driver := h.Store.ResolveGameDriver(server.GameType)
+	if !driver.SupportsWhitelist() {
+		http.Error(w, "Whitelist management is not available for this game type", http.StatusBadRequest)
+		return
+	}
 
 	link, err := h.Store.GetPterodactylLink(server.ID)
 	if err != nil || link == nil {
@@ -461,7 +464,7 @@ func (h *PterodactylHandler) WhitelistSet(w http.ResponseWriter, r *http.Request
 			json.NewEncoder(w).Encode(map[string]string{"status": "ok", "message": "not whitelisted"})
 			return
 		}
-		removeCmd := whitelistRemoveCommand(server.GameType, existing.Username)
+		removeCmd := driver.Whitelist.RemoveCommand(existing.Username)
 		b, bErr := h.resolveBackend(server, link)
 		if bErr != nil {
 			http.Error(w, bErr.Error(), http.StatusServiceUnavailable)
@@ -488,15 +491,11 @@ func (h *PterodactylHandler) WhitelistSet(w http.ResponseWriter, r *http.Request
 	if username == "" && identity != nil {
 		username = identity.Username
 	}
-	if username == "" || (server.GameType == "minecraft" && !isValidMinecraftUsername(username)) {
+	if username == "" || !driver.IdentityValid(username) {
 		http.Error(w, "A valid linked in-game username is required", http.StatusBadRequest)
 		return
 	}
-	addCmd := whitelistAddCommand(server.GameType, username)
-	if addCmd == "" {
-		http.Error(w, "Whitelist not supported for game type: "+server.GameType, http.StatusBadRequest)
-		return
-	}
+	addCmd := driver.Whitelist.AddCommand(username)
 	if existing != nil && existing.Username == username {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok", "message": "already whitelisted"})
@@ -515,7 +514,7 @@ func (h *PterodactylHandler) WhitelistSet(w http.ResponseWriter, r *http.Request
 	}
 
 	if existing != nil && existing.Username != "" {
-		removeCmd := whitelistRemoveCommand(server.GameType, existing.Username)
+		removeCmd := driver.Whitelist.RemoveCommand(existing.Username)
 		if removeCmd != "" {
 			b.SendCommand(ctx, removeCmd)
 		}
@@ -577,8 +576,9 @@ func (h *PterodactylHandler) AdminWhitelist(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "Server not linked to a management backend", http.StatusNotFound)
 		return
 	}
-	if server.GameType != "minecraft" {
-		http.Error(w, "Direct whitelist management is not supported for "+server.GameType, http.StatusBadRequest)
+	driver := h.Store.ResolveGameDriver(server.GameType)
+	if !driver.SupportsWhitelist() {
+		http.Error(w, "Direct whitelist management is not available for this game type", http.StatusBadRequest)
 		return
 	}
 	backend, err := h.resolveBackend(server, link)
@@ -597,9 +597,9 @@ func (h *PterodactylHandler) AdminWhitelist(w http.ResponseWriter, r *http.Reque
 		if resultBackend, ok := backend.(interface {
 			SendCommandOutput(context.Context, string) (string, error)
 		}); ok {
-			output, err = resultBackend.SendCommandOutput(ctx, "whitelist list")
+			output, err = resultBackend.SendCommandOutput(ctx, driver.Whitelist.ListCommand)
 		} else {
-			err = backend.SendCommand(ctx, "whitelist list")
+			err = backend.SendCommand(ctx, driver.Whitelist.ListCommand)
 		}
 		if err != nil {
 			http.Error(w, fmt.Sprintf("%s whitelist query failed: %s", backend.Name(), err), http.StatusBadGateway)
@@ -613,13 +613,13 @@ func (h *PterodactylHandler) AdminWhitelist(w http.ResponseWriter, r *http.Reque
 
 	username := strings.TrimSpace(r.FormValue("username"))
 	op := r.FormValue("op")
-	if !isValidMinecraftUsername(username) || (op != "add" && op != "remove") {
-		http.Error(w, "A valid Minecraft username and operation are required", http.StatusBadRequest)
+	if !driver.IdentityValid(username) || (op != "add" && op != "remove") {
+		http.Error(w, "A valid in-game username and operation are required", http.StatusBadRequest)
 		return
 	}
-	command := whitelistAddCommand(server.GameType, username)
+	command := driver.Whitelist.AddCommand(username)
 	if op == "remove" {
-		command = whitelistRemoveCommand(server.GameType, username)
+		command = driver.Whitelist.RemoveCommand(username)
 	}
 	if err := backend.SendCommand(ctx, command); err != nil {
 		http.Error(w, fmt.Sprintf("%s whitelist %s failed: %s", backend.Name(), op, err), http.StatusBadGateway)
@@ -692,30 +692,6 @@ func (h *PterodactylHandler) WhitelistStatus(w http.ResponseWriter, r *http.Requ
 		response["username"] = existing.Username
 	}
 	json.NewEncoder(w).Encode(response)
-}
-
-var minecraftUsernameRegex = regexp.MustCompile(`^[a-zA-Z0-9_]{3,16}$`)
-
-func isValidMinecraftUsername(name string) bool {
-	return minecraftUsernameRegex.MatchString(name)
-}
-
-func whitelistAddCommand(gameType, player string) string {
-	switch gameType {
-	case "minecraft":
-		return fmt.Sprintf("whitelist add %s", player)
-	default:
-		return ""
-	}
-}
-
-func whitelistRemoveCommand(gameType, player string) string {
-	switch gameType {
-	case "minecraft":
-		return fmt.Sprintf("whitelist remove %s", player)
-	default:
-		return ""
-	}
 }
 
 func isActionAllowed(allowedActionsJSON string, action string) bool {

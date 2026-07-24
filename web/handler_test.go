@@ -317,6 +317,25 @@ func TestAdminGameTypesIncludeCustomServerType(t *testing.T) {
 	}
 }
 
+func TestSelectableGameTypesExcludeDisabledUnlessAssigned(t *testing.T) {
+	handler, store, _ := testWebHandler(t)
+	minecraft, err := store.GetGameType("minecraft")
+	if err != nil || minecraft == nil {
+		t.Fatalf("load Minecraft game type: %#v, %v", minecraft, err)
+	}
+	minecraft.Enabled = false
+	if err := store.SetGameType(minecraft); err != nil {
+		t.Fatal(err)
+	}
+	if types := handler.adminGameTypes(nil); containsString(types, "minecraft") {
+		t.Fatalf("disabled unassigned type is selectable: %#v", types)
+	}
+	types := handler.adminGameTypes([]database.Server{{GameType: "minecraft"}})
+	if !containsString(types, "minecraft") {
+		t.Fatalf("current disabled assignment was hidden: %#v", types)
+	}
+}
+
 func TestBackgroundGameTagsOnlyUseConfiguredServers(t *testing.T) {
 	options := AvailableBackgroundTags([]string{"factorio"})
 	var values []string

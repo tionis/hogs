@@ -902,8 +902,8 @@ func applyServers(tx *sql.Tx, servers []InventoryServer) error {
 	keep := make([]string, 0, len(servers))
 	for _, server := range servers {
 		keep = append(keep, server.Name)
-		if _, err := tx.Exec(`INSERT OR IGNORE INTO game_types(slug,display_name,player_noun,icon,accent_color,builtin)
-			VALUES(?,?,'Players','','#666666',0)`, server.GameType, server.GameType); err != nil {
+		if _, err := tx.Exec(`INSERT OR IGNORE INTO game_types(slug,display_name,player_noun,icon,accent_color,builtin,kind,enabled)
+			VALUES(?,?,'Players','','#666666',0,'generic',1)`, server.GameType, server.GameType); err != nil {
 			return err
 		}
 		metadataValues := make(map[string]string, len(server.Metadata)+1)

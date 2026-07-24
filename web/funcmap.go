@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/tionis/hogs/database"
+	"github.com/tionis/hogs/gametypes"
 	"github.com/tionis/hogs/query"
 )
 
@@ -63,6 +64,29 @@ func sharedFuncMap(stores ...*database.Store) template.FuncMap {
 		},
 		"gameDisplayName": func(s string) string {
 			return gameInfo(s).DisplayName
+		},
+		"gameStatusProtocol": func(s string) string {
+			if store == nil {
+				if driver, ok := gametypes.Embedded(s); ok {
+					return driver.StatusProtocol
+				}
+				return ""
+			}
+			return store.ResolveGameDriver(s).StatusProtocol
+		},
+		"gameSupportsWhitelist": func(s string) bool {
+			if store == nil {
+				driver, ok := gametypes.Embedded(s)
+				return ok && driver.SupportsWhitelist()
+			}
+			return store.ResolveGameDriver(s).SupportsWhitelist()
+		},
+		"gameDetails": func(s string) []gametypes.DetailField {
+			if store == nil {
+				driver, _ := gametypes.Embedded(s)
+				return driver.Details
+			}
+			return store.ResolveGameDriver(s).Details
 		},
 		"gameNounMapJS": func() template.JS {
 			infos := query.AllGameInfo()

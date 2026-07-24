@@ -225,7 +225,8 @@
   function toggleGameFields(prefix) {
     const gameType = document.getElementById(prefix + 'GameType').value;
     const showMotdGroup = document.getElementById(prefix + '-showmotd-group');
-    showMotdGroup.style.display = gameType === 'minecraft' ? 'block' : 'none';
+    const minecraftEnabled = {{if eq (gameStatusProtocol "minecraft") "minecraft"}}true{{else}}false{{end}};
+    showMotdGroup.style.display = minecraftEnabled && gameType === 'minecraft' ? 'block' : 'none';
   }
 
   toggleGameFields('add');

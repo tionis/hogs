@@ -99,10 +99,11 @@ func (h *ServerHandler) GetServerStatus(w http.ResponseWriter, r *http.Request) 
 	}
 
 	cachedStatus, cached := h.Cache.Get(serverName)
+	driver := h.Store.ResolveGameDriver(server.GameType)
 	// Agent observations intentionally contain only process and occupancy data.
 	// A Minecraft result without protocol metadata still needs one modern status
 	// query to populate its MOTD and real game version.
-	needsMinecraftDetails := cached && server.GameType == "minecraft" && cachedStatus.Online && cachedStatus.Extras == nil
+	needsMinecraftDetails := cached && driver.StatusProtocol == "minecraft" && cachedStatus.Online && cachedStatus.Extras == nil
 	if cached && !needsMinecraftDetails {
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(w).Encode(cachedStatus); err != nil {
@@ -135,7 +136,7 @@ func (h *ServerHandler) GetServerStatus(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	querier := query.NewQuerier(server.GameType)
+	querier := query.NewQuerierForDriver(driver)
 	status, err := querier.Query(server)
 	if err != nil {
 		log.Printf("Error querying %s server %s (%s): %v", server.GameType, server.Name, server.Address, err)

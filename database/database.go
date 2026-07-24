@@ -18,6 +18,7 @@ import (
 	"github.com/golang-migrate/migrate/v4/database/sqlite3"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
 	_ "github.com/mattn/go-sqlite3"
+	"github.com/tionis/hogs/gametypes"
 )
 
 //go:embed migrations/*.sql
@@ -93,10 +94,12 @@ type GameType struct {
 	Icon        string `json:"icon"`
 	AccentColor string `json:"accentColor"`
 	Builtin     bool   `json:"builtin"`
+	Kind        string `json:"kind"`
+	Enabled     bool   `json:"enabled"`
 }
 
 func (s *Store) ListGameTypes() ([]GameType, error) {
-	rows, err := s.DB.Query(`SELECT slug,display_name,player_noun,icon,accent_color,builtin
+	rows, err := s.DB.Query(`SELECT slug,display_name,player_noun,icon,accent_color,builtin,kind,enabled
 		FROM game_types ORDER BY lower(display_name),slug`)
 	if err != nil {
 		return nil, err
@@ -105,11 +108,12 @@ func (s *Store) ListGameTypes() ([]GameType, error) {
 	var result []GameType
 	for rows.Next() {
 		var item GameType
-		var builtin int
-		if err := rows.Scan(&item.Slug, &item.DisplayName, &item.PlayerNoun, &item.Icon, &item.AccentColor, &builtin); err != nil {
+		var builtin, enabled int
+		if err := rows.Scan(&item.Slug, &item.DisplayName, &item.PlayerNoun, &item.Icon, &item.AccentColor, &builtin, &item.Kind, &enabled); err != nil {
 			return nil, err
 		}
 		item.Builtin = builtin != 0
+		item.Enabled = enabled != 0
 		result = append(result, item)
 	}
 	return result, rows.Err()
@@ -117,10 +121,10 @@ func (s *Store) ListGameTypes() ([]GameType, error) {
 
 func (s *Store) GetGameType(slug string) (*GameType, error) {
 	var item GameType
-	var builtin int
-	err := s.DB.QueryRow(`SELECT slug,display_name,player_noun,icon,accent_color,builtin
+	var builtin, enabled int
+	err := s.DB.QueryRow(`SELECT slug,display_name,player_noun,icon,accent_color,builtin,kind,enabled
 		FROM game_types WHERE slug=?`, slug).Scan(
-		&item.Slug, &item.DisplayName, &item.PlayerNoun, &item.Icon, &item.AccentColor, &builtin)
+		&item.Slug, &item.DisplayName, &item.PlayerNoun, &item.Icon, &item.AccentColor, &builtin, &item.Kind, &enabled)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -128,6 +132,7 @@ func (s *Store) GetGameType(slug string) (*GameType, error) {
 		return nil, err
 	}
 	item.Builtin = builtin != 0
+	item.Enabled = enabled != 0
 	return &item, nil
 }
 
@@ -136,12 +141,31 @@ func (s *Store) SetGameType(item *GameType) error {
 	if item.Builtin {
 		builtin = 1
 	}
-	_, err := s.DB.Exec(`INSERT INTO game_types(slug,display_name,player_noun,icon,accent_color,builtin)
-		VALUES(?,?,?,?,?,?) ON CONFLICT(slug) DO UPDATE SET
+	kind := item.Kind
+	if kind == "" {
+		kind = gametypes.KindGeneric
+	}
+	if kind != gametypes.KindEmbedded && kind != gametypes.KindGeneric {
+		return fmt.Errorf("unsupported game type kind %q", kind)
+	}
+	enabled := 0
+	if item.Enabled {
+		enabled = 1
+	}
+	_, err := s.DB.Exec(`INSERT INTO game_types(slug,display_name,player_noun,icon,accent_color,builtin,kind,enabled)
+		VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(slug) DO UPDATE SET
 		display_name=excluded.display_name,player_noun=excluded.player_noun,
-		icon=excluded.icon,accent_color=excluded.accent_color`,
-		item.Slug, item.DisplayName, item.PlayerNoun, item.Icon, item.AccentColor, builtin)
+		icon=excluded.icon,accent_color=excluded.accent_color,enabled=excluded.enabled`,
+		item.Slug, item.DisplayName, item.PlayerNoun, item.Icon, item.AccentColor, builtin, kind, enabled)
 	return err
+}
+
+func (s *Store) ResolveGameDriver(slug string) gametypes.Driver {
+	item, err := s.GetGameType(slug)
+	if err != nil || item == nil {
+		return gametypes.Generic(slug)
+	}
+	return gametypes.Resolve(item.Slug, item.Kind, item.Enabled)
 }
 
 func (s *Store) DeleteGameType(slug string) error {

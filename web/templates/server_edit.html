@@ -241,7 +241,7 @@
     </div>
     {{end}}
 
-    {{if eq .Server.GameType "minecraft"}}
+    {{if gameSupportsWhitelist .Server.GameType}}
     <div class="card mb-4" id="whitelist-management">
       <div class="card-header">Whitelist Management</div>
       <div class="card-body">
@@ -376,7 +376,8 @@
   function toggleGameFields() {
     const gameType = document.getElementById('editGameType').value;
     const showMotdGroup = document.getElementById('edit-showmotd-group');
-    showMotdGroup.style.display = gameType === 'minecraft' ? 'block' : 'none';
+    const minecraftEnabled = {{if eq (gameStatusProtocol "minecraft") "minecraft"}}true{{else}}false{{end}};
+    showMotdGroup.style.display = minecraftEnabled && gameType === 'minecraft' ? 'block' : 'none';
   }
 
   toggleGameFields();

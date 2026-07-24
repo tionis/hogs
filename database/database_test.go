@@ -423,14 +423,26 @@ func TestGameTypesAndConsoleHistory(t *testing.T) {
 	store := testStore(t)
 	custom := &GameType{
 		Slug: "custom_game", DisplayName: "Custom Game", PlayerNoun: "Pilots",
-		Icon: "✦", AccentColor: "#123456",
+		Icon: "✦", AccentColor: "#123456", Kind: "generic", Enabled: true,
 	}
 	if err := store.SetGameType(custom); err != nil {
 		t.Fatal(err)
 	}
 	got, err := store.GetGameType(custom.Slug)
-	if err != nil || got == nil || got.DisplayName != custom.DisplayName || got.PlayerNoun != "Pilots" {
+	if err != nil || got == nil || got.DisplayName != custom.DisplayName || got.PlayerNoun != "Pilots" ||
+		got.Kind != "generic" || !got.Enabled {
 		t.Fatalf("game type=%#v err=%v", got, err)
+	}
+	minecraft, err := store.GetGameType("minecraft")
+	if err != nil || minecraft == nil || minecraft.Kind != "embedded" || !minecraft.Enabled {
+		t.Fatalf("embedded game type=%#v err=%v", minecraft, err)
+	}
+	minecraft.Enabled = false
+	if err := store.SetGameType(minecraft); err != nil {
+		t.Fatal(err)
+	}
+	if driver := store.ResolveGameDriver("minecraft"); driver.Kind != "generic" || driver.SupportsWhitelist() {
+		t.Fatalf("disabled type retained specialized behavior: %#v", driver)
 	}
 	server := &Server{Name: "history-test", GameType: custom.Slug, State: "online"}
 	if err := store.CreateServer(server); err != nil {

@@ -31,13 +31,13 @@
               {{if .Address}}<span class="badge bg-secondary">{{.Address}}</span>{{end}}
             </div>
           </h5>
-          <h6 class="card-subtitle mb-2 server-status-poller" data-server="{{.Name}}" data-game-type="{{.GameType}}" data-state="{{.State}}">
+          <h6 class="card-subtitle mb-2 server-status-poller" data-server="{{.Name}}" data-game-type="{{gameStatusProtocol .GameType}}" data-state="{{.State}}">
             Checking status...
           </h6>
           
           <p class="card-text">{{.Description | firstLine}}</p>
           
-          {{if and .ShowMOTD (eq .GameType "minecraft")}}
+          {{if and .ShowMOTD (eq (gameStatusProtocol .GameType) "minecraft")}}
           <p class="card-text small font-monospace border-start ps-2" style="display: none; color: var(--text-secondary);" id="live-motd-{{.Name}}"></p>
           {{end}}
 

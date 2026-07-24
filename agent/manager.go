@@ -296,8 +296,14 @@ func (m *Manager) pollStatuses(ctx context.Context, store *database.Store, cache
 		go func() {
 			requestCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
 			defer cancel()
+			driver := store.ResolveGameDriver(server.GameType)
+			driverHint := "generic"
+			if driver.Kind == "embedded" {
+				driverHint = driver.Slug
+			}
 			response, err := m.do(requestCtx, node, http.MethodGet,
-				fmt.Sprintf("/v1/servers/%s/status", url.PathEscape(server.Name)), nil)
+				fmt.Sprintf("/v1/servers/%s/status?driver=%s",
+					url.PathEscape(server.Name), url.QueryEscape(driverHint)), nil)
 			if err != nil {
 				cache.SetAgentObservation(server.Name, &query.ServerStatus{
 					Online: false, LastUpdated: time.Now(), Error: err.Error(),

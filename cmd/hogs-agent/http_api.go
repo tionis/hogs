@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tionis/hogs/gametypes"
 	"github.com/tionis/hogs/internal/capability"
 )
 
@@ -117,9 +118,18 @@ func handleStatus(w http.ResponseWriter, r *http.Request, server *ServerConfig) 
 	active, substate, resources := getServiceStatusWithResources(server.Unit, time.Now())
 	players, maxPlayers, known := 0, 0, false
 	version := ""
+	driver := gametypes.Generic(server.GameType)
+	if requested := r.URL.Query().Get("driver"); requested != "generic" {
+		if requested == "" {
+			requested = server.GameType
+		}
+		if embedded, ok := gametypes.Embedded(requested); ok && embedded.Slug == server.GameType {
+			driver = embedded
+		}
+	}
 	if active {
-		players, maxPlayers, known = playerStatus(server)
-		version = serverVersion(server)
+		players, maxPlayers, known = playerStatus(server, driver)
+		version = serverVersion(server, driver)
 	}
 	writeJSONResponse(w, http.StatusOK, StatusReportData{
 		ServerName: r.PathValue("server"), Online: active, Players: players,
@@ -178,7 +188,7 @@ func handleConsole(w http.ResponseWriter, r *http.Request, server *ServerConfig)
 	encoder := json.NewEncoder(w)
 	for scanner.Scan() {
 		line := scanner.Text()
-		if isRoutineRCONConnectionLine(line) {
+		if isRoutineConsoleLine(server.GameType, line) {
 			continue
 		}
 		if err := encoder.Encode(map[string]string{
