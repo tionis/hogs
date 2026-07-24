@@ -1,27 +1,38 @@
 {{define "body_attrs"}}data-game-type="{{.Server.GameType}}"{{end}}
-{{define "title"}}{{.Server.Name}} - {{if .FilesPage}}Files{{else}}Details{{end}}{{end}}
+{{define "title"}}{{.Server.Name}} - {{if eq .Page "dashboard"}}Dashboard{{else}}{{.Page}}{{end}}{{end}}
 
 {{define "content"}}
 <nav aria-label="breadcrumb">
   <ol class="breadcrumb">
     <li class="breadcrumb-item"><a href="/">Home</a></li>
-    {{if .FilesPage}}
+    {{if ne .Page "dashboard"}}
     <li class="breadcrumb-item"><a href="/{{.Server.Name}}">{{.Server.Name}}</a></li>
-    <li class="breadcrumb-item active" aria-current="page">Files</li>
+    <li class="breadcrumb-item active text-capitalize" aria-current="page">{{.Page}}</li>
     {{else}}
     <li class="breadcrumb-item active" aria-current="page">{{.Server.Name}}</li>
     {{end}}
   </ol>
 </nav>
 
-{{if .FilesPage}}
 <div class="d-flex justify-content-between align-items-center mb-3">
   <div>
-    <h1 class="h2 mb-1">{{.Server.Name}} Files</h1>
-    <p class="text-muted mb-0">Browse and manage the paths exposed by this server's worker.</p>
+    <h1 class="h2 mb-1">{{.Server.Name}}</h1>
+    <p class="text-muted mb-0 text-capitalize">{{if eq .Page "dashboard"}}Game server dashboard{{else}}{{.Page}}{{end}}</p>
   </div>
-  <a class="btn btn-outline-secondary" href="/{{.Server.Name}}">Back to server</a>
+  <div class="server-status-poller h5 mb-0" data-server="{{.Server.Name}}" data-game-type="{{.Server.GameType}}" data-state="{{.Server.State}}">Checking status...</div>
 </div>
+<nav class="mb-4" aria-label="Server sections">
+  <div class="nav nav-tabs flex-nowrap overflow-x-auto">
+    <a class="nav-link {{if eq .Page "dashboard"}}active{{end}}" href="/{{.Server.Name}}">Dashboard</a>
+    {{if .ShowConsole}}<a class="nav-link {{if eq .Page "console"}}active{{end}}" href="/servers/{{.Server.Name}}/console">Console</a>{{end}}
+    {{if .ShowFiles}}<a class="nav-link {{if eq .Page "files"}}active{{end}}" href="/servers/{{.Server.Name}}/files">Files</a>{{end}}
+    {{if or .WhitelistSelf .WhitelistManage}}<a class="nav-link {{if eq .Page "whitelist"}}active{{end}}" href="/servers/{{.Server.Name}}/whitelist">Whitelist</a>{{end}}
+    {{if .Authenticated}}<a class="nav-link {{if eq .Page "access"}}active{{end}}" href="/servers/{{.Server.Name}}/access">Access</a>{{end}}
+    {{if or .BackupList .BackupCreate .BackupRestore}}<a class="nav-link {{if eq .Page "backups"}}active{{end}}" href="/servers/{{.Server.Name}}/backups">Backups</a>{{end}}
+  </div>
+</nav>
+
+{{if .FilesPage}}
 <div class="card mb-4" id="file-browser-card">
   <div class="card-header d-flex justify-content-between align-items-center">
     <span>Managed Files</span>
@@ -36,6 +47,115 @@
     </div>
     <div id="file-feedback" class="small mb-2" role="status"></div>
     <div id="file-browser">Loading files...</div>
+  </div>
+</div>
+{{else if eq .Page "console"}}
+<div class="card mb-4">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span>Live Console</span>
+    <span id="console-status" class="badge bg-secondary">Disconnected</span>
+  </div>
+  <div class="card-body p-0">
+    <div id="console-output" style="background:var(--bg-input);color:var(--text-primary);font-family:monospace;font-size:0.85rem;height:min(70vh,720px);overflow-y:auto;padding:0.75rem;"></div>
+    {{if .ConsoleWrite}}<div class="input-group input-group-sm p-2" style="background:var(--bg-card);border-top:1px solid var(--border-color);">
+      <input type="text" id="console-input" class="form-control form-control-sm" placeholder="Enter command..." autocomplete="off" disabled>
+      <button class="btn btn-primary btn-sm" id="console-send" onclick="sendConsoleInput()" disabled>Send</button>
+    </div>{{else}}<div class="small p-2 text-muted">Read-only console access</div>{{end}}
+  </div>
+</div>
+{{else if eq .Page "whitelist"}}
+{{if .WhitelistSelf}}
+<div class="card mb-4">
+  <div class="card-header">Your whitelist entry</div>
+  <div class="card-body">
+    <p class="small text-muted">Manage only your linked {{.Server.GameType}} identity. This does not grant permission to change other players.</p>
+    <div id="whitelist-status" class="small mb-2 text-muted">Loading linked identity…</div>
+    <form id="self-whitelist-form" class="input-group">
+      <input type="text" name="username" class="form-control" placeholder="Linked {{.Server.GameType}} username" required id="whitelist-username">
+      <button type="submit" class="btn btn-success">Whitelist me</button>
+      <button type="button" class="btn btn-outline-danger" id="self-whitelist-remove">Remove me</button>
+    </form>
+    <div id="self-whitelist-feedback" class="small mt-2" role="status"></div>
+  </div>
+</div>
+{{end}}
+{{if .WhitelistManage}}
+<div class="card mb-4">
+  <div class="card-header">Manage server whitelist</div>
+  <div class="card-body">
+    <div id="managed-whitelist-current" class="mb-3">Loading current whitelist…</div>
+    <form id="managed-whitelist-form" class="row g-2">
+      <div class="col-md-5"><input class="form-control" name="username" placeholder="In-game username" required></div>
+      <div class="col-md-5"><input class="form-control" name="user_email" type="email" placeholder="Optional linked panel user"></div>
+      <div class="col-md-2 d-flex gap-1"><button class="btn btn-success" type="button" data-managed-whitelist="add">Add</button><button class="btn btn-outline-danger" type="button" data-managed-whitelist="remove">Remove</button></div>
+    </form>
+    <div id="managed-whitelist-feedback" class="small mt-2" role="status"></div>
+  </div>
+</div>
+{{end}}
+{{else if eq .Page "access"}}
+<div class="card mb-4">
+  <div class="card-header">Your Server Access</div>
+  <div class="card-body">
+    <p class="small text-muted">Your effective permissions for this server. Explicit denies take precedence over allows.</p>
+    <div class="row g-3">
+      {{range .EffectiveAccess}}
+      <div class="col-md-6 col-xl-4">
+        <div class="d-flex justify-content-between gap-3 border rounded p-2 h-100">
+          <span>{{.Label}}<br><code>{{.Name}}</code></span>
+          <span class="badge align-self-start {{if .Allowed}}bg-success{{else}}bg-secondary{{end}}" title="{{.Reason}}">{{if .Allowed}}allowed{{else}}denied{{end}}</span>
+        </div>
+      </div>
+      {{end}}
+    </div>
+  </div>
+</div>
+{{if .ManageAccess}}
+<div class="card mb-4" id="access-control">
+  <div class="card-header">Manage Server Access</div>
+  <div class="card-body">
+    <p class="small text-muted">Changes apply only to this server. Explicit denies override allows.</p>
+    {{if .AccessGrants}}
+    <div class="table-responsive mb-4">
+      <table class="table align-middle">
+        <thead><tr><th>Effect</th><th>Subject</th><th>Capabilities</th><th></th></tr></thead>
+        <tbody>{{range .AccessGrants}}<tr>
+          <td><span class="badge {{if eq .Effect "deny"}}bg-danger{{else}}bg-success{{end}}">{{.Effect}}</span></td>
+          <td><span class="badge bg-secondary">{{.SubjectType}}</span> {{.Subject}}</td>
+          <td>{{range .Capabilities}}<span class="badge bg-info me-1 mb-1">{{.}}</span>{{end}}</td>
+          <td><form action="/admin/access-grants/delete" method="POST">
+            <input type="hidden" name="server_id" value="{{$.Server.ID}}">
+            <input type="hidden" name="grant_id" value="{{.ID}}">
+            <button class="btn btn-sm btn-outline-danger" type="submit">Remove</button>
+          </form></td>
+        </tr>{{end}}</tbody>
+      </table>
+    </div>
+    {{end}}
+    <form action="/admin/access-grants/set" method="POST">
+      <input type="hidden" name="server_id" value="{{.Server.ID}}">
+      <div class="row g-2 mb-3">
+        <div class="col-md-2"><select class="form-select" name="effect"><option value="allow">Allow</option><option value="deny">Deny</option></select></div>
+        <div class="col-md-3"><select class="form-select" name="subject_type"><option value="group">OIDC group</option><option value="user">User email</option><option value="authenticated">Any authenticated user</option><option value="everyone">Everyone, including public</option></select></div>
+        <div class="col-md-7"><input class="form-control" name="subject" placeholder="Group name or user email"></div>
+      </div>
+      <div class="row g-2 mb-3">{{range .AccessCatalog}}
+        <div class="col-md-6 col-xl-4"><label class="form-check"><input class="form-check-input" type="checkbox" name="capability" value="{{.Name}}"><span class="form-check-label" title="{{.Description}}">{{.Label}} <code>{{.Name}}</code></span></label></div>
+      {{end}}</div>
+      <button class="btn btn-primary" type="submit">Add or replace grant</button>
+    </form>
+  </div>
+</div>
+{{end}}
+{{else if eq .Page "backups"}}
+<div class="card mb-4">
+  <div class="card-header">Server Backups</div>
+  <div class="card-body">
+    <div class="d-flex gap-2 mb-3">
+      {{if .BackupCreate}}<button class="btn btn-outline-primary" onclick="backupAction('create', this)">Create Backup</button>{{end}}
+      {{if .BackupList}}<button class="btn btn-outline-info" onclick="backupAction('list', this)">List Snapshots</button>{{end}}
+    </div>
+    <div id="server-backup-result" aria-live="polite"></div>
   </div>
 </div>
 {{else}}
@@ -132,22 +252,6 @@
       </div>
     </div>
     
-    {{if .ShowConsole}}
-    <div class="card mb-4">
-      <div class="card-header d-flex justify-content-between align-items-center">
-        <span>Console</span>
-        <span id="console-status" class="badge bg-secondary">Disconnected</span>
-      </div>
-      <div class="card-body p-0">
-        <div id="console-output" style="background:var(--bg-input);color:var(--text-primary);font-family:monospace;font-size:0.85rem;height:300px;overflow-y:auto;padding:0.75rem;"></div>
-        {{if .ConsoleWrite}}<div class="input-group input-group-sm p-2" style="background:var(--bg-card);border-top:1px solid var(--border-color);">
-          <input type="text" id="console-input" class="form-control form-control-sm" placeholder="Enter command..." autocomplete="off" disabled>
-          <button class="btn btn-primary btn-sm" id="console-send" onclick="sendConsoleInput()" disabled>Send</button>
-        </div>{{else}}<div class="small p-2 text-muted">Read-only console access</div>{{end}}
-      </div>
-    </div>
-    {{end}}
-
     {{if .ShowResources}}
     <div class="card mb-4" id="resource-usage-card">
       <div class="card-header">Resource Usage</div>
@@ -272,20 +376,6 @@
            {{if inList "restart" .AllowedActions}}<button type="button" class="btn btn-warning btn-sm" onclick="runServerAction('restart', this)">Restart</button>{{end}}
          </div>
          <div id="server-action-feedback" class="small mb-3" role="status"></div>
-         {{if inList "whitelist" .AllowedActions}}
-         <h6 class="mt-3">Whitelist My Linked Account</h6>
-         <p class="small mb-2" style="color: var(--text-secondary);">
-           This permission only adds or removes your own linked {{.Server.GameType}} account.
-           It cannot manage other players.
-         </p>
-         <div id="whitelist-status" class="small mb-2" style="color: var(--text-secondary);"></div>
-         <form id="self-whitelist-form" class="input-group input-group-sm">
-           <input type="text" name="username" class="form-control" placeholder="Linked {{.Server.GameType}} username" required id="whitelist-username">
-           <button type="submit" class="btn btn-outline-success">Whitelist me</button>
-           <button type="button" class="btn btn-outline-danger" id="self-whitelist-remove">Remove me</button>
-         </form>
-         <div id="self-whitelist-feedback" class="small mt-2" role="status"></div>
-         {{end}}
          {{if .PteroCommands}}
          <h6>Commands</h6>
          {{range .PteroCommands}}
@@ -304,77 +394,6 @@
      </div>
      {{end}}
 
-     {{if and .PteroLink .WhitelistManage}}
-     <div class="card mb-4">
-       <div class="card-header">Manage whitelist</div>
-       <div class="card-body">
-         <div id="managed-whitelist-current" class="small mb-3">Loading current whitelist…</div>
-         <form id="managed-whitelist-form" class="row g-2">
-           <div class="col-md-5"><input class="form-control form-control-sm" name="username" placeholder="In-game username" required></div>
-           <div class="col-md-5"><input class="form-control form-control-sm" name="user_email" type="email" placeholder="Optional linked panel user"></div>
-           <div class="col-md-2 d-flex gap-1"><button class="btn btn-sm btn-success" type="button" data-managed-whitelist="add">Add</button><button class="btn btn-sm btn-outline-danger" type="button" data-managed-whitelist="remove">Remove</button></div>
-         </form>
-         <div id="managed-whitelist-feedback" class="small mt-2" role="status"></div>
-       </div>
-     </div>
-     {{end}}
-
-     {{if .Authenticated}}
-     <details class="card mb-4">
-       <summary class="card-header">Your Server Access</summary>
-       <div class="card-body">
-         <p class="small text-muted">These are your effective per-server permissions. Deny grants take precedence over allows.</p>
-         <div class="row g-2">
-           {{range .EffectiveAccess}}
-           <div class="col-md-6">
-             <div class="d-flex justify-content-between gap-2 small">
-               <span>{{.Label}} <code>{{.Name}}</code></span>
-               <span class="badge {{if .Allowed}}bg-success{{else}}bg-secondary{{end}}" title="{{.Reason}}">{{if .Allowed}}allowed{{else}}denied{{end}}</span>
-             </div>
-           </div>
-           {{end}}
-         </div>
-       </div>
-     </details>
-     {{end}}
-
-     {{if .ManageAccess}}
-     <div class="card mb-4" id="access-control">
-       <div class="card-header">Manage Server Access</div>
-       <div class="card-body">
-         <p class="small text-muted">Changes apply only to this server. Explicit denies override allows.</p>
-         {{if .AccessGrants}}
-         <div class="table-responsive mb-3">
-           <table class="table table-sm align-middle">
-             <thead><tr><th>Effect</th><th>Subject</th><th>Capabilities</th><th></th></tr></thead>
-             <tbody>{{range .AccessGrants}}<tr>
-               <td><span class="badge {{if eq .Effect "deny"}}bg-danger{{else}}bg-success{{end}}">{{.Effect}}</span></td>
-               <td><span class="badge bg-secondary">{{.SubjectType}}</span> {{.Subject}}</td>
-               <td>{{range .Capabilities}}<span class="badge bg-info me-1">{{.}}</span>{{end}}</td>
-               <td><form action="/admin/access-grants/delete" method="POST">
-                 <input type="hidden" name="server_id" value="{{$.Server.ID}}">
-                 <input type="hidden" name="grant_id" value="{{.ID}}">
-                 <button class="btn btn-sm btn-outline-danger" type="submit">Remove</button>
-               </form></td>
-             </tr>{{end}}</tbody>
-           </table>
-         </div>
-         {{end}}
-         <form action="/admin/access-grants/set" method="POST">
-           <input type="hidden" name="server_id" value="{{.Server.ID}}">
-           <div class="row g-2 mb-2">
-             <div class="col-md-2"><select class="form-select form-select-sm" name="effect"><option value="allow">Allow</option><option value="deny">Deny</option></select></div>
-             <div class="col-md-3"><select class="form-select form-select-sm" name="subject_type"><option value="group">OIDC group</option><option value="user">User email</option><option value="authenticated">Any authenticated user</option><option value="everyone">Everyone, including public</option></select></div>
-             <div class="col-md-7"><input class="form-control form-control-sm" name="subject" placeholder="Group name or user email"></div>
-           </div>
-           <div class="d-flex flex-wrap gap-2 mb-3">{{range .AccessCatalog}}
-             <label class="form-check form-check-inline me-1"><input class="form-check-input" type="checkbox" name="capability" value="{{.Name}}"><span class="form-check-label" title="{{.Description}}">{{.Label}}</span></label>
-           {{end}}</div>
-           <button class="btn btn-sm btn-primary" type="submit">Add or replace grant</button>
-         </form>
-       </div>
-     </div>
-     {{end}}
    </div>
 </div>
 {{end}}
@@ -509,7 +528,7 @@ document.addEventListener("DOMContentLoaded", function() {
     {{end}}
 
     // Console WebSocket
-    {{if .ShowConsole}}
+    {{if and .ShowConsole (eq .Page "console")}}
     const consoleOutput = document.getElementById('console-output');
     const consoleInput = document.getElementById('console-input');
     const consoleSend = document.getElementById('console-send');
@@ -518,7 +537,7 @@ document.addEventListener("DOMContentLoaded", function() {
 
     function connectConsole() {
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = protocol + '//' + window.location.host + '/servers/' + encodeURIComponent(serverName) + '/console';
+        const wsUrl = protocol + '//' + window.location.host + '/servers/' + encodeURIComponent(serverName) + '/console/ws';
         consoleWs = new WebSocket(wsUrl);
 
         consoleWs.onopen = function() {
@@ -575,7 +594,7 @@ document.addEventListener("DOMContentLoaded", function() {
 
     if (container) initManagedFiles(serverName);
 
-    {{if and (not .FilesPage) .ShowResources}}
+    {{if and (eq .Page "dashboard") .ShowResources}}
     const formatBytes = value => {
         if (value === null || value === undefined) return 'Unavailable';
         const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
@@ -764,7 +783,7 @@ document.addEventListener("DOMContentLoaded", function() {
     window.setInterval(loadResourceHistory, 15000);
     {{end}}
 
-    {{if and (not .FilesPage) .Authenticated .PteroLink}}
+    {{if and (eq .Page "whitelist") .Authenticated .PteroLink}}
     const selfWhitelistForm = document.getElementById('self-whitelist-form');
     const selfWhitelistRemove = document.getElementById('self-whitelist-remove');
     const selfWhitelistFeedback = document.getElementById('self-whitelist-feedback');
@@ -777,7 +796,7 @@ document.addEventListener("DOMContentLoaded", function() {
         }
         const body = new URLSearchParams({op, username});
         try {
-            const response = await fetch(`/servers/${encodeURIComponent(serverName)}/whitelist`, {
+            const response = await fetch(`/api/servers/${encodeURIComponent(serverName)}/whitelist`, {
                 method: 'POST',
                 headers: {'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': getCsrfToken(), 'Accept': 'application/json'},
                 body
@@ -838,9 +857,10 @@ document.addEventListener("DOMContentLoaded", function() {
     }
     {{end}}
 
+    {{if eq .Page "whitelist"}}
     function loadWhitelistStatus() {
       if (!userEmail) return;
-      fetch(`/servers/${serverName}/whitelist`)
+      fetch(`/api/servers/${encodeURIComponent(serverName)}/whitelist`)
       .then(r => r.json())
       .then(data => {
         const statusEl = document.getElementById('whitelist-status');
@@ -858,7 +878,79 @@ document.addEventListener("DOMContentLoaded", function() {
       .catch(() => {});
     }
     loadWhitelistStatus();
+    {{end}}
 });
+
+{{if eq .Page "backups"}}
+async function backupAction(action, button) {
+    const output = document.getElementById('server-backup-result');
+    const original = button.textContent;
+    button.disabled = true;
+    button.textContent = 'Working…';
+    try {
+        const response = await fetch(`/api/agents/{{.Server.Name}}/backup/${action}`, {
+            method: 'POST',
+            headers: {'X-CSRF-Token': getCsrfToken()}
+        });
+        const contentType = response.headers.get('content-type') || '';
+        const result = contentType.includes('application/json')
+            ? await response.json()
+            : {success: false, error: (await response.text()).trim()};
+        if (!response.ok || result.success === false) {
+            throw new Error(result.error || `HTTP ${response.status}`);
+        }
+        output.replaceChildren();
+        if (action !== 'list') {
+            const message = document.createElement('div');
+            message.className = 'alert alert-success mb-0';
+            message.textContent = 'Backup created successfully.';
+            output.appendChild(message);
+            return;
+        }
+        const snapshots = result.data && result.data.snapshots;
+        if (!Array.isArray(snapshots) || snapshots.length === 0) {
+            const message = document.createElement('div');
+            message.className = 'alert alert-info mb-0';
+            message.textContent = 'No snapshots found.';
+            output.appendChild(message);
+            return;
+        }
+        const wrapper = document.createElement('div');
+        wrapper.className = 'table-responsive';
+        const table = document.createElement('table');
+        table.className = 'table align-middle';
+        table.innerHTML = '<thead><tr><th>Created</th><th>Snapshot</th><th>Tags</th><th>Paths</th></tr></thead>';
+        const body = document.createElement('tbody');
+        for (const snapshot of snapshots) {
+            const row = document.createElement('tr');
+            const values = [
+                snapshot.time ? new Date(snapshot.time).toLocaleString() : 'Unknown',
+                String(snapshot.id || '').slice(0, 12) || 'Unknown',
+                Array.isArray(snapshot.tags) ? snapshot.tags.join(', ') : '—',
+                Array.isArray(snapshot.paths) ? snapshot.paths.join(', ') : '—'
+            ];
+            for (const value of values) {
+                const cell = document.createElement('td');
+                cell.textContent = value;
+                row.appendChild(cell);
+            }
+            body.appendChild(row);
+        }
+        table.appendChild(body);
+        wrapper.appendChild(table);
+        output.appendChild(wrapper);
+    } catch (error) {
+        output.replaceChildren();
+        const message = document.createElement('div');
+        message.className = 'alert alert-danger mb-0';
+        message.textContent = `Backup operation failed: ${error.message}`;
+        output.appendChild(message);
+    } finally {
+        button.disabled = false;
+        button.textContent = original;
+    }
+}
+{{end}}
 
 {{if .FilesPage}}
 async function initManagedFiles(serverName) {

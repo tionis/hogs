@@ -355,16 +355,32 @@ func (h *WebHandler) Home(w http.ResponseWriter, r *http.Request) {
 
 // ServerDetail renders the detail page for a specific server.
 func (h *WebHandler) ServerDetail(w http.ResponseWriter, r *http.Request) {
-	h.renderServerPage(w, r, false)
+	h.renderServerPage(w, r, "dashboard")
+}
+
+func (h *WebHandler) ServerConsole(w http.ResponseWriter, r *http.Request) {
+	h.renderServerPage(w, r, "console")
 }
 
 // ServerFiles renders the managed file browser separately from the operational
 // server detail page.
 func (h *WebHandler) ServerFiles(w http.ResponseWriter, r *http.Request) {
-	h.renderServerPage(w, r, true)
+	h.renderServerPage(w, r, "files")
 }
 
-func (h *WebHandler) renderServerPage(w http.ResponseWriter, r *http.Request, filesPage bool) {
+func (h *WebHandler) ServerWhitelist(w http.ResponseWriter, r *http.Request) {
+	h.renderServerPage(w, r, "whitelist")
+}
+
+func (h *WebHandler) ServerAccess(w http.ResponseWriter, r *http.Request) {
+	h.renderServerPage(w, r, "access")
+}
+
+func (h *WebHandler) ServerBackups(w http.ResponseWriter, r *http.Request) {
+	h.renderServerPage(w, r, "backups")
+}
+
+func (h *WebHandler) renderServerPage(w http.ResponseWriter, r *http.Request, page string) {
 	vars := mux.Vars(r)
 	serverName := vars["serverName"]
 
@@ -433,7 +449,12 @@ func (h *WebHandler) renderServerPage(w http.ResponseWriter, r *http.Request, fi
 		ManageAccess    bool
 		AccessGrants    []database.ServerAccessGrant
 		AccessCatalog   []access.Capability
+		WhitelistSelf   bool
 		WhitelistManage bool
+		BackupList      bool
+		BackupCreate    bool
+		BackupRestore   bool
+		Page            string
 		FilesPage       bool
 	}{
 		Server:          server,
@@ -455,7 +476,8 @@ func (h *WebHandler) renderServerPage(w http.ResponseWriter, r *http.Request, fi
 		EffectiveAccess: []EffectiveAccessEntry{},
 		AccessGrants:    []database.ServerAccessGrant{},
 		AccessCatalog:   access.Capabilities,
-		FilesPage:       filesPage,
+		Page:            page,
+		FilesPage:       page == "files",
 	}
 	if isAuthenticated {
 		for _, capability := range access.Capabilities {
@@ -483,6 +505,21 @@ func (h *WebHandler) renderServerPage(w http.ResponseWriter, r *http.Request, fi
 			whitelistDecision, _ = h.Store.EvaluateServerAccess(server.ID, userEnv.Email, userEnv.Groups, access.WhitelistManage)
 		}
 		data.WhitelistManage = whitelistDecision.Allowed
+
+		selfWhitelistDecision := database.ServerAccessDecision{Allowed: userRole == "admin"}
+		backupListDecision := database.ServerAccessDecision{Allowed: userRole == "admin"}
+		backupCreateDecision := database.ServerAccessDecision{Allowed: userRole == "admin"}
+		backupRestoreDecision := database.ServerAccessDecision{Allowed: userRole == "admin"}
+		if userRole != "admin" {
+			selfWhitelistDecision, _ = h.Store.EvaluateServerAccess(server.ID, userEnv.Email, userEnv.Groups, access.WhitelistSelf)
+			backupListDecision, _ = h.Store.EvaluateServerAccess(server.ID, userEnv.Email, userEnv.Groups, access.BackupList)
+			backupCreateDecision, _ = h.Store.EvaluateServerAccess(server.ID, userEnv.Email, userEnv.Groups, access.BackupCreate)
+			backupRestoreDecision, _ = h.Store.EvaluateServerAccess(server.ID, userEnv.Email, userEnv.Groups, access.BackupRestore)
+		}
+		data.WhitelistSelf = selfWhitelistDecision.Allowed
+		data.BackupList = backupListDecision.Allowed
+		data.BackupCreate = backupCreateDecision.Allowed
+		data.BackupRestore = backupRestoreDecision.Allowed
 	}
 	if isAuthenticated && hasAgent {
 		if userRole == "admin" {
@@ -500,7 +537,7 @@ func (h *WebHandler) renderServerPage(w http.ResponseWriter, r *http.Request, fi
 			data.ShowResources = status.Allowed
 		}
 	}
-	if filesPage {
+	if page == "files" {
 		data.ShowConsole = false
 		data.ConsoleWrite = false
 		if !data.ShowFiles {
@@ -527,6 +564,34 @@ func (h *WebHandler) renderServerPage(w http.ResponseWriter, r *http.Request, fi
 		}
 	}
 	data.AllowedActions = allowedActions
+
+	switch page {
+	case "dashboard":
+	case "console":
+		if !data.ShowConsole {
+			http.Error(w, "Console access denied", http.StatusForbidden)
+			return
+		}
+	case "files":
+	case "whitelist":
+		if !data.WhitelistSelf && !data.WhitelistManage {
+			http.Error(w, "Whitelist access denied", http.StatusForbidden)
+			return
+		}
+	case "access":
+		if !isAuthenticated {
+			http.Error(w, "Authentication required", http.StatusUnauthorized)
+			return
+		}
+	case "backups":
+		if !data.BackupList && !data.BackupCreate && !data.BackupRestore {
+			http.Error(w, "Backup access denied", http.StatusForbidden)
+			return
+		}
+	default:
+		http.NotFound(w, r)
+		return
+	}
 
 	tmpl, err := template.New("base.html").Funcs(sharedFuncMap(h.Store)).ParseFS(templateFS, "templates/base.html", "templates/server.html")
 	if err != nil {
@@ -1157,7 +1222,7 @@ func (h *WebHandler) HandleAccessGrantSet(w http.ResponseWriter, r *http.Request
 		http.Error(w, "Failed to save access grant", http.StatusInternalServerError)
 		return
 	}
-	http.Redirect(w, r, "/"+server.Name+"#access-control", http.StatusFound)
+	http.Redirect(w, r, "/servers/"+server.Name+"/access#access-control", http.StatusFound)
 }
 
 func (h *WebHandler) HandleAccessGrantDelete(w http.ResponseWriter, r *http.Request) {
@@ -1184,7 +1249,7 @@ func (h *WebHandler) HandleAccessGrantDelete(w http.ResponseWriter, r *http.Requ
 		http.Error(w, "Failed to delete access grant", http.StatusInternalServerError)
 		return
 	}
-	http.Redirect(w, r, "/"+server.Name+"#access-control", http.StatusFound)
+	http.Redirect(w, r, "/servers/"+server.Name+"/access#access-control", http.StatusFound)
 }
 
 func (h *WebHandler) canManageServerAccess(r *http.Request, serverID int) bool {

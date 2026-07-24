@@ -419,6 +419,14 @@ func TestServerDetailAndFilesHonorCapabilities(t *testing.T) {
 		handler.ServerFiles(recorder, req)
 		return recorder
 	}
+	renderConsole := func() *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, "/servers/CapabilitySrv/console", nil)
+		req = mux.SetURLVars(req, map[string]string{"serverName": "CapabilitySrv"})
+		req.AddCookie(cookie)
+		recorder := httptest.NewRecorder()
+		handler.ServerConsole(recorder, req)
+		return recorder
+	}
 
 	detail := renderDetail()
 	if detail.Code != http.StatusOK {
@@ -433,6 +441,9 @@ func TestServerDetailAndFilesHonorCapabilities(t *testing.T) {
 	if files := renderFiles(); files.Code != http.StatusForbidden {
 		t.Fatalf("files status without file.read=%d body=%s", files.Code, files.Body.String())
 	}
+	if console := renderConsole(); console.Code != http.StatusForbidden {
+		t.Fatalf("console status without console.read=%d body=%s", console.Code, console.Body.String())
+	}
 
 	if err := store.SetServerAccessGrant(&database.ServerAccessGrant{
 		ServerID: server.ID, SubjectType: "user", Subject: email, Effect: "allow",
@@ -441,11 +452,16 @@ func TestServerDetailAndFilesHonorCapabilities(t *testing.T) {
 		t.Fatal(err)
 	}
 	detail = renderDetail()
-	if !contains(detail.Body.String(), `id="console-output"`) || !contains(detail.Body.String(), "Manage Files") {
-		t.Fatal("console or file navigation missing with read capabilities")
+	if !contains(detail.Body.String(), `/servers/CapabilitySrv/console`) || !contains(detail.Body.String(), `/servers/CapabilitySrv/files`) {
+		t.Fatal("console or file tab missing with read capabilities")
 	}
-	if contains(detail.Body.String(), `id="file-browser-card"`) || contains(detail.Body.String(), "runFileOperation") {
-		t.Fatal("file browser implementation must not render on the server detail page")
+	if contains(detail.Body.String(), `id="console-output"`) || contains(detail.Body.String(), `id="file-browser-card"`) || contains(detail.Body.String(), "runFileOperation") {
+		t.Fatal("console and file implementations must not render on the dashboard")
+	}
+	console := renderConsole()
+	if console.Code != http.StatusOK || !contains(console.Body.String(), `id="console-output"`) ||
+		!contains(console.Body.String(), `/console/ws`) {
+		t.Fatalf("dedicated console page missing console UI: status=%d body=%s", console.Code, console.Body.String())
 	}
 	files := renderFiles()
 	if files.Code != http.StatusOK {
@@ -467,7 +483,7 @@ func TestServerDetailAndFilesHonorCapabilities(t *testing.T) {
 	}
 }
 
-func TestServerSidebarOrder(t *testing.T) {
+func TestServerTabsAndAccessPage(t *testing.T) {
 	handler, store, authenticator := testWebHandler(t)
 	if err := store.CreateServer(&database.Server{
 		Name: "OrderedSrv", GameType: "minecraft", State: "online",
@@ -486,22 +502,41 @@ func TestServerSidebarOrder(t *testing.T) {
 	}
 	req := httptest.NewRequest(http.MethodGet, "/OrderedSrv", nil)
 	req = mux.SetURLVars(req, map[string]string{"serverName": "OrderedSrv"})
-	req.AddCookie(createTestSession(t, store, authenticator, "admin@example.test", "admin"))
+	adminCookie := createTestSession(t, store, authenticator, "admin@example.test", "admin")
+	req.AddCookie(adminCookie)
 	recorder := httptest.NewRecorder()
 	handler.ServerDetail(recorder, req)
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 	body := recorder.Body.String()
-	headings := []string{"Server Info", "Server Actions", "Manage whitelist", "Your Server Access", "Manage Server Access"}
+	for _, tab := range []string{"Dashboard", "Console", "Files", "Whitelist", "Access", "Backups"} {
+		if !contains(body, ">"+tab+"</a>") {
+			t.Fatalf("missing server tab %q", tab)
+		}
+	}
+	if contains(body, "Your Server Access") || contains(body, "Manage Server Access") {
+		t.Fatal("access management must not render on the dashboard")
+	}
+
+	accessReq := httptest.NewRequest(http.MethodGet, "/servers/OrderedSrv/access", nil)
+	accessReq = mux.SetURLVars(accessReq, map[string]string{"serverName": "OrderedSrv"})
+	accessReq.AddCookie(adminCookie)
+	accessRecorder := httptest.NewRecorder()
+	handler.ServerAccess(accessRecorder, accessReq)
+	if accessRecorder.Code != http.StatusOK {
+		t.Fatalf("access status=%d body=%s", accessRecorder.Code, accessRecorder.Body.String())
+	}
+	accessBody := accessRecorder.Body.String()
+	headings := []string{"Your Server Access", "Manage Server Access"}
 	previous := -1
 	for _, heading := range headings {
-		position := strings.Index(body, heading)
+		position := strings.Index(accessBody, heading)
 		if position < 0 {
-			t.Fatalf("missing sidebar heading %q", heading)
+			t.Fatalf("missing access-page heading %q", heading)
 		}
 		if position <= previous {
-			t.Fatalf("sidebar heading %q is out of order", heading)
+			t.Fatalf("access-page heading %q is out of order", heading)
 		}
 		previous = position
 	}

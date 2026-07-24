@@ -263,7 +263,12 @@ func main() {
 		router.Handle("/admin/access-grants/delete", authenticator.RequireRole("admin", "user")(http.HandlerFunc(webHandler.HandleAccessGrantDelete))).Methods("POST")
 
 		router.Handle("/admin/files/{serverName}", authenticator.RequireRole("admin")(http.HandlerFunc(webHandler.FileManager))).Methods("GET")
+		router.Handle("/servers/{serverName}", authenticator.RequireRole("admin", "user")(http.HandlerFunc(webHandler.ServerDetail))).Methods("GET")
+		router.Handle("/servers/{serverName}/console", authenticator.RequireRole("admin", "user")(http.HandlerFunc(webHandler.ServerConsole))).Methods("GET")
 		router.Handle("/servers/{serverName}/files", authenticator.RequireRole("admin", "user")(http.HandlerFunc(webHandler.ServerFiles))).Methods("GET")
+		router.Handle("/servers/{serverName}/whitelist", authenticator.RequireRole("admin", "user")(http.HandlerFunc(webHandler.ServerWhitelist))).Methods("GET")
+		router.Handle("/servers/{serverName}/access", authenticator.RequireRole("admin", "user")(http.HandlerFunc(webHandler.ServerAccess))).Methods("GET")
+		router.Handle("/servers/{serverName}/backups", authenticator.RequireRole("admin", "user")(http.HandlerFunc(webHandler.ServerBackups))).Methods("GET")
 	} else {
 		router.HandleFunc("/login", func(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Authentication is not configured", http.StatusServiceUnavailable)
@@ -303,8 +308,8 @@ func main() {
 	if authenticator != nil {
 		router.Handle("/servers/{serverName}/action", authenticator.RequireRole("admin", "user")(http.HandlerFunc(pteroHandler.ServerAction))).Methods("POST")
 		router.Handle("/servers/{serverName}/command", authenticator.RequireRole("admin", "user")(http.HandlerFunc(pteroHandler.SendCommand))).Methods("POST")
-		router.Handle("/servers/{serverName}/whitelist", authenticator.RequireRole("admin", "user")(http.HandlerFunc(pteroHandler.WhitelistSet))).Methods("POST")
-		router.Handle("/servers/{serverName}/whitelist", authenticator.RequireRole("admin", "user")(http.HandlerFunc(pteroHandler.WhitelistStatus))).Methods("GET")
+		router.Handle("/api/servers/{serverName}/whitelist", authenticator.RequireRole("admin", "user")(http.HandlerFunc(pteroHandler.WhitelistSet))).Methods("POST")
+		router.Handle("/api/servers/{serverName}/whitelist", authenticator.RequireRole("admin", "user")(http.HandlerFunc(pteroHandler.WhitelistStatus))).Methods("GET")
 	}
 
 	if authenticator != nil {
@@ -387,7 +392,7 @@ func main() {
 	router.HandleFunc("/help/api.md", webHandler.HelpMarkdown).Methods("GET")
 
 	if consoleHandler != nil && authenticator != nil {
-		router.Handle("/servers/{serverName}/console", authenticator.RequireRole("admin", "user")(http.HandlerFunc(consoleHandler.ServeWS)))
+		router.Handle("/servers/{serverName}/console/ws", authenticator.RequireRole("admin", "user")(http.HandlerFunc(consoleHandler.ServeWS)))
 	}
 
 	if agentHandler != nil && authenticator != nil {
