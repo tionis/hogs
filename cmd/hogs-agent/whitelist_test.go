@@ -66,6 +66,21 @@ func TestOfflineWhitelistAddRemoveAndList(t *testing.T) {
 	}
 }
 
+func TestOnlineWhitelistEntriesPreferStructuredFileAndFallBackToCommandOutput(t *testing.T) {
+	driver, _ := gametypes.Embedded("minecraft")
+	server := minecraftWhitelistFixture(t, true, `[{"uuid":"00000000-0000-0000-0000-000000000001","name":"FilePlayer"}]`)
+	entries := onlineWhitelistEntries(server, driver, "There are 1 whitelisted player(s): OutputPlayer")
+	if len(entries) != 1 || entries[0].Name != "FilePlayer" || entries[0].UUID == "" {
+		t.Fatalf("structured entries=%#v", entries)
+	}
+
+	server = minecraftWhitelistFixture(t, true, "")
+	entries = onlineWhitelistEntries(server, driver, "There are 2 whitelisted player(s): Alex, Builder_42")
+	if len(entries) != 2 || entries[0].Name != "Alex" || entries[1].Name != "Builder_42" {
+		t.Fatalf("fallback entries=%#v", entries)
+	}
+}
+
 func TestOfflineWhitelistRequiresVerifiedOnlineModeUUID(t *testing.T) {
 	original := `[{"uuid":"00000000-0000-0000-0000-000000000001","name":"Alex"}]`
 	server := minecraftWhitelistFixture(t, true, original)

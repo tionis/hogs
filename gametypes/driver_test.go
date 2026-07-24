@@ -58,6 +58,23 @@ func TestMinecraftIdentityResolverValidatesOfficialProfile(t *testing.T) {
 	}
 }
 
+func TestMinecraftWhitelistListParser(t *testing.T) {
+	driver, _ := Embedded("minecraft")
+	got := driver.Whitelist.ParseList("There are 3 whitelisted player(s): Alex, Builder_42, Steve")
+	want := []string{"Alex", "Builder_42", "Steve"}
+	if len(got) != len(want) {
+		t.Fatalf("parsed whitelist=%#v, want %#v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("parsed whitelist=%#v, want %#v", got, want)
+		}
+	}
+	if got := driver.Whitelist.ParseList("There are no whitelisted players"); len(got) != 0 {
+		t.Fatalf("empty whitelist parsed as %#v", got)
+	}
+}
+
 func TestEmbeddedDriversHaveUniqueDefinitions(t *testing.T) {
 	drivers := AllEmbedded()
 	if len(drivers) < 5 {

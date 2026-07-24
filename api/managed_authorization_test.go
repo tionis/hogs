@@ -2,8 +2,10 @@ package api
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -260,5 +262,31 @@ func TestWhitelistStatusIgnoresCallerSuppliedIdentity(t *testing.T) {
 	}
 	if response["username"] != "RightfulPlayer" {
 		t.Fatalf("caller selected another identity: %#v", response)
+	}
+}
+
+func TestWhitelistSelfServiceRejectsCallerSuppliedUsername(t *testing.T) {
+	store, authenticator, eng := managedAuthorizationFixture(t, nil, `true`)
+	server, _ := store.GetServerByName("managed-test")
+	if err := store.SetServerAccessGrant(&database.ServerAccessGrant{
+		ServerID: server.ID, SubjectType: "user", Subject: "player@example.test",
+		Effect: "allow", Capabilities: []string{"whitelist.self"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.DB.Exec(`UPDATE pterodactyl_servers SET allowed_actions='["whitelist"]' WHERE server_id=?`, server.ID); err != nil {
+		t.Fatal(err)
+	}
+	req := managedTestRequest(t, store, authenticator, "player@example.test", "user")
+	req.Method = http.MethodPost
+	req.Body = io.NopCloser(strings.NewReader("op=add&username=SomeoneElse"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req = mux.SetURLVars(req, map[string]string{"serverName": "managed-test"})
+	recorder := httptest.NewRecorder()
+	handler := NewPterodactylHandler(store, &config.Config{}, eng, nil, authenticator)
+	handler.WhitelistSet(recorder, req)
+	if recorder.Code != http.StatusBadRequest ||
+		!strings.Contains(recorder.Body.String(), "User Settings") {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 }

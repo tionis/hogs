@@ -430,12 +430,31 @@ func (s *Store) GetUserWhitelist(email string, serverID int) (*UserWhitelist, er
 }
 
 func (s *Store) SetUserWhitelist(email string, serverID int, username string) error {
-	_, err := s.DB.Exec("INSERT INTO user_whitelists (user_email, server_id, username) VALUES (?, ?, ?) ON CONFLICT(user_email, server_id) DO UPDATE SET username = ?", email, serverID, username, username)
-	return err
+	tx, err := s.DB.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err = tx.Exec(`DELETE FROM user_whitelists
+		WHERE server_id=? AND lower(username)=lower(?) AND lower(user_email)<>lower(?)`,
+		serverID, username, email); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(`INSERT INTO user_whitelists (user_email, server_id, username)
+		VALUES (?, ?, ?) ON CONFLICT(user_email, server_id) DO UPDATE SET username=excluded.username`,
+		email, serverID, username); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *Store) DeleteUserWhitelist(email string, serverID int) error {
 	_, err := s.DB.Exec("DELETE FROM user_whitelists WHERE user_email = ? AND server_id = ?", email, serverID)
+	return err
+}
+
+func (s *Store) DeleteUserWhitelistsByUsername(serverID int, username string) error {
+	_, err := s.DB.Exec("DELETE FROM user_whitelists WHERE server_id=? AND lower(username)=lower(?)", serverID, username)
 	return err
 }
 

@@ -22,6 +22,7 @@ type IdentityValidator func(string) bool
 type IdentityResolver func(context.Context, *http.Client, string) (ResolvedIdentity, error)
 type PlayerCommand func(string) string
 type ConsoleLineFilter func(string) bool
+type WhitelistListParser func(string) []string
 
 type ResolvedIdentity struct {
 	Username   string
@@ -38,6 +39,7 @@ type WhitelistDriver struct {
 	AddCommand    PlayerCommand
 	RemoveCommand PlayerCommand
 	OfflineFile   string
+	ParseList     WhitelistListParser
 }
 
 type Driver struct {

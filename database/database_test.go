@@ -610,3 +610,31 @@ func TestListAuditLogScansJSONText(t *testing.T) {
 		t.Fatalf("request context = %q/%q", entries[0].ClientIP, entries[0].CountryCode)
 	}
 }
+
+func TestUserWhitelistLinksAreUniquePerServerUsername(t *testing.T) {
+	store := testStore(t)
+	if err := store.CreateServer(&Server{Name: "Roster", GameType: "minecraft", State: "online"}); err != nil {
+		t.Fatal(err)
+	}
+	server, _ := store.GetServerByName("Roster")
+	if err := store.SetUserWhitelist("first@example.test", server.ID, "TestPlayer"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetUserWhitelist("second@example.test", server.ID, "testplayer"); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := store.ListUserWhitelists(server.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].UserEmail != "second@example.test" {
+		t.Fatalf("links=%#v, want the replacement panel user", entries)
+	}
+	if err := store.DeleteUserWhitelistsByUsername(server.ID, "TESTPLAYER"); err != nil {
+		t.Fatal(err)
+	}
+	entries, err = store.ListUserWhitelists(server.ID)
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("links after case-insensitive removal=%#v err=%v", entries, err)
+	}
+}

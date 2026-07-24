@@ -98,7 +98,25 @@ func onlineWhitelistOperation(server *ServerConfig, driver gametypes.Driver, req
 			output = strings.TrimSpace(output + "\n" + removeOutput)
 		}
 	}
-	return &backend.WhitelistResult{Mode: "online", Output: output, Entries: []backend.WhitelistEntry{}}, nil
+	entries := onlineWhitelistEntries(server, driver, output)
+	return &backend.WhitelistResult{Mode: "online", Output: output, Entries: entries}, nil
+}
+
+func onlineWhitelistEntries(server *ServerConfig, driver gametypes.Driver, output string) []backend.WhitelistEntry {
+	if driver.Whitelist.OfflineFile != "" {
+		if entries, path, err := readOfflineWhitelist(server, driver.Whitelist.OfflineFile); err == nil {
+			if _, statErr := os.Stat(path); statErr == nil {
+				return entries
+			}
+		}
+	}
+	var entries []backend.WhitelistEntry
+	if driver.Whitelist.ParseList != nil {
+		for _, name := range driver.Whitelist.ParseList(output) {
+			entries = append(entries, backend.WhitelistEntry{Name: name})
+		}
+	}
+	return entries
 }
 
 func offlineWhitelistOperation(server *ServerConfig, driver gametypes.Driver, request backend.WhitelistRequest) (*backend.WhitelistResult, *backend.WhitelistError) {

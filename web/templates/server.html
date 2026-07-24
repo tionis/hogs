@@ -68,13 +68,13 @@
 <div class="card mb-4">
   <div class="card-header">Your whitelist entry</div>
   <div class="card-body">
-    <p class="small text-muted">Manage only your linked {{.Server.GameType}} identity. This does not grant permission to change other players.</p>
-    <div id="whitelist-status" class="small mb-2 text-muted">Loading linked identity…</div>
-    <form id="self-whitelist-form" class="input-group">
-      <input type="text" name="username" class="form-control" placeholder="Linked {{.Server.GameType}} username" required id="whitelist-username">
-      <button type="submit" class="btn btn-success">Whitelist me</button>
-      <button type="button" class="btn btn-outline-danger" id="self-whitelist-remove">Remove me</button>
-    </form>
+    <p class="small text-muted">HOGS uses the {{.Server.GameType}} identity from your account settings. This permission only lets you add or remove yourself.</p>
+    <div id="whitelist-status" class="mb-3 text-muted">Loading your linked identity…</div>
+    <div class="d-flex flex-wrap gap-2">
+      <button type="button" class="btn btn-success" id="self-whitelist-add" disabled>Add me to this server</button>
+      <button type="button" class="btn btn-outline-danger" id="self-whitelist-remove" disabled>Remove me from this server</button>
+      <a class="btn btn-outline-secondary" href="/account/settings#linked-game-accounts">Edit linked game account</a>
+    </div>
     <div id="self-whitelist-feedback" class="small mt-2" role="status"></div>
   </div>
 </div>
@@ -83,11 +83,12 @@
 <div class="card mb-4">
   <div class="card-header">Manage server whitelist</div>
   <div class="card-body">
-    <div id="managed-whitelist-current" class="mb-3">Loading current whitelist…</div>
+    <div id="managed-whitelist-current" class="mb-4" aria-live="polite">Loading current whitelist…</div>
+    <h3 class="h6">Add an entry</h3>
     <form id="managed-whitelist-form" class="row g-2">
       <div class="col-md-5"><input class="form-control" name="username" placeholder="In-game username" required></div>
       <div class="col-md-5"><input class="form-control" name="user_email" type="email" placeholder="Optional linked panel user"></div>
-      <div class="col-md-2 d-flex gap-1"><button class="btn btn-success" type="button" data-managed-whitelist="add">Add</button><button class="btn btn-outline-danger" type="button" data-managed-whitelist="remove">Remove</button></div>
+      <div class="col-md-2"><button class="btn btn-success w-100" type="submit">Add entry</button></div>
     </form>
     <div id="managed-whitelist-feedback" class="small mt-2" role="status"></div>
   </div>
@@ -733,17 +734,18 @@ document.addEventListener("DOMContentLoaded", function() {
     {{end}}
 
     {{if and (eq .Page "whitelist") .Authenticated .PteroLink}}
-    const selfWhitelistForm = document.getElementById('self-whitelist-form');
+    const selfWhitelistAdd = document.getElementById('self-whitelist-add');
     const selfWhitelistRemove = document.getElementById('self-whitelist-remove');
     const selfWhitelistFeedback = document.getElementById('self-whitelist-feedback');
+    const whitelistElement = (tag, className, text) => {
+      const element = document.createElement(tag);
+      if (className) element.className = className;
+      if (text !== undefined) element.textContent = text;
+      return element;
+    };
     async function submitSelfWhitelist(op) {
-        if (!selfWhitelistForm) return;
-        const username = document.getElementById('whitelist-username').value.trim();
-        if (op === 'add' && !username) {
-            selfWhitelistForm.reportValidity();
-            return;
-        }
-        const body = new URLSearchParams({op, username});
+        if (!selfWhitelistFeedback) return;
+        const body = new URLSearchParams({op});
         try {
             const response = await fetch(`/api/servers/${encodeURIComponent(serverName)}/whitelist`, {
                 method: 'POST',
@@ -767,48 +769,141 @@ document.addEventListener("DOMContentLoaded", function() {
     const managedWhitelistCurrent = document.getElementById('managed-whitelist-current');
     const managedWhitelistFeedback = document.getElementById('managed-whitelist-feedback');
     const managedWhitelistForm = document.getElementById('managed-whitelist-form');
-    const whitelistSummary = result => {
-      const source = result.mode === 'offline' ? 'Saved whitelist (server stopped)' : 'Live whitelist';
-      if (Array.isArray(result.entries) && result.entries.length > 0) {
-        return `${source}: ${result.entries.map(entry => entry.name).join(', ')}`;
+    const managedWhitelistRequest = async body => {
+      const response = await fetch(managedWhitelistEndpoint, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': getCsrfToken(), 'Accept': 'application/json'},
+        body
+      });
+      const contentType = response.headers.get('content-type') || '';
+      const result = contentType.includes('application/json') ? await response.json() : {message: (await response.text()).trim()};
+      if (!response.ok) throw new Error(result.message || `HTTP ${response.status}`);
+      return result;
+    };
+    const renderManagedWhitelist = result => {
+      managedWhitelistCurrent.className = 'mb-4';
+      managedWhitelistCurrent.replaceChildren();
+      const source = result.mode === 'offline' ? 'Saved whitelist · server stopped' : 'Live whitelist';
+      managedWhitelistCurrent.append(whitelistElement('p', 'small text-muted mb-2', source));
+      const entries = Array.isArray(result.entries) ? result.entries : [];
+      if (entries.length === 0) {
+        managedWhitelistCurrent.append(whitelistElement('div', 'alert alert-secondary mb-0', 'No players are currently whitelisted.'));
+        return;
       }
-      if (result.output) return `${source}: ${result.output}`;
-      return `${source}: no players`;
+      const linkedByUsername = new Map();
+      (Array.isArray(result.linked) ? result.linked : []).forEach(link => {
+        linkedByUsername.set(String(link.username || '').toLowerCase(), link);
+      });
+      const wrapper = whitelistElement('div', 'table-responsive');
+      const table = whitelistElement('table', 'table table-sm align-middle mb-0');
+      const head = document.createElement('thead');
+      const headRow = document.createElement('tr');
+      ['In-game username', 'Panel user (optional)', 'Actions'].forEach(label => {
+        headRow.append(whitelistElement('th', '', label));
+      });
+      head.append(headRow);
+      table.append(head);
+      const body = document.createElement('tbody');
+      entries.forEach(entry => {
+        const row = document.createElement('tr');
+        const usernameCell = document.createElement('td');
+        const username = String(entry.name || '');
+        usernameCell.append(whitelistElement('strong', '', username));
+        row.append(usernameCell);
+
+        const link = linkedByUsername.get(username.toLowerCase());
+        const panelCell = document.createElement('td');
+        const email = document.createElement('input');
+        email.type = 'email';
+        email.className = 'form-control form-control-sm';
+        email.placeholder = 'No panel user linked';
+        email.value = link ? link.userEmail : '';
+        email.setAttribute('aria-label', `Panel user linked to ${username}`);
+        panelCell.append(email);
+        row.append(panelCell);
+
+        const actions = document.createElement('td');
+        actions.className = 'text-nowrap';
+        const save = whitelistElement('button', 'btn btn-sm btn-outline-primary me-1', 'Save link');
+        save.type = 'button';
+        save.addEventListener('click', async () => {
+          if (!email.reportValidity()) return;
+          save.disabled = true;
+          try {
+            const result = await managedWhitelistRequest(new URLSearchParams({
+              op: 'link', username, user_email: email.value.trim()
+            }));
+            managedWhitelistFeedback.className = 'small mt-2 text-success';
+            managedWhitelistFeedback.textContent = result.message;
+            await loadManagedWhitelist();
+          } catch (error) {
+            managedWhitelistFeedback.className = 'small mt-2 text-danger';
+            managedWhitelistFeedback.textContent = error.message;
+          } finally {
+            save.disabled = false;
+          }
+        });
+        const remove = whitelistElement('button', 'btn btn-sm btn-outline-danger', 'Remove');
+        remove.type = 'button';
+        remove.addEventListener('click', async () => {
+          if (!window.confirm(`Remove ${username} from this server's whitelist?`)) return;
+          remove.disabled = true;
+          try {
+            const result = await managedWhitelistRequest(new URLSearchParams({op: 'remove', username}));
+            managedWhitelistFeedback.className = 'small mt-2 text-success';
+            managedWhitelistFeedback.textContent = result.message;
+            await loadManagedWhitelist();
+            loadWhitelistStatus();
+          } catch (error) {
+            managedWhitelistFeedback.className = 'small mt-2 text-danger';
+            managedWhitelistFeedback.textContent = error.message;
+          } finally {
+            remove.disabled = false;
+          }
+        });
+        actions.append(save, remove);
+        row.append(actions);
+        body.append(row);
+      });
+      table.append(body);
+      wrapper.append(table);
+      managedWhitelistCurrent.append(wrapper);
     };
     const loadManagedWhitelist = async () => {
       try {
         const response = await fetch(managedWhitelistEndpoint);
         if (!response.ok) throw new Error((await response.text()) || `HTTP ${response.status}`);
         const result = await response.json();
-        managedWhitelistCurrent.textContent = whitelistSummary(result);
+        renderManagedWhitelist(result);
       } catch (error) {
+        managedWhitelistCurrent.replaceChildren();
+        managedWhitelistCurrent.className = 'mb-4 text-danger';
         managedWhitelistCurrent.textContent = `Could not load the whitelist: ${error.message}`;
       }
     };
-    document.querySelectorAll('[data-managed-whitelist]').forEach(button => button.addEventListener('click', async () => {
+    managedWhitelistForm.addEventListener('submit', async event => {
+      event.preventDefault();
       if (!managedWhitelistForm.reportValidity()) return;
       const body = new URLSearchParams(new FormData(managedWhitelistForm));
-      body.set('op', button.dataset.managedWhitelist);
+      body.set('op', 'add');
+      const submit = managedWhitelistForm.querySelector('button[type="submit"]');
+      submit.disabled = true;
       try {
-        const response = await fetch(managedWhitelistEndpoint, {method: 'POST', body});
-        if (!response.ok) throw new Error((await response.text()) || `HTTP ${response.status}`);
-        const result = await response.json();
+        const result = await managedWhitelistRequest(body);
         managedWhitelistFeedback.className = 'small mt-2 text-success';
         managedWhitelistFeedback.textContent = result.message;
+        managedWhitelistForm.reset();
         await loadManagedWhitelist();
       } catch (error) {
         managedWhitelistFeedback.className = 'small mt-2 text-danger';
         managedWhitelistFeedback.textContent = error.message;
+      } finally {
+        submit.disabled = false;
       }
-    }));
+    });
     loadManagedWhitelist();
     {{end}}
-    if (selfWhitelistForm) {
-        selfWhitelistForm.addEventListener('submit', event => {
-            event.preventDefault();
-            submitSelfWhitelist('add');
-        });
-    }
+    if (selfWhitelistAdd) selfWhitelistAdd.addEventListener('click', () => submitSelfWhitelist('add'));
     if (selfWhitelistRemove) {
         selfWhitelistRemove.addEventListener('click', () => submitSelfWhitelist('remove'));
     }
@@ -818,21 +913,44 @@ document.addEventListener("DOMContentLoaded", function() {
     function loadWhitelistStatus() {
       if (!userEmail) return;
       fetch(`/api/servers/${encodeURIComponent(serverName)}/whitelist`)
-      .then(r => r.json())
+      .then(async response => {
+        if (!response.ok) throw new Error((await response.text()).trim() || `HTTP ${response.status}`);
+        return response.json();
+      })
       .then(data => {
         const statusEl = document.getElementById('whitelist-status');
-        const inputEl = document.getElementById('whitelist-username');
+        if (statusEl) statusEl.className = 'mb-3 text-muted';
+        if (selfWhitelistAdd) {
+          selfWhitelistAdd.disabled = !data.linkedUsername || Boolean(data.username);
+          selfWhitelistAdd.hidden = Boolean(data.username);
+        }
+        if (selfWhitelistRemove) {
+          selfWhitelistRemove.disabled = !data.username;
+          selfWhitelistRemove.hidden = !data.username;
+        }
         if (data.username) {
-          if (statusEl) statusEl.innerHTML = `Currently whitelisted as: <strong>${data.username}</strong>`;
-          if (inputEl) inputEl.value = data.username;
+          if (statusEl) {
+            statusEl.replaceChildren();
+            statusEl.append('You are whitelisted as ', whitelistElement('strong', '', data.username), '.');
+            if (data.linkedUsername && data.linkedUsername.toLowerCase() !== data.username.toLowerCase()) {
+              statusEl.append(` Your linked account is now ${data.linkedUsername}; remove the old entry before adding the new one.`);
+            }
+          }
         } else {
-          if (inputEl && data.linkedUsername) inputEl.value = data.linkedUsername;
           if (statusEl) statusEl.textContent = data.linkedUsername
-            ? `Linked identity: ${data.linkedUsername}. Not yet whitelisted on this server.`
-            : 'Link your in-game identity to whitelist it on this server.';
+            ? `Your linked identity is ${data.linkedUsername}. It is not yet on this server's whitelist.`
+            : 'No game identity is linked. Add one in User Settings before whitelisting yourself.';
         }
       })
-      .catch(() => {});
+      .catch(error => {
+        const statusEl = document.getElementById('whitelist-status');
+        if (statusEl) {
+          statusEl.className = 'mb-3 text-danger';
+          statusEl.textContent = `Could not load your whitelist status: ${error.message}`;
+        }
+        if (selfWhitelistAdd) selfWhitelistAdd.disabled = true;
+        if (selfWhitelistRemove) selfWhitelistRemove.disabled = true;
+      });
     }
     loadWhitelistStatus();
     {{end}}

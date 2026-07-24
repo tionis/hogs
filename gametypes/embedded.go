@@ -79,6 +79,19 @@ func init() {
 			AddCommand:    func(player string) string { return fmt.Sprintf("whitelist add %s", player) },
 			RemoveCommand: func(player string) string { return fmt.Sprintf("whitelist remove %s", player) },
 			OfflineFile:   "whitelist.json",
+			ParseList: func(output string) []string {
+				_, players, found := strings.Cut(output, ":")
+				if !found {
+					return nil
+				}
+				var names []string
+				for _, player := range strings.Split(players, ",") {
+					if player = strings.TrimSpace(player); minecraftUsername.MatchString(player) {
+						names = append(names, player)
+					}
+				}
+				return names
+			},
 		},
 		IsRoutineConsoleLine: func(line string) bool {
 			return strings.Contains(line, "Thread RCON Client /") &&

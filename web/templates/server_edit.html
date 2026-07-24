@@ -245,33 +245,8 @@
     <div class="card mb-4" id="whitelist-management">
       <div class="card-header">Whitelist Management</div>
       <div class="card-body">
-        <p class="small text-muted">
-          Instance administrators can manage any player here. A user's regular
-          <strong>Whitelist own account</strong> capability only affects that user's linked Minecraft account.
-        </p>
-        <div id="admin-whitelist-current" class="small mb-3" aria-live="polite">Loading current whitelist…</div>
-        <form id="admin-whitelist-form" class="row g-2">
-          <div class="col-md-4">
-            <label class="form-label">Minecraft username</label>
-            <input class="form-control form-control-sm" name="username" pattern="[A-Za-z0-9_]{3,16}" required>
-          </div>
-          <div class="col-md-5">
-            <label class="form-label">Link to user email <span class="text-muted">(optional)</span></label>
-            <input class="form-control form-control-sm" name="user_email" type="email">
-          </div>
-          <div class="col-md-3 d-flex gap-2 align-items-end">
-            <button class="btn btn-sm btn-success flex-fill" type="button" data-whitelist-op="add">Add</button>
-            <button class="btn btn-sm btn-outline-danger flex-fill" type="button" data-whitelist-op="remove">Remove</button>
-          </div>
-        </form>
-        <div id="admin-whitelist-feedback" class="small mt-2" role="status"></div>
-        {{if .WhitelistEntries}}
-        <hr>
-        <div class="small text-muted mb-1">Linked panel entries</div>
-        {{range .WhitelistEntries}}
-        <span class="badge bg-secondary me-1 mb-1">{{.Username}} · {{.UserEmail}}</span>
-        {{end}}
-        {{end}}
+        <p class="small text-muted">The server whitelist and its optional panel-user links are managed together on the server page.</p>
+        <a class="btn btn-sm btn-outline-primary" href="/servers/{{.Server.Name}}/whitelist">Open whitelist management</a>
       </div>
     </div>
     {{end}}
@@ -397,62 +372,6 @@
     form.querySelector('input[name="allowed_actions"]').value = JSON.stringify(actions);
     return true;
   }
-
-  const whitelistForm = document.getElementById('admin-whitelist-form');
-  const whitelistCurrent = document.getElementById('admin-whitelist-current');
-  const whitelistFeedback = document.getElementById('admin-whitelist-feedback');
-  function whitelistSummary(body) {
-    const source = body.mode === 'offline' ? 'Saved whitelist (server stopped)' : 'Live whitelist';
-    if (Array.isArray(body.entries) && body.entries.length > 0) {
-      return `${source}: ${body.entries.map(entry => entry.name).join(', ')}`;
-    }
-    if (body.output) return `${source}: ${body.output}`;
-    return `${source}: no players`;
-  }
-  async function refreshAdminWhitelist() {
-    if (!whitelistForm) return;
-    try {
-      const response = await fetch('/admin/servers/{{.Server.Name}}/whitelist');
-      const contentType = response.headers.get('content-type') || '';
-      const body = contentType.includes('application/json') ? await response.json() : {error: (await response.text()).trim()};
-      if (!response.ok) throw new Error(body.error || response.statusText);
-      whitelistCurrent.className = 'small mb-3';
-      whitelistCurrent.textContent = whitelistSummary(body);
-    } catch (error) {
-      whitelistCurrent.className = 'small mb-3 text-danger';
-      whitelistCurrent.textContent = 'Could not load the live whitelist: ' + error.message;
-    }
-  }
-  document.querySelectorAll('[data-whitelist-op]').forEach(button => {
-    button.addEventListener('click', async function() {
-      if (!whitelistForm.reportValidity()) return;
-      const original = button.textContent;
-      button.disabled = true;
-      button.textContent = 'Working…';
-      const body = new URLSearchParams(new FormData(whitelistForm));
-      body.set('op', button.dataset.whitelistOp);
-      try {
-        const response = await fetch('/admin/servers/{{.Server.Name}}/whitelist', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': getCsrfToken()},
-          body
-        });
-        const contentType = response.headers.get('content-type') || '';
-        const result = contentType.includes('application/json') ? await response.json() : {message: (await response.text()).trim()};
-        if (!response.ok) throw new Error(result.message || response.statusText);
-        whitelistFeedback.className = 'small mt-2 text-success';
-        whitelistFeedback.textContent = result.message;
-        await refreshAdminWhitelist();
-      } catch (error) {
-        whitelistFeedback.className = 'small mt-2 text-danger';
-        whitelistFeedback.textContent = error.message;
-      } finally {
-        button.disabled = false;
-        button.textContent = original;
-      }
-    });
-  });
-  refreshAdminWhitelist();
 
   fetch('/api/pterodactyl/servers')
     .then(r => { if (!r.ok) throw new Error('Not configured'); return r.json(); })

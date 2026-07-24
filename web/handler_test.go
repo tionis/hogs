@@ -631,6 +631,27 @@ func TestServerTabsAndAccessPage(t *testing.T) {
 		t.Fatal("access management must not render on the dashboard")
 	}
 
+	whitelistReq := httptest.NewRequest(http.MethodGet, "/servers/OrderedSrv/whitelist", nil)
+	whitelistReq = mux.SetURLVars(whitelistReq, map[string]string{"serverName": "OrderedSrv"})
+	whitelistReq.AddCookie(adminCookie)
+	whitelistRecorder := httptest.NewRecorder()
+	handler.ServerWhitelist(whitelistRecorder, whitelistReq)
+	if whitelistRecorder.Code != http.StatusOK {
+		t.Fatalf("whitelist status=%d body=%s", whitelistRecorder.Code, whitelistRecorder.Body.String())
+	}
+	whitelistBody := whitelistRecorder.Body.String()
+	for _, expected := range []string{
+		"Your whitelist entry", "Edit linked game account", "Manage server whitelist",
+		"In-game username", "Panel user (optional)", "Save link", "Add entry",
+	} {
+		if !contains(whitelistBody, expected) {
+			t.Fatalf("whitelist page missing %q", expected)
+		}
+	}
+	if contains(whitelistBody, `id="whitelist-username"`) {
+		t.Fatal("whitelist page contains a second self-service identity editor")
+	}
+
 	accessReq := httptest.NewRequest(http.MethodGet, "/servers/OrderedSrv/access", nil)
 	accessReq = mux.SetURLVars(accessReq, map[string]string{"serverName": "OrderedSrv"})
 	accessReq.AddCookie(adminCookie)
