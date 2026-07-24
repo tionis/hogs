@@ -25,5 +25,5 @@ require (
 	github.com/gorilla/securecookie v1.1.2 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.17 // indirect
-	golang.org/x/sys v0.38.0 // indirect
+	golang.org/x/sys v0.44.0 // indirect
 )
