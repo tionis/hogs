@@ -718,15 +718,20 @@ func TestSourceDetection(t *testing.T) {
 		t.Errorf("Source = %q, want %q", source, "cron")
 	}
 
-	apiUser := &UserEnv{Email: "", Role: "admin"}
-	eng.Evaluate(created, "start", nil, apiUser)
+	apiUser := &UserEnv{Email: "", Role: "admin", ClientIP: "192.0.2.44"}
+	eng.Evaluate(created, "start", map[string]string{"request": "test"}, apiUser)
 
-	row = store.DB.QueryRow("SELECT source FROM audit_log WHERE user_email = ? ORDER BY id DESC LIMIT 1", "")
-	if err := row.Scan(&source); err != nil {
+	var email, clientIP, reason, params string
+	row = store.DB.QueryRow("SELECT source, user_email, client_ip, reason, params FROM audit_log WHERE user_email = ? ORDER BY id DESC LIMIT 1", "anonymous")
+	if err := row.Scan(&source, &email, &clientIP, &reason, &params); err != nil {
 		t.Fatalf("failed to read audit log source: %v", err)
 	}
 	if source != "api" {
 		t.Errorf("Source = %q, want %q", source, "api")
+	}
+	if email != "anonymous" || clientIP != "192.0.2.44" ||
+		reason != "authorized by server access policy" || params != `{"request":"test"}` {
+		t.Fatalf("audit context = email=%q ip=%q reason=%q params=%q", email, clientIP, reason, params)
 	}
 
 	normalUser := &UserEnv{Email: "user@example.com", Role: "admin"}

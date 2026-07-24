@@ -209,7 +209,10 @@ func (h *WebHandler) getUserEnv(r *http.Request) *engine.UserEnv {
 		}
 	}
 
-	return &engine.UserEnv{Email: email, Role: role, Groups: groups}
+	return &engine.UserEnv{
+		Email: email, Role: role, Groups: groups,
+		ClientIP: auth.ClientIP(r, h.Config != nil && h.Config.TrustProxyHeaders),
+	}
 }
 
 type PterodactylLinkData struct {

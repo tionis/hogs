@@ -452,11 +452,12 @@ func (h *AutomationHandler) ExportAuditLog(w http.ResponseWriter, r *http.Reques
 	case "csv":
 		w.Header().Set("Content-Type", "text/csv")
 		w.Header().Set("Content-Disposition", "attachment; filename=audit_log.csv")
-		w.Write([]byte("timestamp,user_email,server_name,action,params,result,reason,source\n"))
+		w.Write([]byte("timestamp,user_email,server_name,action,params,result,reason,source,client_ip,country_code\n"))
 		for _, e := range entries {
-			line := fmt.Sprintf("%s,%s,%s,%s,%s,%s,%s,%s\n",
+			line := fmt.Sprintf("%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n",
 				escapeCSV(e.Timestamp), escapeCSV(e.UserEmail), escapeCSV(e.ServerName), escapeCSV(e.Action),
-				escapeCSV(string(e.Params)), escapeCSV(e.Result), escapeCSV(e.Reason), escapeCSV(e.Source))
+				escapeCSV(string(e.Params)), escapeCSV(e.Result), escapeCSV(e.Reason), escapeCSV(e.Source),
+				escapeCSV(e.ClientIP), escapeCSV(e.CountryCode))
 			w.Write([]byte(line))
 		}
 	default:

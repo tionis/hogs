@@ -1427,23 +1427,25 @@ func (s *Store) ListCronJobLogs(cronJobID, limit int) ([]CronJobLog, error) {
 }
 
 type AuditLogEntry struct {
-	ID         int             `json:"id"`
-	Timestamp  string          `json:"timestamp"`
-	UserEmail  string          `json:"userEmail"`
-	ServerName string          `json:"serverName"`
-	Action     string          `json:"action"`
-	Params     json.RawMessage `json:"params"`
-	Result     string          `json:"result"`
-	Reason     string          `json:"reason"`
-	Source     string          `json:"source"`
+	ID          int             `json:"id"`
+	Timestamp   string          `json:"timestamp"`
+	UserEmail   string          `json:"userEmail"`
+	ServerName  string          `json:"serverName"`
+	Action      string          `json:"action"`
+	Params      json.RawMessage `json:"params"`
+	Result      string          `json:"result"`
+	Reason      string          `json:"reason"`
+	Source      string          `json:"source"`
+	ClientIP    string          `json:"clientIp"`
+	CountryCode string          `json:"countryCode"`
 }
 
 func (s *Store) CreateAuditLog(entry *AuditLogEntry) error {
 	if entry.Params == nil {
 		entry.Params = json.RawMessage("{}")
 	}
-	result, err := s.DB.Exec("INSERT INTO audit_log (timestamp, user_email, server_name, action, params, result, reason, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-		entry.Timestamp, entry.UserEmail, entry.ServerName, entry.Action, string(entry.Params), entry.Result, entry.Reason, entry.Source)
+	result, err := s.DB.Exec("INSERT INTO audit_log (timestamp, user_email, server_name, action, params, result, reason, source, client_ip, country_code) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		entry.Timestamp, entry.UserEmail, entry.ServerName, entry.Action, string(entry.Params), entry.Result, entry.Reason, entry.Source, entry.ClientIP, entry.CountryCode)
 	if err != nil {
 		return err
 	}
@@ -1456,7 +1458,7 @@ func (s *Store) ListAuditLog(limit, offset int) ([]AuditLogEntry, error) {
 	if limit <= 0 {
 		limit = 100
 	}
-	rows, err := s.DB.Query("SELECT id, timestamp, user_email, server_name, action, params, result, reason, source FROM audit_log ORDER BY id DESC LIMIT ? OFFSET ?", limit, offset)
+	rows, err := s.DB.Query("SELECT id, timestamp, user_email, server_name, action, params, result, reason, source, client_ip, country_code FROM audit_log ORDER BY id DESC LIMIT ? OFFSET ?", limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -1466,7 +1468,7 @@ func (s *Store) ListAuditLog(limit, offset int) ([]AuditLogEntry, error) {
 	for rows.Next() {
 		var e AuditLogEntry
 		var params []byte
-		if err := rows.Scan(&e.ID, &e.Timestamp, &e.UserEmail, &e.ServerName, &e.Action, &params, &e.Result, &e.Reason, &e.Source); err != nil {
+		if err := rows.Scan(&e.ID, &e.Timestamp, &e.UserEmail, &e.ServerName, &e.Action, &params, &e.Result, &e.Reason, &e.Source, &e.ClientIP, &e.CountryCode); err != nil {
 			return nil, err
 		}
 		e.Params = json.RawMessage(params)

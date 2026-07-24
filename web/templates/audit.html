@@ -27,11 +27,13 @@
           <th>Action</th>
           <th>Result</th>
           <th>Reason</th>
+          <th>Client</th>
           <th>Source</th>
+          <th>Context</th>
         </tr>
       </thead>
       <tbody id="audit-entries">
-        <tr><td colspan="7" class="text-center text-muted">Loading...</td></tr>
+        <tr><td colspan="9" class="text-center text-muted">Loading...</td></tr>
       </tbody>
     </table>
   </div>
@@ -63,18 +65,24 @@ function loadLog(newOffset) {
       const tbody = document.getElementById('audit-entries');
       tbody.innerHTML = '';
       if (entries.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">No entries found.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted">No entries found.</td></tr>';
       } else {
         entries.forEach(e => {
           const row = document.createElement('tr');
+          const context = JSON.stringify(e.params || {});
+          const client = e.clientIp
+            ? escHtml(e.clientIp) + (e.countryCode ? ' <span class="badge bg-secondary">' + escHtml(e.countryCode) + '</span>' : '')
+            : '<span class="text-muted">—</span>';
           row.innerHTML =
             '<td class="small">' + escHtml(e.timestamp) + '</td>' +
-            '<td>' + escHtml(e.user_email) + '</td>' +
-            '<td>' + escHtml(e.server_name) + '</td>' +
+            '<td>' + escHtml(e.userEmail || 'anonymous') + '</td>' +
+            '<td>' + escHtml(e.serverName || '—') + '</td>' +
             '<td><code>' + escHtml(e.action) + '</code></td>' +
             '<td>' + resultBadge(e.result) + '</td>' +
-            '<td class="small">' + escHtml(e.reason || '') + '</td>' +
-            '<td><span class="badge bg-info">' + escHtml(e.source) + '</span></td>';
+            '<td class="small">' + escHtml(e.reason || 'No reason recorded') + '</td>' +
+            '<td class="small text-nowrap">' + client + '</td>' +
+            '<td><span class="badge bg-info">' + escHtml(e.source) + '</span></td>' +
+            '<td><code class="small" title="' + escHtml(context) + '">' + escHtml(context === '{}' ? '—' : context) + '</code></td>';
           tbody.appendChild(row);
         });
       }

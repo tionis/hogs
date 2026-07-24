@@ -1,0 +1,2 @@
+ALTER TABLE audit_log ADD COLUMN client_ip TEXT NOT NULL DEFAULT '';
+ALTER TABLE audit_log ADD COLUMN country_code TEXT NOT NULL DEFAULT '';

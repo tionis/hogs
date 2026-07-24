@@ -27,9 +27,11 @@ type ServerEnv struct {
 }
 
 type UserEnv struct {
-	Email  string   `json:"email"`
-	Role   string   `json:"role"`
-	Groups []string `json:"groups"`
+	Email       string   `json:"email"`
+	Role        string   `json:"role"`
+	Groups      []string `json:"groups"`
+	ClientIP    string   `json:"clientIp"`
+	CountryCode string   `json:"countryCode"`
 }
 
 type TimeEnv struct {
@@ -422,13 +424,20 @@ func (e *Engine) Evaluate(server *database.Server, action string, params map[str
 	auditEntry := &database.AuditLogEntry{
 		Action:     action,
 		ServerName: server.Name,
-		UserEmail:  "",
+		UserEmail:  "anonymous",
 		Timestamp:  time.Now().UTC().Format(time.RFC3339),
+		Params:     paramsToJSON(params),
 		Result:     "allowed",
+		Reason:     "authorized by server access policy",
 		Source:     source,
 	}
 	if user != nil {
 		auditEntry.UserEmail = user.Email
+		if auditEntry.UserEmail == "" {
+			auditEntry.UserEmail = "anonymous"
+		}
+		auditEntry.ClientIP = user.ClientIP
+		auditEntry.CountryCode = user.CountryCode
 	}
 	defer func() {
 		if err := e.Store.CreateAuditLog(auditEntry); err != nil {

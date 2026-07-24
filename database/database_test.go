@@ -568,14 +568,16 @@ func TestAgentPendingOpCleanup(t *testing.T) {
 func TestListAuditLogScansJSONText(t *testing.T) {
 	store := testStore(t)
 	entry := &AuditLogEntry{
-		Timestamp:  "2026-01-02T03:04:05Z",
-		UserEmail:  "operator@example.test",
-		ServerName: "synthetic-server",
-		Action:     "start",
-		Params:     json.RawMessage(`{"reason":"test"}`),
-		Result:     "allowed",
-		Reason:     "test entry",
-		Source:     "test",
+		Timestamp:   "2026-01-02T03:04:05Z",
+		UserEmail:   "operator@example.test",
+		ServerName:  "synthetic-server",
+		Action:      "start",
+		Params:      json.RawMessage(`{"reason":"test"}`),
+		Result:      "allowed",
+		Reason:      "test entry",
+		Source:      "test",
+		ClientIP:    "198.51.100.42",
+		CountryCode: "DE",
 	}
 	if err := store.CreateAuditLog(entry); err != nil {
 		t.Fatalf("CreateAuditLog failed: %v", err)
@@ -590,5 +592,8 @@ func TestListAuditLogScansJSONText(t *testing.T) {
 	}
 	if string(entries[0].Params) != `{"reason":"test"}` {
 		t.Fatalf("params = %s", entries[0].Params)
+	}
+	if entries[0].ClientIP != "198.51.100.42" || entries[0].CountryCode != "DE" {
+		t.Fatalf("request context = %q/%q", entries[0].ClientIP, entries[0].CountryCode)
 	}
 }

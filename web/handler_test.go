@@ -222,6 +222,28 @@ func TestAdminRoleFailureRendersForbiddenPage(t *testing.T) {
 	}
 }
 
+func TestAuditLogUsesJSONFieldNamesAndRequestContext(t *testing.T) {
+	handler, store, authenticator := testWebHandler(t)
+	req := httptest.NewRequest(http.MethodGet, "/admin/audit", nil)
+	req.AddCookie(createTestSession(t, store, authenticator, "admin@example.test", "admin"))
+	recorder := httptest.NewRecorder()
+	handler.AuditLog(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("audit status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	for _, expected := range []string{
+		"e.userEmail", "e.serverName", "e.clientIp", "e.countryCode",
+		"JSON.stringify(e.params", "<th>Client</th>", "<th>Context</th>",
+	} {
+		if !contains(recorder.Body.String(), expected) {
+			t.Errorf("audit page missing %q", expected)
+		}
+	}
+	if contains(recorder.Body.String(), "e.user_email") || contains(recorder.Body.String(), "e.server_name") {
+		t.Error("audit page still reads obsolete snake_case JSON fields")
+	}
+}
+
 func TestUserSettingsContainsLinkedGameAccounts(t *testing.T) {
 	handler, store, authenticator := testWebHandler(t)
 	store.CreateServer(&database.Server{Name: "IdentitySrv", GameType: "minecraft", State: "online"})
