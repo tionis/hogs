@@ -280,6 +280,8 @@ func main() {
 		router.Handle("/admin/servers/delete", authenticator.RequireRole("admin")(http.HandlerFunc(webHandler.HandleServerDelete))).Methods("POST")
 		router.Handle("/admin/access-grants/set", authenticator.RequireRole("admin", "user")(http.HandlerFunc(webHandler.HandleAccessGrantSet))).Methods("POST")
 		router.Handle("/admin/access-grants/delete", authenticator.RequireRole("admin", "user")(http.HandlerFunc(webHandler.HandleAccessGrantDelete))).Methods("POST")
+		router.Handle("/admin/server-constraints/set", authenticator.RequireRole("admin", "user")(http.HandlerFunc(webHandler.HandleServerConstraintSet))).Methods("POST")
+		router.Handle("/admin/server-constraints/delete", authenticator.RequireRole("admin", "user")(http.HandlerFunc(webHandler.HandleServerConstraintDelete))).Methods("POST")
 
 		router.Handle("/admin/files/{serverName}", authenticator.RequireRole("admin")(http.HandlerFunc(webHandler.FileManager))).Methods("GET")
 		router.Handle("/servers/{serverName}", authenticator.RequireRole("admin", "user")(http.HandlerFunc(webHandler.ServerDetail))).Methods("GET")

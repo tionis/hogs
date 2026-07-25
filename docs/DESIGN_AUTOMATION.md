@@ -176,7 +176,12 @@ Every action attempt is logged regardless of outcome.
 | `queue` | `202 Accepted` | Action is queued. Background goroutine retries every 30s for up to 5 minutes. If still blocked, logs as skipped. |
 | `stop_oldest` | Proceeds | The longest-running conflicting server is stopped first, then the action proceeds. Logs both actions. |
 
-Constraints are evaluated in priority order (highest first). The first constraint that returns `false` determines the strategy applied.
+Constraints are evaluated in priority order (highest first), with instance
+constraints before server constraints at equal priority. Requirements apply
+their strategy when their expression is false. Exemptions return an allowed
+decision when their expression is true and skip only lower-priority rules.
+Server constraints are capped by `HOGS_SERVER_CONSTRAINT_MAX_PRIORITY`, so
+instance rules above that ceiling are mandatory.
 
 ---
 
@@ -252,6 +257,7 @@ Constraints are evaluated in priority order (highest first). The first constrain
 | `HOGS_CRON_QUEUE_MAX_RETRY` | `10` | Max retries before giving up on queued actions |
 | `HOGS_AUDIT_LOG_RETENTION_DAYS` | `90` | Days to retain audit log entries |
 | `HOGS_PTERO_NODE_REFRESH_INTERVAL` | `300` | Seconds between Pterodactyl node info refreshes |
+| `HOGS_SERVER_CONSTRAINT_MAX_PRIORITY` | `99` | Highest priority accepted for server-scoped constraints |
 | `HOGS_AGENT_ENABLED` | `true` | Enable node-agent management |
 | `HOGS_AGENT_HEARTBEAT_SEC` | `30` | Agent heartbeat interval |
 | `SCIM_ENABLED` | `false` | Enable SCIM 2.0 endpoints |

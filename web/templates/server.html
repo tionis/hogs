@@ -151,6 +151,72 @@
   </div>
 </div>
 {{end}}
+{{if .ManageAccess}}
+<div class="card mb-4" id="server-constraints">
+  <div class="card-header">Server Constraints</div>
+  <div class="card-body">
+    <p class="small text-muted">
+      Requirements add operational restrictions. An exemption that evaluates to true
+      skips only lower-priority constraints. Server rules are capped at priority
+      <strong>{{.ServerConstraintMaxPriority}}</strong>; higher-priority instance rules
+      remain mandatory.
+    </p>
+    {{range .ServerConstraints}}
+    <form action="/admin/server-constraints/set" method="POST" class="border rounded p-3 mb-3">
+      <input type="hidden" name="id" value="{{.ID}}">
+      <input type="hidden" name="server_id" value="{{$.Server.ID}}">
+      <div class="row g-2 mb-2">
+        <div class="col-md-4">
+          <label class="form-label small">Name</label>
+          <input class="form-control form-control-sm" name="name" value="{{.Name}}" required>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label small">Behavior</label>
+          <select class="form-select form-select-sm" name="mode">
+            <option value="require" {{if eq .Mode "require"}}selected{{end}}>Require condition</option>
+            <option value="exempt" {{if eq .Mode "exempt"}}selected{{end}}>Exempt when true</option>
+          </select>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label small">Priority</label>
+          <input class="form-control form-control-sm" type="number" name="priority"
+                 max="{{$.ServerConstraintMaxPriority}}" value="{{.Priority}}" required>
+        </div>
+        <div class="col-md-3 d-flex align-items-end gap-2 pb-1">
+          <label class="form-check mb-1"><input class="form-check-input" type="checkbox" name="enabled" {{if .Enabled}}checked{{end}}> Enabled</label>
+        </div>
+      </div>
+      <div class="mb-2">
+        <label class="form-label small">Description</label>
+        <input class="form-control form-control-sm" name="description" value="{{.Description}}">
+      </div>
+      <div class="mb-2">
+        <label class="form-label small">Condition</label>
+        <textarea class="form-control form-control-sm font-monospace" name="condition" rows="2" required>{{.Condition}}</textarea>
+      </div>
+      <button class="btn btn-sm btn-primary" type="submit">Save</button>
+      <button class="btn btn-sm btn-outline-danger" type="submit"
+              formaction="/admin/server-constraints/delete"
+              name="constraint_id" value="{{.ID}}"
+              onclick="return confirm('Delete this server constraint?')">Delete</button>
+    </form>
+    {{end}}
+    <form action="/admin/server-constraints/set" method="POST" class="border rounded p-3">
+      <input type="hidden" name="server_id" value="{{.Server.ID}}">
+      <h3 class="h6">Add server constraint</h3>
+      <div class="row g-2 mb-2">
+        <div class="col-md-4"><input class="form-control form-control-sm" name="name" placeholder="Unique name" required></div>
+        <div class="col-md-3"><select class="form-select form-select-sm" name="mode"><option value="require">Require condition</option><option value="exempt">Exempt when true</option></select></div>
+        <div class="col-md-2"><input class="form-control form-control-sm" type="number" name="priority" max="{{.ServerConstraintMaxPriority}}" value="0" required></div>
+        <div class="col-md-3"><label class="form-check mt-1"><input class="form-check-input" type="checkbox" name="enabled" checked> Enabled</label></div>
+      </div>
+      <input class="form-control form-control-sm mb-2" name="description" placeholder="Description">
+      <textarea class="form-control form-control-sm font-monospace mb-2" name="condition" rows="2" placeholder='action != "stop" || server.Players == 0' required></textarea>
+      <button class="btn btn-sm btn-primary" type="submit">Add constraint</button>
+    </form>
+  </div>
+</div>
+{{end}}
 {{else if eq .Page "backups"}}
 <div class="card mb-4">
   <div class="card-header">Server Backups</div>

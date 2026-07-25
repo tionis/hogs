@@ -41,8 +41,9 @@ func testWebHandler(t *testing.T) (*WebHandler, *database.Store, *auth.Authentic
 	t.Helper()
 	store := testStore(t)
 	cfg := &config.Config{
-		GameDataPath:          t.TempDir(),
-		AuditLogRetentionDays: 90,
+		GameDataPath:                t.TempDir(),
+		AuditLogRetentionDays:       90,
+		ServerConstraintMaxPriority: 99,
 	}
 	cache := query.NewServerStatusCache()
 	eng := engine.NewEngine(store, cfg, cache)
@@ -175,6 +176,44 @@ func TestServerAccessManagerCanGrantOnlyAuthorizedServer(t *testing.T) {
 	}
 	if recorder := submit(second.ID); recorder.Code != http.StatusForbidden {
 		t.Fatalf("cross-server grant status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestServerAccessManagerConstraintPriorityCeiling(t *testing.T) {
+	handler, store, authenticator := testWebHandler(t)
+	if err := store.CreateServer(&database.Server{Name: "managed", GameType: "example", State: "online"}); err != nil {
+		t.Fatal(err)
+	}
+	server, _ := store.GetServerByName("managed")
+	if err := store.SetServerAccessGrant(&database.ServerAccessGrant{
+		ServerID: server.ID, SubjectType: "user", Subject: "manager@example.test", Effect: "allow",
+		Capabilities: []string{"access.manage"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	cookie := createTestSession(t, store, authenticator, "manager@example.test", "user")
+	submit := func(priority string) *httptest.ResponseRecorder {
+		form := url.Values{
+			"server_id": {strconv.Itoa(server.ID)}, "name": {"maintenance-window"},
+			"mode": {"exempt"}, "condition": {"true"}, "priority": {priority}, "enabled": {"on"},
+		}
+		req := httptest.NewRequest(http.MethodPost, "/admin/server-constraints/set", strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.AddCookie(cookie)
+		recorder := httptest.NewRecorder()
+		handler.HandleServerConstraintSet(recorder, req)
+		return recorder
+	}
+
+	if recorder := submit("100"); recorder.Code != http.StatusBadRequest {
+		t.Fatalf("priority above ceiling status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if recorder := submit("99"); recorder.Code != http.StatusFound {
+		t.Fatalf("priority at ceiling status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	constraints, err := store.ListServerConstraints(server.ID)
+	if err != nil || len(constraints) != 1 || constraints[0].Priority != 99 {
+		t.Fatalf("stored constraints=%#v err=%v", constraints, err)
 	}
 }
 

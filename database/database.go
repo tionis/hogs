@@ -1284,16 +1284,39 @@ func (s *Store) PruneUnusedBackgroundGameTags() error {
 
 type Constraint struct {
 	ID          int    `json:"id"`
+	ServerID    *int   `json:"serverId,omitempty"`
 	Name        string `json:"name"`
 	Description string `json:"description"`
 	Condition   string `json:"condition"`
+	Mode        string `json:"mode"`
 	Strategy    string `json:"strategy"`
 	Priority    int    `json:"priority"`
 	Enabled     bool   `json:"enabled"`
 }
 
 func (s *Store) ListConstraints() ([]Constraint, error) {
-	rows, err := s.DB.Query("SELECT id, name, description, condition, strategy, priority, enabled FROM constraints ORDER BY priority DESC, id")
+	return s.listConstraints(`SELECT id,server_id,name,description,condition,mode,strategy,priority,enabled
+		FROM constraints ORDER BY priority DESC,server_id IS NOT NULL,id`)
+}
+
+func (s *Store) ListInstanceConstraints() ([]Constraint, error) {
+	return s.listConstraints(`SELECT id,server_id,name,description,condition,mode,strategy,priority,enabled
+		FROM constraints WHERE server_id IS NULL ORDER BY priority DESC,id`)
+}
+
+func (s *Store) ListServerConstraints(serverID int) ([]Constraint, error) {
+	return s.listConstraints(`SELECT id,server_id,name,description,condition,mode,strategy,priority,enabled
+		FROM constraints WHERE server_id=? ORDER BY priority DESC,id`, serverID)
+}
+
+func (s *Store) ListEnabledConstraintsForServer(serverID int) ([]Constraint, error) {
+	return s.listConstraints(`SELECT id,server_id,name,description,condition,mode,strategy,priority,enabled
+		FROM constraints WHERE enabled=1 AND (server_id IS NULL OR server_id=?)
+		ORDER BY priority DESC,server_id IS NOT NULL,id`, serverID)
+}
+
+func (s *Store) listConstraints(query string, args ...interface{}) ([]Constraint, error) {
+	rows, err := s.DB.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -1303,7 +1326,7 @@ func (s *Store) ListConstraints() ([]Constraint, error) {
 	for rows.Next() {
 		var c Constraint
 		var enabled int
-		if err := rows.Scan(&c.ID, &c.Name, &c.Description, &c.Condition, &c.Strategy, &c.Priority, &enabled); err != nil {
+		if err := rows.Scan(&c.ID, &c.ServerID, &c.Name, &c.Description, &c.Condition, &c.Mode, &c.Strategy, &c.Priority, &enabled); err != nil {
 			return nil, err
 		}
 		c.Enabled = enabled == 1
@@ -1312,29 +1335,12 @@ func (s *Store) ListConstraints() ([]Constraint, error) {
 	return constraints, nil
 }
 
-func (s *Store) ListEnabledConstraints() ([]Constraint, error) {
-	rows, err := s.DB.Query("SELECT id, name, description, condition, strategy, priority, enabled FROM constraints WHERE enabled = 1 ORDER BY priority DESC, id")
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var constraints []Constraint
-	for rows.Next() {
-		var c Constraint
-		if err := rows.Scan(&c.ID, &c.Name, &c.Description, &c.Condition, &c.Strategy, &c.Priority, &c.Enabled); err != nil {
-			return nil, err
-		}
-		constraints = append(constraints, c)
-	}
-	return constraints, nil
-}
-
 func (s *Store) GetConstraint(id int) (*Constraint, error) {
-	row := s.DB.QueryRow("SELECT id, name, description, condition, strategy, priority, enabled FROM constraints WHERE id = ?", id)
+	row := s.DB.QueryRow(`SELECT id,server_id,name,description,condition,mode,strategy,priority,enabled
+		FROM constraints WHERE id=?`, id)
 	var c Constraint
 	var enabled int
-	err := row.Scan(&c.ID, &c.Name, &c.Description, &c.Condition, &c.Strategy, &c.Priority, &enabled)
+	err := row.Scan(&c.ID, &c.ServerID, &c.Name, &c.Description, &c.Condition, &c.Mode, &c.Strategy, &c.Priority, &enabled)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
@@ -1346,12 +1352,17 @@ func (s *Store) GetConstraint(id int) (*Constraint, error) {
 }
 
 func (s *Store) CreateConstraint(c *Constraint) error {
+	if c.Mode == "" {
+		c.Mode = "require"
+	}
 	enabled := 0
 	if c.Enabled {
 		enabled = 1
 	}
-	result, err := s.DB.Exec("INSERT INTO constraints (name, description, condition, strategy, priority, enabled) VALUES (?, ?, ?, ?, ?, ?)",
-		c.Name, c.Description, c.Condition, c.Strategy, c.Priority, enabled)
+	result, err := s.DB.Exec(`INSERT INTO constraints
+		(server_id,name,description,condition,mode,strategy,priority,enabled)
+		VALUES(?,?,?,?,?,?,?,?)`,
+		c.ServerID, c.Name, c.Description, c.Condition, c.Mode, c.Strategy, c.Priority, enabled)
 	if err != nil {
 		return err
 	}
@@ -1361,17 +1372,27 @@ func (s *Store) CreateConstraint(c *Constraint) error {
 }
 
 func (s *Store) UpdateConstraint(c *Constraint) error {
+	if c.Mode == "" {
+		c.Mode = "require"
+	}
 	enabled := 0
 	if c.Enabled {
 		enabled = 1
 	}
-	_, err := s.DB.Exec("UPDATE constraints SET name = ?, description = ?, condition = ?, strategy = ?, priority = ?, enabled = ? WHERE id = ?",
-		c.Name, c.Description, c.Condition, c.Strategy, c.Priority, enabled, c.ID)
+	_, err := s.DB.Exec(`UPDATE constraints SET
+		server_id=?,name=?,description=?,condition=?,mode=?,strategy=?,priority=?,enabled=?
+		WHERE id=?`,
+		c.ServerID, c.Name, c.Description, c.Condition, c.Mode, c.Strategy, c.Priority, enabled, c.ID)
 	return err
 }
 
 func (s *Store) DeleteConstraint(id int) error {
 	_, err := s.DB.Exec("DELETE FROM constraints WHERE id = ?", id)
+	return err
+}
+
+func (s *Store) DeleteServerConstraint(id, serverID int) error {
+	_, err := s.DB.Exec("DELETE FROM constraints WHERE id=? AND server_id=?", id, serverID)
 	return err
 }
 

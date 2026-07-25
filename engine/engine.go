@@ -269,7 +269,7 @@ func (e *Engine) EvaluateACL(link *database.PterodactylLink, server *database.Se
 }
 
 func (e *Engine) EvaluateConstraints(server *database.Server, action string, user *UserEnv) (*ActionResult, error) {
-	constraints, err := e.Store.ListEnabledConstraints()
+	constraints, err := e.Store.ListEnabledConstraintsForServer(server.ID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list constraints: %w", err)
 	}
@@ -299,7 +299,16 @@ func (e *Engine) EvaluateConstraints(server *database.Server, action string, use
 			continue
 		}
 
-		if !passed {
+		if c.Mode == "exempt" && passed {
+			return &ActionResult{
+				Allowed: true,
+				Result:  "exempted",
+				Reason:  fmt.Sprintf("Constraint %q exempted this action from lower-priority constraints", c.Name),
+				Status:  200,
+			}, nil
+		}
+
+		if c.Mode != "exempt" && !passed {
 			return &ActionResult{
 				Allowed: false,
 				Result:  "blocked",

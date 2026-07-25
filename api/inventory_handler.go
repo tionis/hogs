@@ -105,6 +105,7 @@ type InventoryConstraint struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
 	Condition   string `json:"condition"`
+	Mode        string `json:"mode,omitempty"`
 	Strategy    string `json:"strategy"`
 	Priority    int    `json:"priority"`
 	Enabled     bool   `json:"enabled"`
@@ -474,6 +475,9 @@ func validateManifest(m *InventoryManifest) error {
 		}
 	}
 	for _, strategy := range m.Constraints {
+		if strategy.Mode != "" && strategy.Mode != "require" && strategy.Mode != "exempt" {
+			return fmt.Errorf("constraint %q has unsupported mode %q", strategy.Name, strategy.Mode)
+		}
 		if strategy.Strategy != "deny" && strategy.Strategy != "queue" && strategy.Strategy != "stop_oldest" {
 			return fmt.Errorf("constraint %q has unsupported strategy %q", strategy.Name, strategy.Strategy)
 		}
@@ -557,6 +561,11 @@ func normalizeManifest(m *InventoryManifest) {
 	}
 	if m.Constraints == nil {
 		m.Constraints = []InventoryConstraint{}
+	}
+	for i := range m.Constraints {
+		if m.Constraints[i].Mode == "" {
+			m.Constraints[i].Mode = "require"
+		}
 	}
 	if m.Schedules == nil {
 		m.Schedules = []InventorySchedule{}
@@ -1032,12 +1041,27 @@ func applyConstraints(tx *sql.Tx, values []InventoryConstraint) error {
 		if v.Enabled {
 			enabled = 1
 		}
-		_, err := tx.Exec(`INSERT INTO constraints(name,description,condition,strategy,priority,enabled) VALUES(?,?,?,?,?,?) ON CONFLICT(name) DO UPDATE SET description=excluded.description,condition=excluded.condition,strategy=excluded.strategy,priority=excluded.priority,enabled=excluded.enabled`, v.Name, v.Description, v.Condition, v.Strategy, v.Priority, enabled)
+		_, err := tx.Exec(`INSERT INTO constraints(server_id,name,description,condition,mode,strategy,priority,enabled)
+			VALUES(NULL,?,?,?,?,?,?,?)
+			ON CONFLICT(name) DO UPDATE SET server_id=NULL,description=excluded.description,
+			condition=excluded.condition,mode=excluded.mode,strategy=excluded.strategy,
+			priority=excluded.priority,enabled=excluded.enabled`,
+			v.Name, v.Description, v.Condition, v.Mode, v.Strategy, v.Priority, enabled)
 		if err != nil {
 			return err
 		}
 	}
-	return deleteMissing(tx, "constraints", "name", keep)
+	if len(keep) == 0 {
+		_, err := tx.Exec("DELETE FROM constraints WHERE server_id IS NULL")
+		return err
+	}
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(keep)), ",")
+	args := make([]interface{}, len(keep))
+	for i := range keep {
+		args[i] = keep[i]
+	}
+	_, err := tx.Exec("DELETE FROM constraints WHERE server_id IS NULL AND name NOT IN ("+placeholders+")", args...)
+	return err
 }
 func applySchedules(tx *sql.Tx, values []InventorySchedule) error {
 	keep := []string{}

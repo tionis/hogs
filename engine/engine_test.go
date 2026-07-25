@@ -577,6 +577,92 @@ func TestEvaluateConstraintsBlocking(t *testing.T) {
 	}
 }
 
+func TestServerConstraintExemptsOnlyLowerPriorityRules(t *testing.T) {
+	eng := testEngine(t)
+	store := eng.Store
+	server := &database.Server{Name: "scoped", GameType: "minecraft", State: "online"}
+	if err := store.CreateServer(server); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateConstraint(&database.Constraint{
+		Name: "ordinary-instance-rule", Condition: "false", Mode: "require",
+		Strategy: "deny", Priority: 10, Enabled: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateConstraint(&database.Constraint{
+		ServerID: &server.ID, Name: "server-exemption", Condition: "true", Mode: "exempt",
+		Strategy: "deny", Priority: 20, Enabled: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := eng.EvaluateConstraints(server, "stop", &UserEnv{Username: "operator", Role: "user"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Allowed || result.Result != "exempted" {
+		t.Fatalf("expected server exemption, got %+v", result)
+	}
+}
+
+func TestProtectedInstanceConstraintPrecedesServerExemption(t *testing.T) {
+	eng := testEngine(t)
+	store := eng.Store
+	server := &database.Server{Name: "protected", GameType: "minecraft", State: "online"}
+	if err := store.CreateServer(server); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateConstraint(&database.Constraint{
+		Name: "protected-instance-rule", Condition: "false", Mode: "require",
+		Strategy: "deny", Priority: 100, Enabled: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateConstraint(&database.Constraint{
+		ServerID: &server.ID, Name: "server-exemption-below-ceiling", Condition: "true", Mode: "exempt",
+		Strategy: "deny", Priority: 99, Enabled: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := eng.EvaluateConstraints(server, "stop", &UserEnv{Username: "operator", Role: "user"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Allowed || !strings.Contains(result.Reason, "protected-instance-rule") {
+		t.Fatalf("expected protected instance rule to block, got %+v", result)
+	}
+}
+
+func TestServerRequirementDoesNotAffectOtherServers(t *testing.T) {
+	eng := testEngine(t)
+	store := eng.Store
+	restricted := &database.Server{Name: "restricted", GameType: "minecraft", State: "online"}
+	other := &database.Server{Name: "other", GameType: "minecraft", State: "online"}
+	if err := store.CreateServer(restricted); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateServer(other); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateConstraint(&database.Constraint{
+		ServerID: &restricted.ID, Name: "restricted-only", Condition: "false", Mode: "require",
+		Strategy: "deny", Priority: 1, Enabled: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	blocked, err := eng.EvaluateConstraints(restricted, "stop", &UserEnv{Username: "operator", Role: "user"})
+	if err != nil || blocked.Allowed {
+		t.Fatalf("restricted server result=%+v err=%v", blocked, err)
+	}
+	allowed, err := eng.EvaluateConstraints(other, "stop", &UserEnv{Username: "operator", Role: "user"})
+	if err != nil || !allowed.Allowed {
+		t.Fatalf("other server result=%+v err=%v", allowed, err)
+	}
+}
+
 func TestEvaluateConstraintsCanRequireKnownEmptyServer(t *testing.T) {
 	eng := testEngine(t)
 	store := eng.Store

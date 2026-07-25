@@ -451,66 +451,70 @@ func (h *WebHandler) renderServerPage(w http.ResponseWriter, r *http.Request, pa
 	}
 
 	data := struct {
-		Server                *database.Server
-		Authenticated         bool
-		UserRole              string
-		UserUsername          string
-		SiteName              string
-		BackgroundURLs        BackgroundURLs
-		PteroConfigured       bool
-		PteroLink             *PterodactylLinkData
-		PteroCommands         []database.PterodactylCommand
-		GameTypes             []string
-		ServerTags            []string
-		Agents                []database.Agent
-		AllowedActions        []string
-		HasAgent              bool
-		ShowConsole           bool
-		ConsoleWrite          bool
-		ShowFiles             bool
-		FileWrite             bool
-		ShowResources         bool
-		EffectiveAccess       []EffectiveAccessEntry
-		ManageAccess          bool
-		AccessGrants          []database.ServerAccessGrant
-		AccessCatalog         []access.Capability
-		WhitelistSelf         bool
-		WhitelistManage       bool
-		IdentityCaseSensitive bool
-		IdentityLabel         string
-		BackupList            bool
-		BackupCreate          bool
-		BackupRestore         bool
-		CanRevealSecrets      bool
-		Page                  string
-		FilesPage             bool
+		Server                      *database.Server
+		Authenticated               bool
+		UserRole                    string
+		UserUsername                string
+		SiteName                    string
+		BackgroundURLs              BackgroundURLs
+		PteroConfigured             bool
+		PteroLink                   *PterodactylLinkData
+		PteroCommands               []database.PterodactylCommand
+		GameTypes                   []string
+		ServerTags                  []string
+		Agents                      []database.Agent
+		AllowedActions              []string
+		HasAgent                    bool
+		ShowConsole                 bool
+		ConsoleWrite                bool
+		ShowFiles                   bool
+		FileWrite                   bool
+		ShowResources               bool
+		EffectiveAccess             []EffectiveAccessEntry
+		ManageAccess                bool
+		AccessGrants                []database.ServerAccessGrant
+		ServerConstraints           []database.Constraint
+		ServerConstraintMaxPriority int
+		AccessCatalog               []access.Capability
+		WhitelistSelf               bool
+		WhitelistManage             bool
+		IdentityCaseSensitive       bool
+		IdentityLabel               string
+		BackupList                  bool
+		BackupCreate                bool
+		BackupRestore               bool
+		CanRevealSecrets            bool
+		Page                        string
+		FilesPage                   bool
 	}{
-		Server:                server,
-		Authenticated:         isAuthenticated,
-		UserRole:              userRole,
-		UserUsername:          h.Auth.GetUsername(r),
-		SiteName:              h.siteName(),
-		BackgroundURLs:        h.pickBackgrounds([]string{server.GameType}),
-		PteroConfigured:       h.Config.PterodactylURL != "",
-		PteroLink:             nil,
-		PteroCommands:         nil,
-		GameTypes:             []string{},
-		ServerTags:            []string{},
-		Agents:                []database.Agent{},
-		AllowedActions:        nil,
-		HasAgent:              hasAgent,
-		ShowConsole:           false,
-		ConsoleWrite:          false,
-		ShowFiles:             false,
-		FileWrite:             false,
-		ShowResources:         false,
-		EffectiveAccess:       []EffectiveAccessEntry{},
-		AccessGrants:          []database.ServerAccessGrant{},
-		AccessCatalog:         access.Capabilities,
-		Page:                  page,
-		FilesPage:             page == "files",
-		IdentityCaseSensitive: h.Store.ResolveGameDriver(server.GameType).IdentityCaseSensitive,
-		IdentityLabel:         h.Store.ResolveGameDriver(server.GameType).IdentityFieldLabel(),
+		Server:                      server,
+		Authenticated:               isAuthenticated,
+		UserRole:                    userRole,
+		UserUsername:                h.Auth.GetUsername(r),
+		SiteName:                    h.siteName(),
+		BackgroundURLs:              h.pickBackgrounds([]string{server.GameType}),
+		PteroConfigured:             h.Config.PterodactylURL != "",
+		PteroLink:                   nil,
+		PteroCommands:               nil,
+		GameTypes:                   []string{},
+		ServerTags:                  []string{},
+		Agents:                      []database.Agent{},
+		AllowedActions:              nil,
+		HasAgent:                    hasAgent,
+		ShowConsole:                 false,
+		ConsoleWrite:                false,
+		ShowFiles:                   false,
+		FileWrite:                   false,
+		ShowResources:               false,
+		EffectiveAccess:             []EffectiveAccessEntry{},
+		AccessGrants:                []database.ServerAccessGrant{},
+		ServerConstraints:           []database.Constraint{},
+		ServerConstraintMaxPriority: h.Config.ServerConstraintMaxPriority,
+		AccessCatalog:               access.Capabilities,
+		Page:                        page,
+		FilesPage:                   page == "files",
+		IdentityCaseSensitive:       h.Store.ResolveGameDriver(server.GameType).IdentityCaseSensitive,
+		IdentityLabel:               h.Store.ResolveGameDriver(server.GameType).IdentityFieldLabel(),
 	}
 	if isAuthenticated {
 		for _, capability := range access.Capabilities {
@@ -531,6 +535,10 @@ func (h *WebHandler) renderServerPage(w http.ResponseWriter, r *http.Request, pa
 			data.AccessGrants, _ = h.Store.ListServerAccessGrants(server.ID)
 			if data.AccessGrants == nil {
 				data.AccessGrants = []database.ServerAccessGrant{}
+			}
+			data.ServerConstraints, _ = h.Store.ListServerConstraints(server.ID)
+			if data.ServerConstraints == nil {
+				data.ServerConstraints = []database.Constraint{}
 			}
 		}
 		whitelistDecision := database.ServerAccessDecision{Allowed: userRole == "admin"}
@@ -1435,6 +1443,100 @@ func (h *WebHandler) HandleAccessGrantDelete(w http.ResponseWriter, r *http.Requ
 	http.Redirect(w, r, "/servers/"+server.Name+"/access#access-control", http.StatusFound)
 }
 
+func (h *WebHandler) HandleServerConstraintSet(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Invalid form data", http.StatusBadRequest)
+		return
+	}
+	serverID, err := strconv.Atoi(r.FormValue("server_id"))
+	if err != nil {
+		http.Error(w, "Invalid server ID", http.StatusBadRequest)
+		return
+	}
+	server, err := h.Store.GetServer(serverID)
+	if err != nil || server == nil {
+		http.Error(w, "Server not found", http.StatusNotFound)
+		return
+	}
+	if !h.canManageServerAccess(r, serverID) {
+		http.Error(w, "Server access management permission required", http.StatusForbidden)
+		return
+	}
+	priority, err := strconv.Atoi(r.FormValue("priority"))
+	if err != nil || priority > h.Config.ServerConstraintMaxPriority {
+		http.Error(w, fmt.Sprintf("Server constraint priority must not exceed %d", h.Config.ServerConstraintMaxPriority), http.StatusBadRequest)
+		return
+	}
+	mode := r.FormValue("mode")
+	if mode != "require" && mode != "exempt" {
+		http.Error(w, "Mode must be require or exempt", http.StatusBadRequest)
+		return
+	}
+	name := strings.TrimSpace(r.FormValue("name"))
+	condition := strings.TrimSpace(r.FormValue("condition"))
+	if name == "" || condition == "" {
+		http.Error(w, "Name and condition are required", http.StatusBadRequest)
+		return
+	}
+	constraint := &database.Constraint{
+		ServerID:    &serverID,
+		Name:        name,
+		Description: strings.TrimSpace(r.FormValue("description")),
+		Condition:   condition,
+		Mode:        mode,
+		Strategy:    "deny",
+		Priority:    priority,
+		Enabled:     r.FormValue("enabled") == "on",
+	}
+	if idText := r.FormValue("id"); idText != "" {
+		constraint.ID, err = strconv.Atoi(idText)
+		if err != nil {
+			http.Error(w, "Invalid constraint ID", http.StatusBadRequest)
+			return
+		}
+		existing, getErr := h.Store.GetConstraint(constraint.ID)
+		if getErr != nil || existing == nil || existing.ServerID == nil || *existing.ServerID != serverID {
+			http.Error(w, "Server constraint not found", http.StatusNotFound)
+			return
+		}
+		err = h.Store.UpdateConstraint(constraint)
+	} else {
+		err = h.Store.CreateConstraint(constraint)
+	}
+	if err != nil {
+		http.Error(w, "Failed to save server constraint: "+err.Error(), http.StatusConflict)
+		return
+	}
+	http.Redirect(w, r, "/servers/"+server.Name+"/access#server-constraints", http.StatusFound)
+}
+
+func (h *WebHandler) HandleServerConstraintDelete(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Invalid form data", http.StatusBadRequest)
+		return
+	}
+	serverID, serverErr := strconv.Atoi(r.FormValue("server_id"))
+	constraintID, constraintErr := strconv.Atoi(r.FormValue("constraint_id"))
+	if serverErr != nil || constraintErr != nil {
+		http.Error(w, "Invalid server constraint", http.StatusBadRequest)
+		return
+	}
+	server, err := h.Store.GetServer(serverID)
+	if err != nil || server == nil {
+		http.Error(w, "Server not found", http.StatusNotFound)
+		return
+	}
+	if !h.canManageServerAccess(r, serverID) {
+		http.Error(w, "Server access management permission required", http.StatusForbidden)
+		return
+	}
+	if err := h.Store.DeleteServerConstraint(constraintID, serverID); err != nil {
+		http.Error(w, "Failed to delete server constraint", http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, "/servers/"+server.Name+"/access#server-constraints", http.StatusFound)
+}
+
 func (h *WebHandler) canManageServerAccess(r *http.Request, serverID int) bool {
 	user := h.getUserEnv(r)
 	if user != nil && (user.Role == "admin" || user.Role == "system") {
@@ -1621,7 +1723,7 @@ func (h *WebHandler) CommandManager(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *WebHandler) ConstraintManager(w http.ResponseWriter, r *http.Request) {
-	constraints, _ := h.Store.ListConstraints()
+	constraints, _ := h.Store.ListInstanceConstraints()
 	if constraints == nil {
 		constraints = []database.Constraint{}
 	}

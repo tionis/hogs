@@ -13,6 +13,16 @@ func TestLoadConfigDefaults(t *testing.T) {
 	if cfg.GameDataPath != "data/game" {
 		t.Errorf("GameDataPath = %q, want data/game", cfg.GameDataPath)
 	}
+	if cfg.ServerConstraintMaxPriority != 99 {
+		t.Errorf("ServerConstraintMaxPriority = %d, want 99", cfg.ServerConstraintMaxPriority)
+	}
+}
+
+func TestServerConstraintMaxPriorityFromEnv(t *testing.T) {
+	t.Setenv("HOGS_SERVER_CONSTRAINT_MAX_PRIORITY", "42")
+	if got := LoadConfig().ServerConstraintMaxPriority; got != 42 {
+		t.Fatalf("ServerConstraintMaxPriority = %d, want 42", got)
+	}
 }
 
 func TestGameDataPathFromEnv(t *testing.T) {

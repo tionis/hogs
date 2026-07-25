@@ -110,6 +110,12 @@ func TestInventoryApplyIsIdempotentAndNeverReturnsAgentToken(t *testing.T) {
 	if err != nil || !decision.Allowed {
 		t.Fatalf("inventory access grant not persisted: %#v err=%v", decision, err)
 	}
+	if err := store.CreateConstraint(&database.Constraint{
+		ServerID: &server.ID, Name: "server-owned-window", Condition: "true",
+		Mode: "require", Strategy: "deny", Priority: 5, Enabled: true,
+	}); err != nil {
+		t.Fatalf("create server-owned constraint: %v", err)
+	}
 
 	secondPlan := httptest.NewRecorder()
 	handler.Plan(secondPlan, requestInventory(t, http.MethodPost, "/api/v1/inventory/plan", manifest))
@@ -125,6 +131,10 @@ func TestInventoryApplyIsIdempotentAndNeverReturnsAgentToken(t *testing.T) {
 	handler.Apply(secondApply, requestInventory(t, http.MethodPut, "/api/v1/inventory", manifest))
 	if secondApply.Code != http.StatusOK {
 		t.Fatalf("stable apply failed: %s", secondApply.Body.String())
+	}
+	serverConstraints, err := store.ListServerConstraints(server.ID)
+	if err != nil || len(serverConstraints) != 1 || serverConstraints[0].Name != "server-owned-window" {
+		t.Fatalf("inventory apply replaced server-owned constraints: %#v err=%v", serverConstraints, err)
 	}
 }
 

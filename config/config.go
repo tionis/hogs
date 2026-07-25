@@ -53,11 +53,12 @@ type Config struct {
 	PterodactylClientKey string
 
 	// Automation Configuration
-	CronEnabled              bool
-	CronQueueRetryInterval   int
-	CronQueueMaxRetry        int
-	AuditLogRetentionDays    int
-	PteroNodeRefreshInterval int
+	CronEnabled                 bool
+	CronQueueRetryInterval      int
+	CronQueueMaxRetry           int
+	AuditLogRetentionDays       int
+	PteroNodeRefreshInterval    int
+	ServerConstraintMaxPriority int
 
 	// Agent Configuration
 	AgentEnabled      bool
@@ -127,11 +128,12 @@ func LoadConfig() *Config {
 		PterodactylAppKey:    getEnv("PTERODACTYL_APP_KEY", ""),
 		PterodactylClientKey: getEnv("PTERODACTYL_CLIENT_KEY", ""),
 
-		CronEnabled:              getEnv("HOGS_CRON_ENABLED", "true") == "true",
-		CronQueueRetryInterval:   mustAtoi(getEnv("HOGS_CRON_QUEUE_RETRY_INTERVAL", "30")),
-		CronQueueMaxRetry:        mustAtoi(getEnv("HOGS_CRON_QUEUE_MAX_RETRY", "10")),
-		AuditLogRetentionDays:    mustAtoi(getEnv("HOGS_AUDIT_LOG_RETENTION_DAYS", "90")),
-		PteroNodeRefreshInterval: mustAtoi(getEnv("HOGS_PTERO_NODE_REFRESH_INTERVAL", "300")),
+		CronEnabled:                 getEnv("HOGS_CRON_ENABLED", "true") == "true",
+		CronQueueRetryInterval:      mustAtoi(getEnv("HOGS_CRON_QUEUE_RETRY_INTERVAL", "30")),
+		CronQueueMaxRetry:           mustAtoi(getEnv("HOGS_CRON_QUEUE_MAX_RETRY", "10")),
+		AuditLogRetentionDays:       mustAtoi(getEnv("HOGS_AUDIT_LOG_RETENTION_DAYS", "90")),
+		PteroNodeRefreshInterval:    mustAtoi(getEnv("HOGS_PTERO_NODE_REFRESH_INTERVAL", "300")),
+		ServerConstraintMaxPriority: mustAtoi(getEnv("HOGS_SERVER_CONSTRAINT_MAX_PRIORITY", "99")),
 
 		AgentEnabled:      getEnv("HOGS_AGENT_ENABLED", "true") == "true",
 		AgentHeartbeatSec: mustAtoi(getEnv("HOGS_AGENT_HEARTBEAT_SEC", "30")),

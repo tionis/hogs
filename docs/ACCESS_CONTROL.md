@@ -13,6 +13,18 @@ HOGS separates three concerns that were previously mixed into one expression:
 3. **Operational constraints** decide whether an otherwise authorized action
    may run now, for example requiring an empty server before stopping it.
 
+Operational constraints have instance or server scope. A requirement blocks
+when its expression is false. A matching exemption allows the action and skips
+only lower-priority constraints. Server administrators with `access.manage`
+may manage constraints for that server, but their priority is capped by
+`HOGS_SERVER_CONSTRAINT_MAX_PRIORITY` (99 by default). Instance administrators
+can place mandatory instance constraints above that ceiling; these always run
+before, and cannot be bypassed by, server-level exemptions. At equal priority,
+instance constraints run before server constraints.
+
+Inventory reconciliation owns instance constraints only. It does not prune or
+replace constraints created for an individual server.
+
 Access is deny-by-default for non-administrators, including when a server has no
 grants. The legacy expression ACL and operator list are retained only as
 deployment compatibility fields and no longer authorize interactive access. A

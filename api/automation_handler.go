@@ -153,6 +153,7 @@ func (h *AutomationHandler) AddConstraint(w http.ResponseWriter, r *http.Request
 	name := r.FormValue("name")
 	description := r.FormValue("description")
 	condition := r.FormValue("condition")
+	mode := r.FormValue("mode")
 	strategy := r.FormValue("strategy")
 	priority, _ := strconv.Atoi(r.FormValue("priority"))
 	enabled := r.FormValue("enabled") == "on"
@@ -164,11 +165,19 @@ func (h *AutomationHandler) AddConstraint(w http.ResponseWriter, r *http.Request
 	if strategy == "" {
 		strategy = "deny"
 	}
+	if mode == "" {
+		mode = "require"
+	}
+	if mode != "require" && mode != "exempt" {
+		http.Error(w, "mode must be require or exempt", http.StatusBadRequest)
+		return
+	}
 
 	c := &database.Constraint{
 		Name:        name,
 		Description: description,
 		Condition:   condition,
+		Mode:        mode,
 		Strategy:    strategy,
 		Priority:    priority,
 		Enabled:     enabled,
@@ -193,10 +202,16 @@ func (h *AutomationHandler) UpdateConstraint(w http.ResponseWriter, r *http.Requ
 		http.Error(w, "Invalid constraint ID", http.StatusBadRequest)
 		return
 	}
+	existing, err := h.Store.GetConstraint(id)
+	if err != nil || existing == nil || existing.ServerID != nil {
+		http.Error(w, "Instance constraint not found", http.StatusNotFound)
+		return
+	}
 
 	name := r.FormValue("name")
 	description := r.FormValue("description")
 	condition := r.FormValue("condition")
+	mode := r.FormValue("mode")
 	strategy := r.FormValue("strategy")
 	priority, _ := strconv.Atoi(r.FormValue("priority"))
 	enabled := r.FormValue("enabled") == "on"
@@ -204,12 +219,20 @@ func (h *AutomationHandler) UpdateConstraint(w http.ResponseWriter, r *http.Requ
 	if strategy == "" {
 		strategy = "deny"
 	}
+	if mode == "" {
+		mode = "require"
+	}
+	if mode != "require" && mode != "exempt" {
+		http.Error(w, "mode must be require or exempt", http.StatusBadRequest)
+		return
+	}
 
 	c := &database.Constraint{
 		ID:          id,
 		Name:        name,
 		Description: description,
 		Condition:   condition,
+		Mode:        mode,
 		Strategy:    strategy,
 		Priority:    priority,
 		Enabled:     enabled,
@@ -232,6 +255,11 @@ func (h *AutomationHandler) DeleteConstraint(w http.ResponseWriter, r *http.Requ
 	id, err := strconv.Atoi(r.FormValue("id"))
 	if err != nil {
 		http.Error(w, "Invalid constraint ID", http.StatusBadRequest)
+		return
+	}
+	existing, err := h.Store.GetConstraint(id)
+	if err != nil || existing == nil || existing.ServerID != nil {
+		http.Error(w, "Instance constraint not found", http.StatusNotFound)
 		return
 	}
 
