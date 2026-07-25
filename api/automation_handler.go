@@ -10,15 +10,77 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	robfigcron "github.com/robfig/cron/v3"
 	"github.com/tionis/hogs/config"
+	hogscron "github.com/tionis/hogs/cron"
 	"github.com/tionis/hogs/database"
 	"github.com/tionis/hogs/engine"
 )
 
 type AutomationHandler struct {
-	Store  *database.Store
-	Config *config.Config
-	Engine *engine.Engine
+	Store               *database.Store
+	Config              *config.Config
+	Engine              *engine.Engine
+	AfterScheduleChange func() error
+}
+
+func (h *AutomationHandler) SetAfterScheduleChange(callback func() error) {
+	h.AfterScheduleChange = callback
+}
+
+func (h *AutomationHandler) parseAutomationRule(r *http.Request, id int) (*database.CronJob, error) {
+	name := strings.TrimSpace(r.FormValue("name"))
+	schedule := strings.TrimSpace(r.FormValue("schedule"))
+	serverID, err := strconv.Atoi(r.FormValue("server_id"))
+	action := strings.TrimSpace(r.FormValue("action"))
+	condition := strings.TrimSpace(r.FormValue("condition"))
+	if condition == "" {
+		condition = "true"
+	}
+	stability, stabilityErr := strconv.Atoi(defaultString(r.FormValue("stability_seconds"), "0"))
+	cooldown, cooldownErr := strconv.Atoi(defaultString(r.FormValue("cooldown_seconds"), "0"))
+	if name == "" || schedule == "" || err != nil || serverID <= 0 || action == "" {
+		return nil, fmt.Errorf("name, schedule, server, and action are required")
+	}
+	if action != "start" && action != "stop" && action != "restart" {
+		return nil, fmt.Errorf("action must be start, stop, or restart")
+	}
+	if stabilityErr != nil || cooldownErr != nil || stability < 0 || cooldown < 0 {
+		return nil, fmt.Errorf("stability and cooldown must be non-negative seconds")
+	}
+	parser := robfigcron.NewParser(robfigcron.Second | robfigcron.Minute | robfigcron.Hour | robfigcron.Dom | robfigcron.Month | robfigcron.Dow)
+	if _, err := parser.Parse(schedule); err != nil {
+		return nil, fmt.Errorf("invalid six-field schedule: %w", err)
+	}
+	env := map[string]interface{}{
+		"server":   hogscron.ServerEnv{},
+		"activity": hogscron.ActivityEnv{},
+		"time":     engine.TimeEnv{Now: time.Now()},
+		"duration": func(string) int { return 0 },
+	}
+	if _, err := h.Engine.TestExpression(condition, env); err != nil {
+		return nil, fmt.Errorf("invalid condition: %w", err)
+	}
+	params := strings.TrimSpace(r.FormValue("params"))
+	if params == "" {
+		params = "{}"
+	}
+	if !json.Valid([]byte(params)) {
+		return nil, fmt.Errorf("params must be valid JSON")
+	}
+	return &database.CronJob{
+		ID: id, Name: name, Schedule: schedule, ServerID: serverID, Action: action,
+		Params: json.RawMessage(params), ACLRule: r.FormValue("acl_rule"),
+		Enabled: r.FormValue("enabled") == "on", Condition: condition,
+		StabilitySeconds: stability, CooldownSeconds: cooldown,
+	}, nil
+}
+
+func defaultString(value, fallback string) string {
+	if value == "" {
+		return fallback
+	}
+	return value
 }
 
 func NewAutomationHandler(store *database.Store, cfg *config.Config, eng *engine.Engine) *AutomationHandler {
@@ -277,35 +339,21 @@ func (h *AutomationHandler) AddCronJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	name := r.FormValue("name")
-	schedule := r.FormValue("schedule")
-	serverID, serverIDErr := strconv.Atoi(r.FormValue("server_id"))
-	action := r.FormValue("action")
-	params := r.FormValue("params")
-	aclRule := r.FormValue("acl_rule")
-	enabled := r.FormValue("enabled") == "on"
-
-	if name == "" || schedule == "" || serverIDErr != nil || serverID <= 0 || action == "" {
-		http.Error(w, "name, schedule, server_id, and action are required", http.StatusBadRequest)
+	j, err := h.parseAutomationRule(r, 0)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
-	}
-	if params == "" {
-		params = "{}"
-	}
-
-	j := &database.CronJob{
-		Name:     name,
-		Schedule: schedule,
-		ServerID: serverID,
-		Action:   action,
-		Params:   json.RawMessage(params),
-		ACLRule:  aclRule,
-		Enabled:  enabled,
 	}
 
 	if err := h.Store.CreateCronJob(j); err != nil {
 		http.Error(w, "Failed to create cron job: "+err.Error(), http.StatusInternalServerError)
 		return
+	}
+	if h.AfterScheduleChange != nil {
+		if err := h.AfterScheduleChange(); err != nil {
+			http.Error(w, "Rule saved but scheduler reload failed: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
 	}
 
 	http.Redirect(w, r, "/admin/cron", http.StatusFound)
@@ -323,36 +371,26 @@ func (h *AutomationHandler) UpdateCronJob(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	name := r.FormValue("name")
-	schedule := r.FormValue("schedule")
-	serverID, serverIDErr := strconv.Atoi(r.FormValue("server_id"))
-	action := r.FormValue("action")
-	params := r.FormValue("params")
-	aclRule := r.FormValue("acl_rule")
-	enabled := r.FormValue("enabled") == "on"
-
-	if serverIDErr != nil || serverID <= 0 {
-		http.Error(w, "Valid server_id is required", http.StatusBadRequest)
+	j, err := h.parseAutomationRule(r, id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if params == "" {
-		params = "{}"
-	}
-
-	j := &database.CronJob{
-		ID:       id,
-		Name:     name,
-		Schedule: schedule,
-		ServerID: serverID,
-		Action:   action,
-		Params:   json.RawMessage(params),
-		ACLRule:  aclRule,
-		Enabled:  enabled,
+	if existing, getErr := h.Store.GetCronJob(id); getErr == nil && existing != nil {
+		j.LastActionAt = existing.LastActionAt
+		j.LastRun = existing.LastRun
+		j.NextRun = existing.NextRun
 	}
 
 	if err := h.Store.UpdateCronJob(j); err != nil {
 		http.Error(w, "Failed to update cron job: "+err.Error(), http.StatusInternalServerError)
 		return
+	}
+	if h.AfterScheduleChange != nil {
+		if err := h.AfterScheduleChange(); err != nil {
+			http.Error(w, "Rule saved but scheduler reload failed: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
 	}
 
 	http.Redirect(w, r, "/admin/cron", http.StatusFound)
@@ -373,6 +411,12 @@ func (h *AutomationHandler) DeleteCronJob(w http.ResponseWriter, r *http.Request
 	if err := h.Store.DeleteCronJob(id); err != nil {
 		http.Error(w, "Failed to delete cron job", http.StatusInternalServerError)
 		return
+	}
+	if h.AfterScheduleChange != nil {
+		if err := h.AfterScheduleChange(); err != nil {
+			http.Error(w, "Rule deleted but scheduler reload failed: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
 	}
 
 	http.Redirect(w, r, "/admin/cron", http.StatusFound)

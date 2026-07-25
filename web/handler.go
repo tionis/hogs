@@ -1769,8 +1769,16 @@ func (h *WebHandler) CronManager(w http.ResponseWriter, r *http.Request) {
 		servers = []database.Server{}
 	}
 
+	logs := map[int][]database.CronJobLog{}
+	for _, job := range jobs {
+		if entries, err := h.Store.ListCronJobLogs(job.ID, 8); err == nil {
+			logs[job.ID] = entries
+		}
+	}
+
 	data := struct {
 		CronJobs       []database.CronJob
+		Logs           map[int][]database.CronJobLog
 		Servers        []database.Server
 		Authenticated  bool
 		UserRole       string
@@ -1779,6 +1787,7 @@ func (h *WebHandler) CronManager(w http.ResponseWriter, r *http.Request) {
 		BackgroundURLs BackgroundURLs
 	}{
 		CronJobs:       jobs,
+		Logs:           logs,
 		Servers:        servers,
 		Authenticated:  true,
 		UserRole:       "admin",

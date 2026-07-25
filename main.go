@@ -205,12 +205,19 @@ func main() {
 
 	var scheduler *hogscron.Scheduler
 	if cfg.CronEnabled {
-		scheduler = hogscron.NewScheduler(store, eng)
+		scheduler = hogscron.NewScheduler(store, eng, cache)
+		scheduler.SetActionExecutor(pteroHandler.ExecuteLifecycleAction)
 		scheduler.SetNotifier(notifyService)
 		if err := scheduler.Start(); err != nil {
 			log.Printf("Warning: cron scheduler failed to start: %v", err)
 		}
 	}
+	automationHandler.SetAfterScheduleChange(func() error {
+		if scheduler != nil {
+			return scheduler.LoadJobs()
+		}
+		return nil
+	})
 	inventoryHandler.SetAfterApply(func(changes []api.InventoryChange) error {
 		if scheduler != nil {
 			if err := scheduler.LoadJobs(); err != nil {

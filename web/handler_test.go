@@ -985,6 +985,15 @@ func TestCronManagerRenders(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Errorf("expected status 200, got %d: %s", w.Code, w.Body.String())
 	}
+	for _, expected := range []string{
+		"Automation Rules", "Stop when idle", "Nightly restart",
+		"Scheduled start", "Nightly stop if empty", "activity.PlayersKnown",
+		"condition must remain true",
+	} {
+		if !contains(strings.ToLower(w.Body.String()), strings.ToLower(expected)) {
+			t.Errorf("automation manager missing %q", expected)
+		}
+	}
 }
 
 func TestBackupsRenders(t *testing.T) {

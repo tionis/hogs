@@ -1397,19 +1397,24 @@ func (s *Store) DeleteServerConstraint(id, serverID int) error {
 }
 
 type CronJob struct {
-	ID         int             `json:"id"`
-	Name       string          `json:"name"`
-	Schedule   string          `json:"schedule"`
-	ServerID   int             `json:"serverId"`
-	ServerName string          `json:"serverName"`
-	Action     string          `json:"action"`
-	Params     json.RawMessage `json:"params"`
-	ACLRule    string          `json:"aclRule"`
-	Enabled    bool            `json:"enabled"`
-	LastRun    *string         `json:"lastRun"`
-	NextRun    *string         `json:"nextRun"`
-	LastResult string          `json:"lastResult"`
-	LastOutput string          `json:"lastOutput"`
+	ID                 int             `json:"id"`
+	Name               string          `json:"name"`
+	Schedule           string          `json:"schedule"`
+	ServerID           int             `json:"serverId"`
+	ServerName         string          `json:"serverName"`
+	Action             string          `json:"action"`
+	Params             json.RawMessage `json:"params"`
+	ACLRule            string          `json:"aclRule"`
+	Enabled            bool            `json:"enabled"`
+	Condition          string          `json:"condition"`
+	StabilitySeconds   int             `json:"stabilitySeconds"`
+	CooldownSeconds    int             `json:"cooldownSeconds"`
+	ConditionTrueSince *string         `json:"conditionTrueSince"`
+	LastActionAt       *string         `json:"lastActionAt"`
+	LastRun            *string         `json:"lastRun"`
+	NextRun            *string         `json:"nextRun"`
+	LastResult         string          `json:"lastResult"`
+	LastOutput         string          `json:"lastOutput"`
 }
 
 type CronJobLog struct {
@@ -1428,7 +1433,8 @@ func scanCronJob(scanner interface{ Scan(...interface{}) error }) (CronJob, erro
 	err := scanner.Scan(
 		&job.ID, &job.Name, &job.Schedule, &job.ServerID, &job.ServerName,
 		&job.Action, &params, &job.ACLRule, &enabled, &job.LastRun, &job.NextRun,
-		&job.LastResult, &job.LastOutput,
+		&job.LastResult, &job.LastOutput, &job.Condition, &job.StabilitySeconds,
+		&job.CooldownSeconds, &job.ConditionTrueSince, &job.LastActionAt,
 	)
 	job.Params = json.RawMessage(params)
 	job.Enabled = enabled == 1
@@ -1438,7 +1444,8 @@ func scanCronJob(scanner interface{ Scan(...interface{}) error }) (CronJob, erro
 func (s *Store) ListCronJobs() ([]CronJob, error) {
 	rows, err := s.DB.Query(`SELECT jobs.id,jobs.name,jobs.schedule,jobs.server_id,servers.name,
 		jobs.action,jobs.params,jobs.acl_rule,jobs.enabled,jobs.last_run,jobs.next_run,
-		jobs.last_result,jobs.last_output FROM cron_jobs AS jobs
+		jobs.last_result,jobs.last_output,jobs.condition,jobs.stability_seconds,
+		jobs.cooldown_seconds,jobs.condition_true_since,jobs.last_action_at FROM cron_jobs AS jobs
 		JOIN servers ON servers.id=jobs.server_id ORDER BY jobs.id`)
 	if err != nil {
 		return nil, err
@@ -1459,7 +1466,8 @@ func (s *Store) ListCronJobs() ([]CronJob, error) {
 func (s *Store) ListEnabledCronJobs() ([]CronJob, error) {
 	rows, err := s.DB.Query(`SELECT jobs.id,jobs.name,jobs.schedule,jobs.server_id,servers.name,
 		jobs.action,jobs.params,jobs.acl_rule,jobs.enabled,jobs.last_run,jobs.next_run,
-		jobs.last_result,jobs.last_output FROM cron_jobs AS jobs
+		jobs.last_result,jobs.last_output,jobs.condition,jobs.stability_seconds,
+		jobs.cooldown_seconds,jobs.condition_true_since,jobs.last_action_at FROM cron_jobs AS jobs
 		JOIN servers ON servers.id=jobs.server_id WHERE jobs.enabled=1 ORDER BY jobs.id`)
 	if err != nil {
 		return nil, err
@@ -1480,7 +1488,8 @@ func (s *Store) ListEnabledCronJobs() ([]CronJob, error) {
 func (s *Store) GetCronJob(id int) (*CronJob, error) {
 	row := s.DB.QueryRow(`SELECT jobs.id,jobs.name,jobs.schedule,jobs.server_id,servers.name,
 		jobs.action,jobs.params,jobs.acl_rule,jobs.enabled,jobs.last_run,jobs.next_run,
-		jobs.last_result,jobs.last_output FROM cron_jobs AS jobs
+		jobs.last_result,jobs.last_output,jobs.condition,jobs.stability_seconds,
+		jobs.cooldown_seconds,jobs.condition_true_since,jobs.last_action_at FROM cron_jobs AS jobs
 		JOIN servers ON servers.id=jobs.server_id WHERE jobs.id=?`, id)
 	job, err := scanCronJob(row)
 	if err != nil {
@@ -1500,8 +1509,16 @@ func (s *Store) CreateCronJob(j *CronJob) error {
 	if j.Params == nil {
 		j.Params = json.RawMessage("{}")
 	}
-	result, err := s.DB.Exec("INSERT INTO cron_jobs (name, schedule, server_id, action, params, acl_rule, enabled, last_run, next_run) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		j.Name, j.Schedule, j.ServerID, j.Action, string(j.Params), j.ACLRule, enabled, j.LastRun, j.NextRun)
+	if j.Condition == "" {
+		j.Condition = "true"
+	}
+	result, err := s.DB.Exec(`INSERT INTO cron_jobs
+		(name,schedule,server_id,action,params,acl_rule,enabled,last_run,next_run,
+		condition,stability_seconds,cooldown_seconds,condition_true_since,last_action_at)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		j.Name, j.Schedule, j.ServerID, j.Action, string(j.Params), j.ACLRule, enabled,
+		j.LastRun, j.NextRun, j.Condition, j.StabilitySeconds, j.CooldownSeconds,
+		j.ConditionTrueSince, j.LastActionAt)
 	if err != nil {
 		return err
 	}
@@ -1518,8 +1535,16 @@ func (s *Store) UpdateCronJob(j *CronJob) error {
 	if j.Params == nil {
 		j.Params = json.RawMessage("{}")
 	}
-	_, err := s.DB.Exec("UPDATE cron_jobs SET name=?,schedule=?,server_id=?,action=?,params=?,acl_rule=?,enabled=?,last_run=?,next_run=? WHERE id=?",
-		j.Name, j.Schedule, j.ServerID, j.Action, string(j.Params), j.ACLRule, enabled, j.LastRun, j.NextRun, j.ID)
+	if j.Condition == "" {
+		j.Condition = "true"
+	}
+	_, err := s.DB.Exec(`UPDATE cron_jobs SET name=?,schedule=?,server_id=?,action=?,
+		params=?,acl_rule=?,enabled=?,last_run=?,next_run=?,condition=?,
+		stability_seconds=?,cooldown_seconds=?,condition_true_since=?,last_action_at=?
+		WHERE id=?`,
+		j.Name, j.Schedule, j.ServerID, j.Action, string(j.Params), j.ACLRule, enabled,
+		j.LastRun, j.NextRun, j.Condition, j.StabilitySeconds, j.CooldownSeconds,
+		j.ConditionTrueSince, j.LastActionAt, j.ID)
 	return err
 }
 
@@ -1535,6 +1560,12 @@ func (s *Store) UpdateCronJobTimestamps(id int, lastRun, nextRun string) error {
 
 func (s *Store) UpdateCronJobResult(id int, lastResult, lastOutput string) error {
 	_, err := s.DB.Exec("UPDATE cron_jobs SET last_result = ?, last_output = ? WHERE id = ?", lastResult, lastOutput, id)
+	return err
+}
+
+func (s *Store) UpdateCronJobRuntime(id int, conditionTrueSince, lastActionAt *string) error {
+	_, err := s.DB.Exec("UPDATE cron_jobs SET condition_true_since=?, last_action_at=? WHERE id=?",
+		conditionTrueSince, lastActionAt, id)
 	return err
 }
 

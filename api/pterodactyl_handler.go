@@ -380,6 +380,32 @@ func (h *PterodactylHandler) resolveBackend(server *database.Server, link *datab
 	return backend.NewPterodactylBackend(h.Config, link.PteroServerID, identifier), nil
 }
 
+// ExecuteLifecycleAction runs an already-authorized lifecycle action through
+// the same backend resolution used by interactive server controls.
+func (h *PterodactylHandler) ExecuteLifecycleAction(ctx context.Context, server *database.Server, action string, _ map[string]string) error {
+	link, err := h.Store.GetPterodactylLink(server.ID)
+	if err != nil {
+		return err
+	}
+	if link == nil {
+		return fmt.Errorf("server is not linked to a worker backend")
+	}
+	target, err := h.resolveBackend(server, link)
+	if err != nil {
+		return err
+	}
+	switch action {
+	case "start":
+		return target.Start(ctx)
+	case "stop":
+		return target.Stop(ctx)
+	case "restart":
+		return target.Restart(ctx)
+	default:
+		return fmt.Errorf("unsupported lifecycle action %q", action)
+	}
+}
+
 func (h *PterodactylHandler) getUserEnv(r *http.Request) *engine.UserEnv {
 	return userEnvFromRequest(h.Store, h.Auth, r, h.Config != nil && h.Config.TrustProxyHeaders)
 }

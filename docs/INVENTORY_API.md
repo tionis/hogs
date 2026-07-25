@@ -144,8 +144,13 @@ HOGS to explain map failures without incorrectly claiming that every map
 requires its game server to be running.
 
 An agent backend requires a known node plus `unit` and an absolute `dataPath`.
-Writable paths must be absolute descendants of that data path. Schedules use
-six-field cron expressions (`second minute hour day-of-month month day-of-week`).
+Writable paths must be absolute descendants of that data path. Automation
+schedules use six-field cron expressions
+(`second minute hour day-of-month month day-of-week`). They may additionally
+set `condition`, `stabilitySeconds`, and `cooldownSeconds`; omitted conditions
+default to `true`. For example, an idle shutdown rule can use
+`condition: "server.Running && activity.Fresh && activity.PlayersKnown && activity.Players == 0"`
+with `stabilitySeconds: 900`. Unknown or stale occupancy therefore fails closed.
 A schedule references a server through `serverId`, never through its display
 name. A node agent's local allowlist must contain matching immutable server
 IDs, units, and data paths as documented in [the agent contract](AGENT.md).

@@ -112,13 +112,16 @@ type InventoryConstraint struct {
 }
 
 type InventorySchedule struct {
-	Name     string          `json:"name"`
-	Schedule string          `json:"schedule"`
-	ServerID string          `json:"serverId"`
-	Action   string          `json:"action"`
-	Params   json.RawMessage `json:"params"`
-	ACLRule  string          `json:"aclRule"`
-	Enabled  bool            `json:"enabled"`
+	Name             string          `json:"name"`
+	Schedule         string          `json:"schedule"`
+	ServerID         string          `json:"serverId"`
+	Action           string          `json:"action"`
+	Params           json.RawMessage `json:"params"`
+	ACLRule          string          `json:"aclRule"`
+	Enabled          bool            `json:"enabled"`
+	Condition        string          `json:"condition,omitempty"`
+	StabilitySeconds int             `json:"stabilitySeconds,omitempty"`
+	CooldownSeconds  int             `json:"cooldownSeconds,omitempty"`
 }
 
 type InventoryTemplate struct {
@@ -1075,14 +1078,21 @@ func applySchedules(tx *sql.Tx, values []InventorySchedule) error {
 		if len(params) == 0 {
 			params = json.RawMessage("{}")
 		}
+		condition := strings.TrimSpace(v.Condition)
+		if condition == "" {
+			condition = "true"
+		}
 		var serverID int
 		if err := tx.QueryRow("SELECT id FROM servers WHERE management_id=?", v.ServerID).Scan(&serverID); err != nil {
 			return err
 		}
-		_, err := tx.Exec(`INSERT INTO cron_jobs(name,schedule,server_id,action,params,acl_rule,enabled) VALUES(?,?,?,?,?,?,?)
+		_, err := tx.Exec(`INSERT INTO cron_jobs(name,schedule,server_id,action,params,acl_rule,enabled,condition,stability_seconds,cooldown_seconds) VALUES(?,?,?,?,?,?,?,?,?,?)
 			ON CONFLICT(name) DO UPDATE SET schedule=excluded.schedule,server_id=excluded.server_id,
-			action=excluded.action,params=excluded.params,acl_rule=excluded.acl_rule,enabled=excluded.enabled`,
-			v.Name, v.Schedule, serverID, v.Action, string(params), v.ACLRule, enabled)
+			action=excluded.action,params=excluded.params,acl_rule=excluded.acl_rule,enabled=excluded.enabled,
+			condition=excluded.condition,stability_seconds=excluded.stability_seconds,
+			cooldown_seconds=excluded.cooldown_seconds`,
+			v.Name, v.Schedule, serverID, v.Action, string(params), v.ACLRule, enabled,
+			condition, v.StabilitySeconds, v.CooldownSeconds)
 		if err != nil {
 			return err
 		}
