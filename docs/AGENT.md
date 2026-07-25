@@ -121,6 +121,38 @@ Console output is an NDJSON HTTP stream backed by the systemd journal.
 Commands, status queries, backups, file transfers, and console streams use
 independent requests. RCON and restic credentials remain in node-local files.
 
+## Transactional restores
+
+Restore is a separately deployable capability and should be enabled only for
+instance administrators. A restore request carries a hexadecimal snapshot ID
+and must repeat the immutable server ID as confirmation. The worker then:
+
+1. serializes the restore against lifecycle, command, whitelist, backup, and
+   mutating file operations for that server;
+2. records whether the systemd unit was running and stops it when necessary;
+3. creates a tagged pre-restore safety snapshot of the configured `data_dir`;
+4. confirms that the requested snapshot contains that path, calculates its
+   restore size, and requires enough free space for staging plus a reserve;
+5. restores only `data_dir` into a sibling staging directory on the same
+   filesystem and asks restic to verify the restored file contents;
+6. verifies that the staged root is a real directory, renames the live data to
+   a rollback path, and atomically renames the staged data into place;
+7. returns the unit to its previous running or stopped state and verifies the
+   resulting systemd state; and
+8. reactivates the original data and service automatically if startup or
+   verification fails.
+
+After successful verification the temporary rollback directory is removed.
+The tagged safety snapshot remains in restic and its ID is returned to HOGS.
+Restic restores file metadata, including the game-data root ownership and mode,
+from the selected snapshot. Snapshot lists are filtered to snapshots whose
+backup roots contain the server's configured data path, including broader
+host-level `/srv` snapshots.
+
+The worker never accepts an arbitrary restore target. This prevents a panel
+request from restoring outside the locally allowlisted server data directory or
+from creating restic's absolute-path tree inside the live directory.
+
 Game-driver operations use dedicated endpoints rather than general file access.
 For Minecraft and Factorio, `GET` and `POST
 /v1/servers/{serverID}/whitelist` use RCON while the unit is running and

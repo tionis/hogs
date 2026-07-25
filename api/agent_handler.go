@@ -639,7 +639,8 @@ func (h *AgentHandler) AgentBackupCreate(w http.ResponseWriter, r *http.Request)
 
 func (h *AgentHandler) AgentBackupRestore(w http.ResponseWriter, r *http.Request) {
 	serverName := mux.Vars(r)["serverName"]
-	if _, _, status, err := authorizeManagedCapability(h.Store, h.Engine, h.Auth, r, serverName, managedBackupRestore); err != nil {
+	server, user, status, err := authorizeManagedCapability(h.Store, h.Engine, h.Auth, r, serverName, managedBackupRestore)
+	if err != nil {
 		http.Error(w, err.Error(), status)
 		return
 	}
@@ -647,8 +648,8 @@ func (h *AgentHandler) AgentBackupRestore(w http.ResponseWriter, r *http.Request
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1 MB limit
 
 	var req struct {
-		Snapshot string `json:"snapshot"`
-		Target   string `json:"target"`
+		Snapshot        string `json:"snapshot"`
+		ConfirmServerID string `json:"confirmServerId"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
@@ -659,11 +660,27 @@ func (h *AgentHandler) AgentBackupRestore(w http.ResponseWriter, r *http.Request
 		http.Error(w, "snapshot is required", http.StatusBadRequest)
 		return
 	}
-
-	result, err := h.Service.BackupRestore(serverName, req.Snapshot, req.Target)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+	if req.ConfirmServerID != server.ManagementID {
+		http.Error(w, "confirmation must match the immutable server ID", http.StatusBadRequest)
 		return
+	}
+
+	result, err := h.Service.BackupRestore(serverName, req.Snapshot, req.ConfirmServerID)
+	if err != nil {
+		if h.Engine != nil {
+			h.Engine.LogAction(server.Name, string(managedBackupRestore), user.Email, "failed", err.Error(), "web", map[string]string{"snapshot": req.Snapshot})
+		}
+		if result != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_ = json.NewEncoder(w).Encode(result)
+		} else {
+			http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		}
+		return
+	}
+	if h.Engine != nil {
+		h.Engine.LogAction(server.Name, string(managedBackupRestore), user.Email, "success", "transactional restore completed", "web", map[string]string{"snapshot": req.Snapshot})
 	}
 
 	w.Header().Set("Content-Type", "application/json")

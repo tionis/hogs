@@ -162,6 +162,41 @@
     <div id="server-backup-result" aria-live="polite"></div>
   </div>
 </div>
+{{if .BackupRestore}}
+<div class="modal fade" id="restore-backup-modal" tabindex="-1" aria-labelledby="restore-backup-title" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 class="modal-title fs-5" id="restore-backup-title">Restore server snapshot</h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="alert alert-warning">
+          <strong>This replaces all data for this game server.</strong>
+          HOGS will stop a running service, create a safety snapshot, restore into
+          staging, atomically swap the data, restart and verify the service, and
+          automatically roll back if startup fails.
+        </div>
+        <dl class="row mb-3">
+          <dt class="col-sm-4">Snapshot</dt><dd class="col-sm-8"><code id="restore-snapshot-id"></code></dd>
+          <dt class="col-sm-4">Created</dt><dd class="col-sm-8" id="restore-snapshot-time"></dd>
+          <dt class="col-sm-4">Server ID</dt><dd class="col-sm-8"><code>{{.Server.ManagementID}}</code></dd>
+        </dl>
+        <label for="restore-confirmation" class="form-label">
+          Type <code>{{.Server.ManagementID}}</code> to confirm
+        </label>
+        <input class="form-control font-monospace" id="restore-confirmation" autocomplete="off" spellcheck="false">
+        <div class="form-text">The service returns to its previous running or stopped state.</div>
+        <div class="alert alert-danger mt-3 mb-0 d-none" id="restore-error" role="alert"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-danger" id="restore-submit" disabled>Restore snapshot</button>
+      </div>
+    </div>
+  </div>
+</div>
+{{end}}
 {{else}}
 <div class="row">
   <div class="col-md-8">
@@ -1009,7 +1044,7 @@ async function backupAction(action, button) {
         wrapper.className = 'table-responsive';
         const table = document.createElement('table');
         table.className = 'table align-middle';
-        table.innerHTML = '<thead><tr><th>Created</th><th>Snapshot</th><th>Tags</th><th>Paths</th></tr></thead>';
+        table.innerHTML = '<thead><tr><th>Created</th><th>Snapshot</th><th>Tags</th><th>Paths</th>{{if .BackupRestore}}<th>Actions</th>{{end}}</tr></thead>';
         const body = document.createElement('tbody');
         const orderedSnapshots = [...snapshots].sort((left, right) => {
             const leftTime = Date.parse(left.time || '');
@@ -1031,6 +1066,16 @@ async function backupAction(action, button) {
                 cell.textContent = value;
                 row.appendChild(cell);
             }
+            {{if .BackupRestore}}
+            const actionCell = document.createElement('td');
+            const restoreButton = document.createElement('button');
+            restoreButton.type = 'button';
+            restoreButton.className = 'btn btn-sm btn-outline-danger';
+            restoreButton.textContent = 'Restore…';
+            restoreButton.addEventListener('click', () => prepareRestore(snapshot));
+            actionCell.appendChild(restoreButton);
+            row.appendChild(actionCell);
+            {{end}}
             body.appendChild(row);
         }
         table.appendChild(body);
@@ -1047,6 +1092,75 @@ async function backupAction(action, button) {
         button.textContent = original;
     }
 }
+
+{{if .BackupRestore}}
+let selectedRestoreSnapshot = null;
+const restoreModalElement = document.getElementById('restore-backup-modal');
+const restoreModal = bootstrap.Modal.getOrCreateInstance(restoreModalElement);
+const restoreConfirmation = document.getElementById('restore-confirmation');
+const restoreSubmit = document.getElementById('restore-submit');
+const restoreError = document.getElementById('restore-error');
+
+function prepareRestore(snapshot) {
+    selectedRestoreSnapshot = snapshot;
+    document.getElementById('restore-snapshot-id').textContent = String(snapshot.id || '');
+    const parsed = new Date(snapshot.time || '');
+    document.getElementById('restore-snapshot-time').textContent =
+        Number.isNaN(parsed.getTime()) ? (snapshot.time || 'Unknown') : parsed.toLocaleString();
+    restoreConfirmation.value = '';
+    restoreSubmit.disabled = true;
+    restoreError.classList.add('d-none');
+    restoreError.textContent = '';
+    restoreModal.show();
+    restoreModalElement.addEventListener('shown.bs.modal', () => restoreConfirmation.focus(), {once: true});
+}
+
+restoreConfirmation.addEventListener('input', () => {
+    restoreSubmit.disabled = restoreConfirmation.value !== '{{.Server.ManagementID}}' || !selectedRestoreSnapshot;
+});
+
+restoreSubmit.addEventListener('click', async () => {
+    if (!selectedRestoreSnapshot || restoreConfirmation.value !== '{{.Server.ManagementID}}') return;
+    restoreSubmit.disabled = true;
+    restoreSubmit.textContent = 'Restoring…';
+    restoreError.classList.add('d-none');
+    try {
+        const response = await fetch(`/api/agents/${encodeURIComponent(serverName)}/backup/restore`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json', 'X-CSRF-Token': getCsrfToken()},
+            body: JSON.stringify({
+                snapshot: selectedRestoreSnapshot.id,
+                confirmServerId: '{{.Server.ManagementID}}'
+            })
+        });
+        const contentType = response.headers.get('content-type') || '';
+        const result = contentType.includes('application/json')
+            ? await response.json()
+            : {success: false, error: (await response.text()).trim()};
+        if (!response.ok || result.success === false) {
+            const safety = result.data && result.data.safetySnapshotId
+                ? ` Safety snapshot: ${result.data.safetySnapshotId}.`
+                : '';
+            const rollback = result.data && result.data.rollbackRestored === true
+                ? ' Original data was restored automatically.'
+                : '';
+            throw new Error((result.error || `HTTP ${response.status}`) + safety + rollback);
+        }
+        restoreModal.hide();
+        const data = result.data || {};
+        const message = document.createElement('div');
+        message.className = 'alert alert-success';
+        message.textContent = `Restore completed. Safety snapshot: ${data.safetySnapshotId || 'created'}.`;
+        document.getElementById('server-backup-result').replaceChildren(message);
+    } catch (error) {
+        restoreError.textContent = error.message;
+        restoreError.classList.remove('d-none');
+    } finally {
+        restoreSubmit.textContent = 'Restore snapshot';
+        restoreSubmit.disabled = restoreConfirmation.value !== '{{.Server.ManagementID}}';
+    }
+});
+{{end}}
 {{end}}
 
 {{if .FilesPage}}

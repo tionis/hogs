@@ -24,6 +24,7 @@
         <div class="d-flex gap-2 mb-3">
           <button class="btn btn-sm btn-outline-primary" onclick="backupAction('{{.Name}}', 'create', this)">Create Backup</button>
           <button class="btn btn-sm btn-outline-info" onclick="backupAction('{{.Name}}', 'list', this)">List Snapshots</button>
+          <a class="btn btn-sm btn-outline-secondary" href="/servers/{{.Name}}/backups">Open restore view</a>
         </div>
         <div id="backup-result-{{.Name}}" aria-live="polite" style="display:none;"></div>
       </div>

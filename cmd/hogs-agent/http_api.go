@@ -189,6 +189,9 @@ func handleCommand(w http.ResponseWriter, r *http.Request, server *ServerConfig)
 	if !decodeJSON(w, r, &request) || strings.TrimSpace(request.Command) == "" {
 		return
 	}
+	lock := serverOperationLock(server)
+	lock.Lock()
+	defer lock.Unlock()
 	output, err := executeCommand(server, request.Command)
 	if err != nil {
 		writeAPIError(w, http.StatusBadGateway, err)
@@ -273,6 +276,9 @@ func handleFileRead(w http.ResponseWriter, r *http.Request, server *ServerConfig
 }
 
 func handleFileWrite(w http.ResponseWriter, r *http.Request, server *ServerConfig) {
+	lock := serverOperationLock(server)
+	lock.Lock()
+	defer lock.Unlock()
 	path, err := resolvePath(server, r.URL.Query().Get("path"))
 	if err != nil {
 		writeAPIError(w, http.StatusBadRequest, err)
@@ -319,10 +325,16 @@ func handleFileWrite(w http.ResponseWriter, r *http.Request, server *ServerConfi
 }
 
 func handleFileDelete(w http.ResponseWriter, r *http.Request, server *ServerConfig) {
+	lock := serverOperationLock(server)
+	lock.Lock()
+	defer lock.Unlock()
 	writeOperationResult(w, fileDelete(server, r.URL.Query().Get("path")))
 }
 
 func handleFileOperation(w http.ResponseWriter, r *http.Request, server *ServerConfig) {
+	lock := serverOperationLock(server)
+	lock.Lock()
+	defer lock.Unlock()
 	writeOperationResult(w, fileOperation(
 		server,
 		r.URL.Query().Get("operation"),
@@ -341,6 +353,9 @@ func handleMkdir(w http.ResponseWriter, r *http.Request, server *ServerConfig) {
 			return
 		}
 	}
+	lock := serverOperationLock(server)
+	lock.Lock()
+	defer lock.Unlock()
 	writeOperationResult(w, mkdir(server, request.Path))
 }
 
@@ -356,18 +371,21 @@ func handleBackupCreate(w http.ResponseWriter, r *http.Request, server *ServerCo
 	if !decodeJSON(w, r, &request) {
 		return
 	}
+	lock := serverOperationLock(server)
+	lock.Lock()
+	defer lock.Unlock()
 	writeOperationResult(w, backupCreate(server, request.Paths, request.Tags))
 }
 
 func handleBackupRestore(w http.ResponseWriter, r *http.Request, server *ServerConfig) {
 	var request struct {
-		Snapshot string `json:"snapshot"`
-		Target   string `json:"target"`
+		Snapshot        string `json:"snapshot"`
+		ConfirmServerID string `json:"confirmServerId"`
 	}
 	if !decodeJSON(w, r, &request) {
 		return
 	}
-	writeOperationResult(w, backupRestore(server, request.Snapshot, request.Target))
+	writeOperationResult(w, restoreSnapshot(r.PathValue("serverID"), server, request.Snapshot, request.ConfirmServerID))
 }
 
 func decodeJSON(w http.ResponseWriter, r *http.Request, destination interface{}) bool {
@@ -391,7 +409,11 @@ func writeOperationResult(w http.ResponseWriter, result map[string]interface{}) 
 		if message == "" {
 			message = "operation failed"
 		}
-		writeAPIError(w, http.StatusBadGateway, fmt.Errorf("%s", message))
+		delete(result, "error")
+		delete(result, "message")
+		writeJSONResponse(w, http.StatusBadGateway, map[string]interface{}{
+			"success": false, "error": message, "data": result,
+		})
 		return
 	}
 	writeJSONResponse(w, http.StatusOK, map[string]interface{}{"success": true, "data": result})

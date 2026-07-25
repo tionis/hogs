@@ -95,6 +95,26 @@ func TestBackupSnapshotsSortNewestFirst(t *testing.T) {
 	}
 }
 
+func TestSnapshotCoverageIncludesExactAndAncestorPaths(t *testing.T) {
+	for name, test := range map[string]struct {
+		paths []string
+		want  bool
+	}{
+		"exact server backup":   {[]string{"/srv/game/alpha"}, true},
+		"broad host backup":     {[]string{"/srv"}, true},
+		"unrelated server":      {[]string{"/srv/game/beta"}, false},
+		"similar prefix":        {[]string{"/srv/game/alph"}, false},
+		"empty snapshot paths":  {nil, false},
+		"parent traversal text": {[]string{"/srv/game/beta/../beta"}, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := snapshotCoversPath(test.paths, "/srv/game/alpha"); got != test.want {
+				t.Fatalf("snapshotCoversPath(%v)=%t, want %t", test.paths, got, test.want)
+			}
+		})
+	}
+}
+
 func TestRCONPacketRoundTrip(t *testing.T) {
 	var packet bytes.Buffer
 	if err := writeRCONPacket(&packet, 7, 2, "list"); err != nil {
@@ -393,5 +413,10 @@ func TestValidateConfigRejectsUnsafeUnitAndRelativeDataDir(t *testing.T) {
 	cfg.Servers["alpha"] = server
 	if err := validateConfig(cfg); err == nil {
 		t.Fatal("relative data directory was accepted")
+	}
+	server.DataDir = "/"
+	cfg.Servers["alpha"] = server
+	if err := validateConfig(cfg); err == nil {
+		t.Fatal("filesystem root data directory was accepted")
 	}
 }

@@ -225,8 +225,11 @@ func validateConfig(cfg AgentConfig) error {
 		}
 	}
 	for name, server := range cfg.Servers {
-		if name == "" || server.Unit == "" || !filepath.IsAbs(server.DataDir) || strings.Contains(server.Unit, "/") {
-			return fmt.Errorf("server %q requires a unit and absolute data_dir", name)
+		cleanDataDir := filepath.Clean(server.DataDir)
+		if name == "" || server.Unit == "" || !filepath.IsAbs(cleanDataDir) ||
+			cleanDataDir == string(filepath.Separator) || filepath.Dir(cleanDataDir) == cleanDataDir ||
+			strings.Contains(server.Unit, "/") {
+			return fmt.Errorf("server %q requires a unit and safe absolute data_dir below the filesystem root", name)
 		}
 		if server.Console.Type == "rcon" && (server.Console.Host == "" || server.Console.Port <= 0 || !filepath.IsAbs(server.Console.PasswordFile)) {
 			return fmt.Errorf("server %q has incomplete RCON configuration", name)
@@ -854,42 +857,6 @@ func backupCreate(server *ServerConfig, paths []string, tags []string) map[strin
 	}
 }
 
-func backupRestore(server *ServerConfig, snapshot, target string) map[string]interface{} {
-	env, err := resticEnv(server)
-	if err != nil {
-		return map[string]interface{}{"success": false, "error": err.Error()}
-	}
-	if target == "" {
-		target, err = resolvePath(server, ".")
-		if err != nil {
-			return map[string]interface{}{"success": false, "error": err.Error()}
-		}
-	} else {
-		target, err = resolvePath(server, target)
-		if err != nil {
-			return map[string]interface{}{"success": false, "error": err.Error()}
-		}
-	}
-
-	args := []string{"restore", snapshot, "--target", target}
-	cmd := exec.Command(agentConfig.ResticBin, args...)
-	cmd.Env = env
-	output, err := cmd.CombinedOutput()
-
-	if err != nil {
-		return map[string]interface{}{
-			"success": false,
-			"error":   fmt.Sprintf("%s: %s", err, strings.TrimSpace(string(output))),
-		}
-	}
-
-	return map[string]interface{}{
-		"success": true,
-		"target":  target,
-		"output":  strings.TrimSpace(string(output)),
-	}
-}
-
 type backupSnapshot struct {
 	ID    string   `json:"id"`
 	Time  string   `json:"time"`
@@ -939,7 +906,13 @@ func backupList(server *ServerConfig) map[string]interface{} {
 		return map[string]interface{}{"success": false, "error": "failed to parse restic output: " + err.Error()}
 	}
 
-	cmd.Wait()
+	if err := cmd.Wait(); err != nil {
+		message := strings.TrimSpace(stderr.String())
+		if message == "" {
+			message = err.Error()
+		}
+		return map[string]interface{}{"success": false, "error": "restic snapshots failed: " + message}
+	}
 
 	var result []backupSnapshot
 	for _, s := range snapshots {
@@ -964,6 +937,9 @@ func backupList(server *ServerConfig) map[string]interface{} {
 				}
 			}
 		}
+		if !snapshotCoversPath(si.Paths, server.DataDir) {
+			continue
+		}
 		result = append(result, si)
 	}
 	sortBackupSnapshotsNewestFirst(result)
@@ -972,6 +948,18 @@ func backupList(server *ServerConfig) map[string]interface{} {
 		"success":   true,
 		"snapshots": result,
 	}
+}
+
+func snapshotCoversPath(snapshotPaths []string, requestedPath string) bool {
+	requested := filepath.Clean(requestedPath)
+	for _, snapshotPath := range snapshotPaths {
+		root := filepath.Clean(snapshotPath)
+		relative, err := filepath.Rel(root, requested)
+		if err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+			return true
+		}
+	}
+	return false
 }
 
 func envOr(key, fallback string) string {

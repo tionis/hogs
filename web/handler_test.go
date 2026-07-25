@@ -858,6 +858,46 @@ func TestBackupsRenders(t *testing.T) {
 	}
 }
 
+func TestServerBackupRestoreRequiresPolicyAndTypedConfirmation(t *testing.T) {
+	handler, store, authenticator := testWebHandler(t)
+	if err := store.CreateServer(&database.Server{Name: "RestoreSrv", GameType: "minecraft", State: "online"}); err != nil {
+		t.Fatal(err)
+	}
+	server, _ := store.GetServerByName("RestoreSrv")
+	if _, err := store.DB.Exec(`INSERT INTO server_management(
+		server_id,unit_name,data_path,backup_enabled,restore_enabled
+	) VALUES(?,?,?,?,?)`, server.ID, "restore.service", "/srv/restore", 1, 1); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/servers/RestoreSrv/backups", nil)
+	req = mux.SetURLVars(req, map[string]string{"serverName": "RestoreSrv"})
+	req.AddCookie(createTestSession(t, store, authenticator, "admin@test.com", "admin"))
+	recorder := httptest.NewRecorder()
+	handler.ServerBackups(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("restore page status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	body := recorder.Body.String()
+	for _, expected := range []string{
+		"Restore server snapshot", "create a safety snapshot", "atomically swap",
+		"confirmServerId", server.ManagementID, "Restore…", "roll back",
+	} {
+		if !contains(body, expected) {
+			t.Errorf("restore UI missing %q", expected)
+		}
+	}
+
+	if _, err := store.DB.Exec("UPDATE server_management SET restore_enabled=0 WHERE server_id=?", server.ID); err != nil {
+		t.Fatal(err)
+	}
+	disabledRecorder := httptest.NewRecorder()
+	handler.ServerBackups(disabledRecorder, req)
+	if contains(disabledRecorder.Body.String(), "Restore server snapshot") {
+		t.Fatal("restore controls rendered while deployment policy disabled restores")
+	}
+}
+
 func TestAgentsRendersConnectionState(t *testing.T) {
 	handler, store, _ := testWebHandler(t)
 	agent := &database.Agent{

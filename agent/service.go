@@ -286,10 +286,12 @@ func (s *AgentService) BackupCreate(serverName string, paths, tags []string) (*G
 	return s.operation(ctx, serverName, http.MethodPost, "backups", map[string]interface{}{"paths": paths, "tags": tags})
 }
 
-func (s *AgentService) BackupRestore(serverName, snapshot, target string) (*GenericResultData, error) {
+func (s *AgentService) BackupRestore(serverName, snapshot, confirmServerID string) (*GenericResultData, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
-	return s.operation(ctx, serverName, http.MethodPost, "restore", map[string]string{"snapshot": snapshot, "target": target})
+	return s.operation(ctx, serverName, http.MethodPost, "restore", map[string]string{
+		"snapshot": snapshot, "confirmServerId": confirmServerID,
+	})
 }
 
 func (s *AgentService) BackupList(serverName string) (*GenericResultData, error) {

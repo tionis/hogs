@@ -555,6 +555,10 @@ func (h *WebHandler) renderServerPage(w http.ResponseWriter, r *http.Request, pa
 			data.WhitelistSelf = false
 			data.WhitelistManage = false
 		}
+		management, _ := h.Store.GetServerManagement(server.ID)
+		if management == nil || !management.RestoreEnabled {
+			data.BackupRestore = false
+		}
 	}
 	if isAuthenticated && hasAgent {
 		if userRole == "admin" {
