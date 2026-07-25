@@ -5,12 +5,15 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
 	robfigcron "github.com/robfig/cron/v3"
+	"github.com/tionis/hogs/access"
+	"github.com/tionis/hogs/auth"
 	"github.com/tionis/hogs/config"
 	hogscron "github.com/tionis/hogs/cron"
 	"github.com/tionis/hogs/database"
@@ -22,16 +25,54 @@ type AutomationHandler struct {
 	Config              *config.Config
 	Engine              *engine.Engine
 	AfterScheduleChange func() error
+	Auth                *auth.Authenticator
 }
 
 func (h *AutomationHandler) SetAfterScheduleChange(callback func() error) {
 	h.AfterScheduleChange = callback
 }
 
-func (h *AutomationHandler) parseAutomationRule(r *http.Request, id int) (*database.CronJob, error) {
+func (h *AutomationHandler) SetAuthenticator(authenticator *auth.Authenticator) {
+	h.Auth = authenticator
+}
+
+func (h *AutomationHandler) automationServer(r *http.Request) (*database.Server, error) {
+	server, err := h.Store.GetServerByName(mux.Vars(r)["serverName"])
+	if err != nil || server == nil {
+		return nil, fmt.Errorf("server not found")
+	}
+	if h.Auth == nil {
+		return nil, fmt.Errorf("authentication is not configured")
+	}
+	if h.Auth.GetUserRole(r) == "admin" {
+		return server, nil
+	}
+	username := h.Auth.GetUsername(r)
+	user, _ := h.Store.GetUserByUsername(username)
+	var groups []string
+	if user != nil {
+		scimGroups, _ := h.Store.GetSCIMGroupsForUser(user.ID)
+		for _, group := range scimGroups {
+			groups = append(groups, group.DisplayName)
+		}
+	}
+	decision, err := h.Store.EvaluateServerAccess(server.ID, username, groups, access.AutomationManage)
+	if err != nil {
+		return nil, err
+	}
+	if !decision.Allowed {
+		return nil, fmt.Errorf("automation access denied")
+	}
+	return server, nil
+}
+
+func automationPath(server *database.Server) string {
+	return "/servers/" + url.PathEscape(server.Name) + "/automation"
+}
+
+func (h *AutomationHandler) parseAutomationRule(r *http.Request, id, serverID int) (*database.CronJob, error) {
 	name := strings.TrimSpace(r.FormValue("name"))
 	schedule := strings.TrimSpace(r.FormValue("schedule"))
-	serverID, err := strconv.Atoi(r.FormValue("server_id"))
 	action := strings.TrimSpace(r.FormValue("action"))
 	condition := strings.TrimSpace(r.FormValue("condition"))
 	if condition == "" {
@@ -39,7 +80,7 @@ func (h *AutomationHandler) parseAutomationRule(r *http.Request, id int) (*datab
 	}
 	stability, stabilityErr := strconv.Atoi(defaultString(r.FormValue("stability_seconds"), "0"))
 	cooldown, cooldownErr := strconv.Atoi(defaultString(r.FormValue("cooldown_seconds"), "0"))
-	if name == "" || schedule == "" || err != nil || serverID <= 0 || action == "" {
+	if name == "" || schedule == "" || serverID <= 0 || action == "" {
 		return nil, fmt.Errorf("name, schedule, server, and action are required")
 	}
 	if action != "start" && action != "stop" && action != "restart" {
@@ -339,7 +380,12 @@ func (h *AutomationHandler) AddCronJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	j, err := h.parseAutomationRule(r, 0)
+	server, err := h.automationServer(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	j, err := h.parseAutomationRule(r, 0, server.ID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -356,7 +402,7 @@ func (h *AutomationHandler) AddCronJob(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	http.Redirect(w, r, "/admin/cron", http.StatusFound)
+	http.Redirect(w, r, automationPath(server), http.StatusFound)
 }
 
 func (h *AutomationHandler) UpdateCronJob(w http.ResponseWriter, r *http.Request) {
@@ -371,16 +417,24 @@ func (h *AutomationHandler) UpdateCronJob(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	j, err := h.parseAutomationRule(r, id)
+	server, err := h.automationServer(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	existing, getErr := h.Store.GetCronJob(id)
+	if getErr != nil || existing == nil || existing.ServerID != server.ID {
+		http.Error(w, "Automation rule not found", http.StatusNotFound)
+		return
+	}
+	j, err := h.parseAutomationRule(r, id, server.ID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if existing, getErr := h.Store.GetCronJob(id); getErr == nil && existing != nil {
-		j.LastActionAt = existing.LastActionAt
-		j.LastRun = existing.LastRun
-		j.NextRun = existing.NextRun
-	}
+	j.LastActionAt = existing.LastActionAt
+	j.LastRun = existing.LastRun
+	j.NextRun = existing.NextRun
 
 	if err := h.Store.UpdateCronJob(j); err != nil {
 		http.Error(w, "Failed to update cron job: "+err.Error(), http.StatusInternalServerError)
@@ -393,7 +447,7 @@ func (h *AutomationHandler) UpdateCronJob(w http.ResponseWriter, r *http.Request
 		}
 	}
 
-	http.Redirect(w, r, "/admin/cron", http.StatusFound)
+	http.Redirect(w, r, automationPath(server), http.StatusFound)
 }
 
 func (h *AutomationHandler) DeleteCronJob(w http.ResponseWriter, r *http.Request) {
@@ -408,6 +462,16 @@ func (h *AutomationHandler) DeleteCronJob(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	server, err := h.automationServer(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	existing, getErr := h.Store.GetCronJob(id)
+	if getErr != nil || existing == nil || existing.ServerID != server.ID {
+		http.Error(w, "Automation rule not found", http.StatusNotFound)
+		return
+	}
 	if err := h.Store.DeleteCronJob(id); err != nil {
 		http.Error(w, "Failed to delete cron job", http.StatusInternalServerError)
 		return
@@ -419,7 +483,7 @@ func (h *AutomationHandler) DeleteCronJob(w http.ResponseWriter, r *http.Request
 		}
 	}
 
-	http.Redirect(w, r, "/admin/cron", http.StatusFound)
+	http.Redirect(w, r, automationPath(server), http.StatusFound)
 }
 
 func (h *AutomationHandler) UpdateServerTags(w http.ResponseWriter, r *http.Request) {

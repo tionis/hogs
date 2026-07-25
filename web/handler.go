@@ -398,6 +398,10 @@ func (h *WebHandler) ServerBackups(w http.ResponseWriter, r *http.Request) {
 	h.renderServerPage(w, r, "backups")
 }
 
+func (h *WebHandler) ServerAutomation(w http.ResponseWriter, r *http.Request) {
+	h.renderServerPage(w, r, "automation")
+}
+
 func (h *WebHandler) ServerSettings(w http.ResponseWriter, r *http.Request) {
 	h.renderServerPage(w, r, "settings")
 }
@@ -483,6 +487,9 @@ func (h *WebHandler) renderServerPage(w http.ResponseWriter, r *http.Request, pa
 		BackupList                  bool
 		BackupCreate                bool
 		BackupRestore               bool
+		AutomationManage            bool
+		AutomationJobs              []database.CronJob
+		AutomationLogs              map[int][]database.CronJobLog
 		CanRevealSecrets            bool
 		Page                        string
 		FilesPage                   bool
@@ -511,6 +518,8 @@ func (h *WebHandler) renderServerPage(w http.ResponseWriter, r *http.Request, pa
 		ServerConstraints:           []database.Constraint{},
 		ServerConstraintMaxPriority: h.Config.ServerConstraintMaxPriority,
 		AccessCatalog:               access.Capabilities,
+		AutomationJobs:              []database.CronJob{},
+		AutomationLogs:              map[int][]database.CronJobLog{},
 		Page:                        page,
 		FilesPage:                   page == "files",
 		IdentityCaseSensitive:       h.Store.ResolveGameDriver(server.GameType).IdentityCaseSensitive,
@@ -552,18 +561,21 @@ func (h *WebHandler) renderServerPage(w http.ResponseWriter, r *http.Request, pa
 		backupCreateDecision := database.ServerAccessDecision{Allowed: userRole == "admin"}
 		backupRestoreDecision := database.ServerAccessDecision{Allowed: userRole == "admin"}
 		secretReadDecision := database.ServerAccessDecision{Allowed: userRole == "admin"}
+		automationDecision := database.ServerAccessDecision{Allowed: userRole == "admin"}
 		if userRole != "admin" {
 			selfWhitelistDecision, _ = h.Store.EvaluateServerAccess(server.ID, userEnv.Username, userEnv.Groups, access.WhitelistSelf)
 			backupListDecision, _ = h.Store.EvaluateServerAccess(server.ID, userEnv.Username, userEnv.Groups, access.BackupList)
 			backupCreateDecision, _ = h.Store.EvaluateServerAccess(server.ID, userEnv.Username, userEnv.Groups, access.BackupCreate)
 			backupRestoreDecision, _ = h.Store.EvaluateServerAccess(server.ID, userEnv.Username, userEnv.Groups, access.BackupRestore)
 			secretReadDecision, _ = h.Store.EvaluateServerAccess(server.ID, userEnv.Username, userEnv.Groups, access.SecretRead)
+			automationDecision, _ = h.Store.EvaluateServerAccess(server.ID, userEnv.Username, userEnv.Groups, access.AutomationManage)
 		}
 		data.WhitelistSelf = selfWhitelistDecision.Allowed
 		data.BackupList = backupListDecision.Allowed
 		data.BackupCreate = backupCreateDecision.Allowed
 		data.BackupRestore = backupRestoreDecision.Allowed
 		data.CanRevealSecrets = secretReadDecision.Allowed
+		data.AutomationManage = automationDecision.Allowed
 		if !h.Store.ResolveGameDriver(server.GameType).SupportsWhitelist() {
 			data.WhitelistSelf = false
 			data.WhitelistManage = false
@@ -649,6 +661,20 @@ func (h *WebHandler) renderServerPage(w http.ResponseWriter, r *http.Request, pa
 			http.Error(w, "Backup access denied", http.StatusForbidden)
 			return
 		}
+	case "automation":
+		if !data.AutomationManage {
+			http.Error(w, "Automation access denied", http.StatusForbidden)
+			return
+		}
+		data.AutomationJobs, _ = h.Store.ListCronJobsForServer(server.ID)
+		if data.AutomationJobs == nil {
+			data.AutomationJobs = []database.CronJob{}
+		}
+		for _, job := range data.AutomationJobs {
+			if entries, logErr := h.Store.ListCronJobLogs(job.ID, 8); logErr == nil {
+				data.AutomationLogs[job.ID] = entries
+			}
+		}
 	case "settings":
 		if userRole != "admin" {
 			http.Error(w, "Instance administrator access required", http.StatusForbidden)
@@ -671,6 +697,7 @@ func (h *WebHandler) renderServerPage(w http.ResponseWriter, r *http.Request, pa
 
 	tmpl, err := template.New("base.html").Funcs(sharedFuncMap(h.Store)).ParseFS(
 		templateFS, "templates/base.html", "templates/server.html", "templates/server_edit.html",
+		"templates/server_automation.html",
 	)
 	if err != nil {
 		http.Error(w, "Template error: "+err.Error(), http.StatusInternalServerError)
@@ -1758,58 +1785,6 @@ func (h *WebHandler) ConstraintManager(w http.ResponseWriter, r *http.Request) {
 	buf.WriteTo(w)
 }
 
-func (h *WebHandler) CronManager(w http.ResponseWriter, r *http.Request) {
-	jobs, _ := h.Store.ListCronJobs()
-	if jobs == nil {
-		jobs = []database.CronJob{}
-	}
-
-	servers, _ := h.Store.ListServers()
-	if servers == nil {
-		servers = []database.Server{}
-	}
-
-	logs := map[int][]database.CronJobLog{}
-	for _, job := range jobs {
-		if entries, err := h.Store.ListCronJobLogs(job.ID, 8); err == nil {
-			logs[job.ID] = entries
-		}
-	}
-
-	data := struct {
-		CronJobs       []database.CronJob
-		Logs           map[int][]database.CronJobLog
-		Servers        []database.Server
-		Authenticated  bool
-		UserRole       string
-		SiteName       string
-		UserUsername   string
-		BackgroundURLs BackgroundURLs
-	}{
-		CronJobs:       jobs,
-		Logs:           logs,
-		Servers:        servers,
-		Authenticated:  true,
-		UserRole:       "admin",
-		SiteName:       h.siteName(),
-		UserUsername:   h.Auth.GetUsername(r),
-		BackgroundURLs: h.pickBackgrounds([]string{"home"}),
-	}
-
-	tmpl, err := template.New("base.html").Funcs(sharedFuncMap(h.Store)).ParseFS(templateFS, "templates/base.html", "templates/cron.html")
-	if err != nil {
-		http.Error(w, "Template error: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, data); err != nil {
-		http.Error(w, "Render error: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-	buf.WriteTo(w)
-}
-
 func (h *WebHandler) Help(w http.ResponseWriter, r *http.Request) {
 	constraints, _ := h.Store.ListConstraints()
 
@@ -2178,43 +2153,6 @@ func (h *WebHandler) Dashboard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	tmpl, err := template.New("base.html").Funcs(sharedFuncMap(h.Store)).ParseFS(templateFS, "templates/base.html", "templates/dashboard.html")
-	if err != nil {
-		http.Error(w, "Template error: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, data); err != nil {
-		http.Error(w, "Render error: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-	buf.WriteTo(w)
-}
-
-func (h *WebHandler) Backups(w http.ResponseWriter, r *http.Request) {
-	servers, err := h.Store.ListServers()
-	if err != nil {
-		http.Error(w, "Failed to load servers", http.StatusInternalServerError)
-		return
-	}
-
-	data := struct {
-		Servers        []database.Server
-		Authenticated  bool
-		UserRole       string
-		SiteName       string
-		UserUsername   string
-		BackgroundURLs BackgroundURLs
-	}{
-		Servers:        servers,
-		Authenticated:  true,
-		UserRole:       "admin",
-		SiteName:       h.siteName(),
-		UserUsername:   h.Auth.GetUsername(r),
-		BackgroundURLs: h.pickBackgrounds([]string{"home"}),
-	}
-
-	tmpl, err := template.New("base.html").Funcs(sharedFuncMap(h.Store)).ParseFS(templateFS, "templates/base.html", "templates/backups.html")
 	if err != nil {
 		http.Error(w, "Template error: "+err.Error(), http.StatusInternalServerError)
 		return

@@ -27,6 +27,7 @@
       {{if or .WhitelistSelf .WhitelistManage}}<a class="nav-link {{if eq .Page "whitelist"}}active{{end}}" href="/servers/{{.Server.Name}}/whitelist">Whitelist</a>{{end}}
       {{if .Authenticated}}<a class="nav-link {{if eq .Page "access"}}active{{end}}" href="/servers/{{.Server.Name}}/access">Access</a>{{end}}
       {{if or .BackupList .BackupCreate .BackupRestore}}<a class="nav-link {{if eq .Page "backups"}}active{{end}}" href="/servers/{{.Server.Name}}/backups">Backups</a>{{end}}
+      {{if .AutomationManage}}<a class="nav-link {{if eq .Page "automation"}}active{{end}}" href="/servers/{{.Server.Name}}/automation">Automation</a>{{end}}
       {{if eq .UserRole "admin"}}<a class="nav-link {{if eq .Page "settings"}}active{{end}}" href="/servers/{{.Server.Name}}/settings">Settings</a>{{end}}
     </div>
   </nav>
@@ -263,6 +264,8 @@
   </div>
 </div>
 {{end}}
+{{else if eq .Page "automation"}}
+{{template "server_automation" .}}
 {{else}}
 <div class="row">
   <div class="col-md-8">

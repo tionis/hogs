@@ -5,9 +5,15 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
+	"strconv"
+	"strings"
 	"testing"
 
+	"github.com/gorilla/mux"
+	"github.com/tionis/hogs/access"
+	"github.com/tionis/hogs/auth"
 	"github.com/tionis/hogs/config"
 	"github.com/tionis/hogs/database"
 	"github.com/tionis/hogs/engine"
@@ -29,6 +35,70 @@ func testAutomationHandler(t *testing.T) (*AutomationHandler, *database.Store) {
 	cache := query.NewServerStatusCache()
 	eng := engine.NewEngine(store, cfg, cache)
 	return NewAutomationHandler(store, cfg, eng), store
+}
+
+func TestServerAutomationMutationIsCapabilityCheckedAndServerScoped(t *testing.T) {
+	handler, store := testAutomationHandler(t)
+	for _, name := range []string{"Alpha", "Beta"} {
+		if err := store.CreateServer(&database.Server{Name: name, GameType: "generic", State: "online"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	alpha, _ := store.GetServerByName("Alpha")
+	beta, _ := store.GetServerByName("Beta")
+	if err := store.SetServerAccessGrant(&database.ServerAccessGrant{
+		ServerID: alpha.ID, SubjectType: "user", Subject: "operator", Effect: "allow",
+		Capabilities: []string{access.AutomationManage},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	authenticator := auth.NewTestAuthenticator(store, "automation-scope-test-secret")
+	handler.SetAuthenticator(authenticator)
+	sessionRequest := managedTestRequest(t, store, authenticator, "operator", "user")
+
+	form := url.Values{
+		"name": {"alpha_idle"}, "schedule": {"0 * * * * *"}, "action": {"stop"},
+		"condition": {"true"}, "stability_seconds": {"0"}, "cooldown_seconds": {"0"},
+		"params": {"{}"}, "enabled": {"on"}, "server_id": {strconv.Itoa(beta.ID)},
+	}
+	req := httptest.NewRequest(http.MethodPost, "/servers/Alpha/automation/add", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req = mux.SetURLVars(req, map[string]string{"serverName": "Alpha"})
+	for _, cookie := range sessionRequest.Cookies() {
+		req.AddCookie(cookie)
+	}
+	recorder := httptest.NewRecorder()
+	handler.AddCronJob(recorder, req)
+	if recorder.Code != http.StatusFound {
+		t.Fatalf("add status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	alphaJobs, _ := store.ListCronJobsForServer(alpha.ID)
+	betaJobs, _ := store.ListCronJobsForServer(beta.ID)
+	if len(alphaJobs) != 1 || len(betaJobs) != 0 {
+		t.Fatalf("forged server_id escaped route scope: alpha=%d beta=%d", len(alphaJobs), len(betaJobs))
+	}
+
+	betaRule := &database.CronJob{Name: "beta_rule", Schedule: "0 * * * * *", ServerID: beta.ID, Action: "stop", Enabled: true}
+	if err := store.CreateCronJob(betaRule); err != nil {
+		t.Fatal(err)
+	}
+	form.Set("id", strconv.Itoa(betaRule.ID))
+	form.Set("name", "hijacked")
+	req = httptest.NewRequest(http.MethodPost, "/servers/Alpha/automation/update", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req = mux.SetURLVars(req, map[string]string{"serverName": "Alpha"})
+	for _, cookie := range sessionRequest.Cookies() {
+		req.AddCookie(cookie)
+	}
+	recorder = httptest.NewRecorder()
+	handler.UpdateCronJob(recorder, req)
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("cross-server update status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	unchanged, _ := store.GetCronJob(betaRule.ID)
+	if unchanged.Name != "beta_rule" {
+		t.Fatal("cross-server update changed another server's rule")
+	}
 }
 
 func TestBulkTags(t *testing.T) {

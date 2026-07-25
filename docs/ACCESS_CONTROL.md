@@ -33,7 +33,8 @@ grant cannot enable an action disabled by deployment policy.
 Capabilities are explicit and independently grantable: `view`, `status`,
 `start`, `stop`, `restart`, `command`, `console.read`, `console.write`,
 `file.read`, `file.write`, `whitelist.self`, `whitelist.manage`, `backup.list`,
-`backup.create`, `backup.restore`, `secret.read`, and `access.manage`.
+`backup.create`, `backup.restore`, `automation.manage`, `secret.read`, and
+`access.manage`.
 `secret.read` reveals user-facing shared game secrets only after an explicit,
 audited request; write-only backend credentials are never revealable. `command`
 covers only commands separately approved for the server. Arbitrary console

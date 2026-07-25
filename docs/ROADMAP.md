@@ -55,7 +55,7 @@ Design reference: see `docs/DESIGN_AUTOMATION.md` for the full data model, archi
 - **Cron scheduler** (`cron/`): wraps `robfig/cron/v3`, jobs flow through engine pipeline as system user
 - **SCIM 2.0** (`scim/`): User and Group CRUD, PATCH, filtering, schema discovery, bearer token auth. Group membership changes trigger role recalculation and session invalidation.
 - **DB-backed sessions** (`auth/`): Sessions stored in SQLite, not cookies. Enables OIDC back-channel logout from Authentik.
-- **Admin UI**: Command schemas, constraints, cron jobs, server tags, ACL rules, help page
+- **Management UI**: Instance constraints and server-scoped commands, automation, tags, access rules, and help
 
 **Migrations**: 000016 (automation), 000017 (sessions), 000018 (SCIM)
 
@@ -199,7 +199,7 @@ All action paths (user-triggered, cron-triggered, API-triggered) go through the 
 ### Priority 2: Important Gaps (needed for production use)
 
 #### 2.1 Backup Management UI ✅ (basic)
-- Admin page at `/admin/backups` showing all servers with backup actions
+- Server Backups tab with capability-scoped snapshot creation, listing, and restore actions
 - One-click backup create and list snapshots buttons per server
 - Restic repository initialization UI with repo URL, password, and server selection
 - Calls existing agent backup API endpoints
@@ -211,7 +211,7 @@ All action paths (user-triggered, cron-triggered, API-triggered) go through the 
 - Scheduler stores result and output after each job execution
 - `UpdateCronJobResult()` updates the cron job's last_result/last_output
 - `CreateCronJobLog()` and `ListCronJobLogs()` for audit trail
-- Cron manager admin page shows last_result badge and expandable last_output
+- Server Automation tab shows result badges and recent evaluation history
 
 #### 2.3 Notification/Alerting System ✅
 - Migration 000026 creates `notification_channels` table (id, name, type, url, events, enabled, created_at)
@@ -345,7 +345,7 @@ All action paths (user-triggered, cron-triggered, API-triggered) go through the 
 - **Unit tests for `engine/` package**: ACL evaluation, constraint evaluation, param validation, template rendering, helper functions (HasTag, CountRunning, FilterByTag, ParseWeekday), source detection in audit log, expression testing
 - **Unit tests for `cron/` package**: scheduler creation, job loading, AddJob/UpdateJob/RemoveJob, enable/disable, Start/Stop
 - **Unit tests for `agent/` package**: Hub creation, connection lookup, request ID allocation, pending request correlation, context cancellation, Envelope serialization, result type detection, ResolveBackend (no-link, Pterodactyl, agent), AgentService offline errors, ServeWS auth validation, AgentBackend.Name/Status, console buffer/broadcast/limit, client lifecycle, server name lookup, pending op DB persistence, recovery logic
-- **Unit tests for `web/` package**: Dashboard, Admin, Home, ServerDetail, ConstraintManager, CronManager rendering; auth integration; 404 behavior for offline servers
+- **Unit tests for `web/` package**: Dashboard, Admin, Home, ServerDetail, ConstraintManager, server automation rendering; auth integration; 404 behavior for offline servers
 - **Bug fix**: `database/` agent scan methods (`GetAgent`, `GetAgentByToken`, `GetAgentByNodeName`, `ListAgents`) now correctly handle `json.RawMessage` column by scanning into `[]byte` first
 - **Unit tests for `database/` package**: agent_pending_ops CRUD, resolve, cleanup
 - **Bug fix**: `config/` test defaults now properly unset env vars to avoid environment bleed

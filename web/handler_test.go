@@ -136,6 +136,9 @@ func TestDashboardRenders(t *testing.T) {
 	if !contains(body, "Minecraft") {
 		t.Error("expected dashboard to contain game type")
 	}
+	if contains(body, "/admin/cron") || contains(body, "/admin/backups") {
+		t.Fatal("dashboard still links server-scoped automation or backups as instance administration")
+	}
 }
 
 func TestServerAccessManagerCanGrantOnlyAuthorizedServer(t *testing.T) {
@@ -233,6 +236,9 @@ func TestAdminRenders(t *testing.T) {
 	}
 	if !contains(w.Body.String(), "TestSrv") {
 		t.Error("expected admin page to contain server name")
+	}
+	if contains(w.Body.String(), "/admin/cron") || contains(w.Body.String(), "/admin/backups") {
+		t.Fatal("admin page still links server-scoped automation or backups")
 	}
 }
 
@@ -883,7 +889,7 @@ func TestServerTabsAndAccessPage(t *testing.T) {
 	if contains(body, "overflow-x-auto") || contains(body, "flex-nowrap") {
 		t.Fatal("server tab bar forces horizontal scrolling")
 	}
-	for _, tab := range []string{"Dashboard", "Console", "Files", "Whitelist", "Access", "Backups"} {
+	for _, tab := range []string{"Dashboard", "Console", "Files", "Whitelist", "Access", "Backups", "Automation"} {
 		if !contains(body, ">"+tab+"</a>") {
 			t.Fatalf("missing server tab %q", tab)
 		}
@@ -973,14 +979,29 @@ func TestConstraintManagerRenders(t *testing.T) {
 	}
 }
 
-func TestCronManagerRenders(t *testing.T) {
+func TestServerAutomationRendersOnlyServerRules(t *testing.T) {
 	handler, store, auth := testWebHandler(t)
-	req := httptest.NewRequest(http.MethodGet, "/admin/cron", nil)
+	if err := store.CreateServer(&database.Server{Name: "AutomatedSrv", GameType: "minecraft", State: "online"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateServer(&database.Server{Name: "OtherSrv", GameType: "minecraft", State: "online"}); err != nil {
+		t.Fatal(err)
+	}
+	server, _ := store.GetServerByName("AutomatedSrv")
+	other, _ := store.GetServerByName("OtherSrv")
+	if err := store.CreateCronJob(&database.CronJob{Name: "this_server_rule", Schedule: "0 * * * * *", ServerID: server.ID, Action: "stop", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateCronJob(&database.CronJob{Name: "other_server_rule", Schedule: "0 * * * * *", ServerID: other.ID, Action: "stop", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/servers/AutomatedSrv/automation", nil)
+	req = mux.SetURLVars(req, map[string]string{"serverName": "AutomatedSrv"})
 	w := httptest.NewRecorder()
 	cookie := createTestSession(t, store, auth, "admin@test.com", "admin")
 	req.AddCookie(cookie)
 
-	handler.CronManager(w, req)
+	handler.ServerAutomation(w, req)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("expected status 200, got %d: %s", w.Code, w.Body.String())
@@ -994,36 +1015,9 @@ func TestCronManagerRenders(t *testing.T) {
 			t.Errorf("automation manager missing %q", expected)
 		}
 	}
-}
-
-func TestBackupsRenders(t *testing.T) {
-	handler, store, auth := testWebHandler(t)
-	store.CreateServer(&database.Server{Name: "BackupSrv", GameType: "minecraft", State: "online"})
-
-	req := httptest.NewRequest(http.MethodGet, "/admin/backups", nil)
-	w := httptest.NewRecorder()
-	cookie := createTestSession(t, store, auth, "admin@test.com", "admin")
-	req.AddCookie(cookie)
-
-	handler.Backups(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Errorf("expected status 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if !contains(w.Body.String(), "BackupSrv") {
-		t.Error("expected backups page to contain server name")
-	}
-	if !contains(w.Body.String(), "content-type") || !contains(w.Body.String(), "await resp.text()") {
-		t.Error("expected backups page to handle JSON and plain-text failures")
-	}
 	body := w.Body.String()
-	for _, expected := range []string{"aria-live=\"polite\"", "renderSnapshots", "Created", "Snapshot", "Tags", "Paths", "Copy full snapshot ID"} {
-		if !contains(body, expected) {
-			t.Errorf("expected human-readable snapshot UI to contain %q", expected)
-		}
-	}
-	if contains(body, "JSON.stringify(data") {
-		t.Error("snapshot responses must not be rendered as raw JSON")
+	if !contains(body, "this_server_rule") || contains(body, "other_server_rule") {
+		t.Fatal("automation page did not scope rules to the selected server")
 	}
 }
 

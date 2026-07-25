@@ -1463,6 +1463,27 @@ func (s *Store) ListCronJobs() ([]CronJob, error) {
 	return jobs, nil
 }
 
+func (s *Store) ListCronJobsForServer(serverID int) ([]CronJob, error) {
+	rows, err := s.DB.Query(`SELECT jobs.id,jobs.name,jobs.schedule,jobs.server_id,servers.name,
+		jobs.action,jobs.params,jobs.acl_rule,jobs.enabled,jobs.last_run,jobs.next_run,
+		jobs.last_result,jobs.last_output,jobs.condition,jobs.stability_seconds,
+		jobs.cooldown_seconds,jobs.condition_true_since,jobs.last_action_at FROM cron_jobs AS jobs
+		JOIN servers ON servers.id=jobs.server_id WHERE jobs.server_id=? ORDER BY jobs.id`, serverID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var jobs []CronJob
+	for rows.Next() {
+		job, err := scanCronJob(rows)
+		if err != nil {
+			return nil, err
+		}
+		jobs = append(jobs, job)
+	}
+	return jobs, rows.Err()
+}
+
 func (s *Store) ListEnabledCronJobs() ([]CronJob, error) {
 	rows, err := s.DB.Query(`SELECT jobs.id,jobs.name,jobs.schedule,jobs.server_id,servers.name,
 		jobs.action,jobs.params,jobs.acl_rule,jobs.enabled,jobs.last_run,jobs.next_run,

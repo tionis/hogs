@@ -188,6 +188,7 @@ func main() {
 
 	pteroHandler := api.NewPterodactylHandler(store, cfg, eng, agentManager, authenticator)
 	automationHandler := api.NewAutomationHandler(store, cfg, eng)
+	automationHandler.SetAuthenticator(authenticator)
 	dashboardHandler := api.NewDashboardHandler(store, cfg, eng, agentManager)
 	apiKeyHandler := api.NewAPIKeyHandler(store)
 	templateHandler := api.NewTemplateHandler(store)
@@ -297,6 +298,10 @@ func main() {
 		router.Handle("/servers/{serverName}/whitelist", authenticator.RequireRole("admin", "user")(http.HandlerFunc(webHandler.ServerWhitelist))).Methods("GET")
 		router.Handle("/servers/{serverName}/access", authenticator.RequireRole("admin", "user")(http.HandlerFunc(webHandler.ServerAccess))).Methods("GET")
 		router.Handle("/servers/{serverName}/backups", authenticator.RequireRole("admin", "user")(http.HandlerFunc(webHandler.ServerBackups))).Methods("GET")
+		router.Handle("/servers/{serverName}/automation", authenticator.RequireRole("admin", "user")(http.HandlerFunc(webHandler.ServerAutomation))).Methods("GET")
+		router.Handle("/servers/{serverName}/automation/add", authenticator.RequireRole("admin", "user")(http.HandlerFunc(automationHandler.AddCronJob))).Methods("POST")
+		router.Handle("/servers/{serverName}/automation/update", authenticator.RequireRole("admin", "user")(http.HandlerFunc(automationHandler.UpdateCronJob))).Methods("POST")
+		router.Handle("/servers/{serverName}/automation/delete", authenticator.RequireRole("admin", "user")(http.HandlerFunc(automationHandler.DeleteCronJob))).Methods("POST")
 		router.Handle("/servers/{serverName}/settings", authenticator.RequireRole("admin")(http.HandlerFunc(webHandler.ServerSettings))).Methods("GET")
 		router.Handle("/servers/{serverName}/fields/{fieldID}/reveal", authenticator.RequireRole("admin", "user")(http.HandlerFunc(webHandler.RevealServerField))).Methods("POST")
 	} else {
@@ -358,7 +363,6 @@ func main() {
 		router.Handle("/admin/agents/label", authenticator.RequireRole("admin")(http.HandlerFunc(webHandler.HandleAgentLabelUpdate))).Methods("POST")
 		router.Handle("/admin/agents/transport", authenticator.RequireRole("admin")(http.HandlerFunc(webHandler.HandleAgentTransportUpdate))).Methods("POST")
 		router.Handle("/admin/audit", authenticator.RequireRole("admin")(http.HandlerFunc(webHandler.AuditLog))).Methods("GET")
-		router.Handle("/admin/backups", authenticator.RequireRole("admin")(http.HandlerFunc(webHandler.Backups))).Methods("GET")
 
 		router.Handle("/admin/pterodactyl/link", authenticator.RequireRole("admin")(http.HandlerFunc(pteroHandler.LinkServer))).Methods("POST")
 		router.Handle("/admin/pterodactyl/unlink", authenticator.RequireRole("admin")(http.HandlerFunc(pteroHandler.UnlinkServer))).Methods("POST")
@@ -383,11 +387,6 @@ func main() {
 		router.Handle("/admin/constraints/add", authenticator.RequireRole("admin")(http.HandlerFunc(automationHandler.AddConstraint))).Methods("POST")
 		router.Handle("/admin/constraints/update", authenticator.RequireRole("admin")(http.HandlerFunc(automationHandler.UpdateConstraint))).Methods("POST")
 		router.Handle("/admin/constraints/delete", authenticator.RequireRole("admin")(http.HandlerFunc(automationHandler.DeleteConstraint))).Methods("POST")
-
-		router.Handle("/admin/cron", authenticator.RequireRole("admin")(http.HandlerFunc(webHandler.CronManager))).Methods("GET")
-		router.Handle("/admin/cron/add", authenticator.RequireRole("admin")(http.HandlerFunc(automationHandler.AddCronJob))).Methods("POST")
-		router.Handle("/admin/cron/update", authenticator.RequireRole("admin")(http.HandlerFunc(automationHandler.UpdateCronJob))).Methods("POST")
-		router.Handle("/admin/cron/delete", authenticator.RequireRole("admin")(http.HandlerFunc(automationHandler.DeleteCronJob))).Methods("POST")
 
 		router.Handle("/admin/tags/{serverId}", authenticator.RequireRole("admin")(http.HandlerFunc(automationHandler.UpdateServerTags))).Methods("POST")
 		router.Handle("/admin/acl/{serverId}", authenticator.RequireRole("admin")(http.HandlerFunc(automationHandler.UpdateACLRule))).Methods("POST")

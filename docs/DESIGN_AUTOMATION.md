@@ -201,10 +201,10 @@ instance rules above that ceiling are mandatory.
 | `/admin/constraints/add` | POST | Admin | Create constraint |
 | `/admin/constraints/update` | POST | Admin | Update constraint |
 | `/admin/constraints/delete` | POST | Admin | Delete constraint |
-| `/admin/cron` | GET | Admin | Manage cron jobs |
-| `/admin/cron/add` | POST | Admin | Create cron job |
-| `/admin/cron/update` | POST | Admin | Update cron job |
-| `/admin/cron/delete` | POST | Admin | Delete cron job |
+| `/servers/{serverName}/automation` | GET | `automation.manage` | Manage server automation |
+| `/servers/{serverName}/automation/add` | POST | `automation.manage` | Create a server rule |
+| `/servers/{serverName}/automation/update` | POST | `automation.manage` | Update a server rule |
+| `/servers/{serverName}/automation/delete` | POST | `automation.manage` | Delete a server rule |
 | `/admin/tags/{serverId}` | POST | Admin | Update server tags |
 | `/admin/acl/{serverId}` | POST | Admin | Update server ACL rule |
 | `/api/audit` | GET | Admin | Query audit log |

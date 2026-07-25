@@ -4,11 +4,12 @@ Automation rules evaluate a condition on a six-field cron schedule and, when
 that condition is satisfied, run `start`, `stop`, or `restart` through the same
 worker backend and final constraint checks as an interactive action.
 
-The admin page at `/admin/cron` includes templates for idle shutdown, nightly
-restart, scheduled start, and a nightly empty-server shutdown. Templates only
-populate the editor: every generated field remains editable before the rule is
-created. Existing rules expand into the same editor and show their latest
-evaluation history.
+Each server's `/servers/<name>/automation` tab includes templates for idle
+shutdown, nightly restart, scheduled start, and a nightly empty-server
+shutdown. Instance administrators and users with that server's
+`automation.manage` capability can use it. Templates only populate the editor:
+every generated field remains editable before the rule is created. Existing
+rules expand into the same editor and show their latest evaluation history.
 
 ## Conditions
 
