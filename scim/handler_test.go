@@ -175,3 +175,81 @@ func TestAuthentikGroupDiscoveryPatchAdoptsExternalID(t *testing.T) {
 		t.Fatalf("adopted group=%#v err=%v", adopted, err)
 	}
 }
+
+func TestAuthentikGroupPatchRemovesOnlyListedMembers(t *testing.T) {
+	handler, store := testHandler(t)
+	first, err := store.CreateUser("first", "user")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := store.CreateUser("second", "user")
+	if err != nil {
+		t.Fatal(err)
+	}
+	group := &database.SCIMGroup{ExternalID: "player-id", DisplayName: "Player"}
+	if err := store.CreateSCIMGroup(group); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetSCIMGroupMembers(group.ID, []int{first.ID, second.ID}); err != nil {
+		t.Fatal(err)
+	}
+
+	request := scimRequest(t, http.MethodPatch, fmt.Sprintf("/scim/v2/Groups/%d", group.ID), map[string]interface{}{
+		"schemas": []string{"urn:ietf:params:scim:api:messages:2.0:PatchOp"},
+		"Operations": []map[string]interface{}{
+			{
+				"op":   "remove",
+				"path": "members",
+				"value": []map[string]string{
+					{"value": fmt.Sprint(first.ID)},
+				},
+			},
+		},
+	})
+	request = mux.SetURLVars(request, map[string]string{"id": fmt.Sprint(group.ID)})
+	recorder := httptest.NewRecorder()
+	handler.PatchGroup(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("patch status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	members, err := store.GetSCIMGroupMembers(group.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(members) != 1 || members[0].ID != second.ID {
+		t.Fatalf("members=%#v, want only user %d", members, second.ID)
+	}
+}
+
+func TestAuthentikGeneralGroupPatchAdoptsExternalID(t *testing.T) {
+	handler, store := testHandler(t)
+	group := &database.SCIMGroup{DisplayName: "Old name"}
+	if err := store.CreateSCIMGroup(group); err != nil {
+		t.Fatal(err)
+	}
+
+	request := scimRequest(t, http.MethodPatch, fmt.Sprintf("/scim/v2/Groups/%d", group.ID), map[string]interface{}{
+		"schemas": []string{"urn:ietf:params:scim:api:messages:2.0:PatchOp"},
+		"Operations": []map[string]interface{}{
+			{
+				"op": "replace",
+				"value": map[string]interface{}{
+					"displayName": "New name",
+					"externalId":  "group-id",
+				},
+			},
+		},
+	})
+	request = mux.SetURLVars(request, map[string]string{"id": fmt.Sprint(group.ID)})
+	recorder := httptest.NewRecorder()
+	handler.PatchGroup(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("patch status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	adopted, err := store.GetSCIMGroupByExternalID("group-id")
+	if err != nil || adopted == nil || adopted.ID != group.ID || adopted.DisplayName != "New name" {
+		t.Fatalf("adopted group=%#v err=%v", adopted, err)
+	}
+}

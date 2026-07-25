@@ -669,10 +669,55 @@ func (h *Handler) PatchGroup(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 			} else if strings.EqualFold(op.Path, "members") {
-				h.Store.SetSCIMGroupMembers(id, nil)
+				refs, hasRefs := op.Value.([]interface{})
+				if !hasRefs {
+					h.Store.SetSCIMGroupMembers(id, nil)
+					break
+				}
+				for _, ref := range refs {
+					item, ok := ref.(map[string]interface{})
+					if !ok {
+						continue
+					}
+					value, ok := item["value"].(string)
+					if !ok {
+						continue
+					}
+					if uid, err := strconv.Atoi(value); err == nil && uid > 0 {
+						h.Store.RemoveSCIMGroupMember(id, uid)
+					}
+				}
 			}
 		case "replace":
-			if strings.EqualFold(op.Path, "displayName") {
+			if op.Path == "" {
+				attributes, ok := op.Value.(map[string]interface{})
+				if !ok {
+					scimError(w, 400, "invalidValue", "replace without a path requires an object")
+					return
+				}
+				displayName := group.DisplayName
+				if value, ok := attributes["displayName"].(string); ok {
+					displayName = value
+				}
+				externalID := group.ExternalID
+				if value, ok := attributes["externalId"].(string); ok {
+					if strings.TrimSpace(value) == "" {
+						scimError(w, 400, "invalidValue", "externalId must be a non-empty string")
+						return
+					}
+					if group.ExternalID != "" && group.ExternalID != value {
+						scimError(w, 409, "uniqueness", "externalId is immutable")
+						return
+					}
+					externalID = value
+				}
+				if err := h.Store.UpdateSCIMGroup(id, externalID, displayName); err != nil {
+					scimError(w, 409, "uniqueness", err.Error())
+					return
+				}
+				group.DisplayName = displayName
+				group.ExternalID = externalID
+			} else if strings.EqualFold(op.Path, "displayName") {
 				if dn, ok := op.Value.(string); ok {
 					if err := h.Store.UpdateSCIMGroup(id, group.ExternalID, dn); err != nil {
 						scimError(w, 409, "uniqueness", err.Error())
