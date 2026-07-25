@@ -906,15 +906,20 @@ func (s *Store) SetSetting(key, value string) error {
 }
 
 type User struct {
-	ID          int    `json:"id"`
-	Email       string `json:"email"`
-	Role        string `json:"role"`
-	FirstSeen   string `json:"firstSeen"`
-	LastLogin   string `json:"lastLogin"`
-	ExternalID  string `json:"externalId"`
-	DisplayName string `json:"displayName"`
-	Active      bool   `json:"active"`
+	ID                int    `json:"id"`
+	Email             string `json:"email"`
+	Role              string `json:"role"`
+	FirstSeen         string `json:"firstSeen"`
+	LastLogin         string `json:"lastLogin"`
+	ExternalID        string `json:"externalId"`
+	DisplayName       string `json:"displayName"`
+	OIDCIssuer        string `json:"oidcIssuer"`
+	OIDCSubject       string `json:"oidcSubject"`
+	PreferredUsername string `json:"preferredUsername"`
+	Active            bool   `json:"active"`
 }
+
+const userSelectColumns = "id,email,role,first_seen,last_login,external_id,display_name,oidc_issuer,oidc_subject,preferred_username,active"
 
 func (s *Store) CreateUser(email, role string) (*User, error) {
 	if role == "" {
@@ -929,10 +934,10 @@ func (s *Store) CreateUser(email, role string) (*User, error) {
 }
 
 func (s *Store) GetUserByEmail(email string) (*User, error) {
-	row := s.DB.QueryRow("SELECT id, email, role, first_seen, last_login, external_id, display_name, active FROM users WHERE email = ?", email)
+	row := s.DB.QueryRow("SELECT "+userSelectColumns+" FROM users WHERE email = ?", email)
 	var u User
 	var active int
-	err := row.Scan(&u.ID, &u.Email, &u.Role, &u.FirstSeen, &u.LastLogin, &u.ExternalID, &u.DisplayName, &active)
+	err := row.Scan(&u.ID, &u.Email, &u.Role, &u.FirstSeen, &u.LastLogin, &u.ExternalID, &u.DisplayName, &u.OIDCIssuer, &u.OIDCSubject, &u.PreferredUsername, &active)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
@@ -954,7 +959,7 @@ func (s *Store) TouchUserLastLogin(id int) error {
 }
 
 func (s *Store) ListUsers() ([]User, error) {
-	rows, err := s.DB.Query("SELECT id, email, role, first_seen, last_login, external_id, display_name, active FROM users ORDER BY id")
+	rows, err := s.DB.Query("SELECT " + userSelectColumns + " FROM users ORDER BY id")
 	if err != nil {
 		return nil, err
 	}
@@ -964,7 +969,7 @@ func (s *Store) ListUsers() ([]User, error) {
 	for rows.Next() {
 		var u User
 		var active int
-		if err := rows.Scan(&u.ID, &u.Email, &u.Role, &u.FirstSeen, &u.LastLogin, &u.ExternalID, &u.DisplayName, &active); err != nil {
+		if err := rows.Scan(&u.ID, &u.Email, &u.Role, &u.FirstSeen, &u.LastLogin, &u.ExternalID, &u.DisplayName, &u.OIDCIssuer, &u.OIDCSubject, &u.PreferredUsername, &active); err != nil {
 			return nil, err
 		}
 		u.Active = active == 1
@@ -2081,10 +2086,10 @@ func (s *Store) ComputeMissingHashes(bgDir string) error {
 }
 
 func (s *Store) GetUserByID(id int) (*User, error) {
-	row := s.DB.QueryRow("SELECT id, email, role, first_seen, last_login, external_id, display_name, active FROM users WHERE id = ?", id)
+	row := s.DB.QueryRow("SELECT "+userSelectColumns+" FROM users WHERE id = ?", id)
 	var u User
 	var active int
-	err := row.Scan(&u.ID, &u.Email, &u.Role, &u.FirstSeen, &u.LastLogin, &u.ExternalID, &u.DisplayName, &active)
+	err := row.Scan(&u.ID, &u.Email, &u.Role, &u.FirstSeen, &u.LastLogin, &u.ExternalID, &u.DisplayName, &u.OIDCIssuer, &u.OIDCSubject, &u.PreferredUsername, &active)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
@@ -2096,10 +2101,10 @@ func (s *Store) GetUserByID(id int) (*User, error) {
 }
 
 func (s *Store) GetUserByExternalID(externalID string) (*User, error) {
-	row := s.DB.QueryRow("SELECT id, email, role, first_seen, last_login, external_id, display_name, active FROM users WHERE external_id = ?", externalID)
+	row := s.DB.QueryRow("SELECT "+userSelectColumns+" FROM users WHERE external_id = ?", externalID)
 	var u User
 	var active int
-	err := row.Scan(&u.ID, &u.Email, &u.Role, &u.FirstSeen, &u.LastLogin, &u.ExternalID, &u.DisplayName, &active)
+	err := row.Scan(&u.ID, &u.Email, &u.Role, &u.FirstSeen, &u.LastLogin, &u.ExternalID, &u.DisplayName, &u.OIDCIssuer, &u.OIDCSubject, &u.PreferredUsername, &active)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
@@ -2108,6 +2113,32 @@ func (s *Store) GetUserByExternalID(externalID string) (*User, error) {
 	}
 	u.Active = active == 1
 	return &u, nil
+}
+
+func (s *Store) GetUserByOIDCIdentity(issuer, subject string) (*User, error) {
+	if issuer == "" || subject == "" {
+		return nil, nil
+	}
+	row := s.DB.QueryRow("SELECT "+userSelectColumns+" FROM users WHERE oidc_issuer = ? AND oidc_subject = ?", issuer, subject)
+	var u User
+	var active int
+	err := row.Scan(&u.ID, &u.Email, &u.Role, &u.FirstSeen, &u.LastLogin, &u.ExternalID, &u.DisplayName, &u.OIDCIssuer, &u.OIDCSubject, &u.PreferredUsername, &active)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	u.Active = active == 1
+	return &u, nil
+}
+
+func (s *Store) UpdateUserOIDCIdentity(id int, issuer, subject, preferredUsername string) error {
+	_, err := s.DB.Exec(
+		"UPDATE users SET oidc_issuer = ?, oidc_subject = ?, preferred_username = ? WHERE id = ?",
+		issuer, subject, preferredUsername, id,
+	)
+	return err
 }
 
 func (s *Store) UpdateUserSCIM(id int, externalID, displayName string, active bool) error {
@@ -2296,7 +2327,8 @@ func (s *Store) RemoveSCIMGroupMember(groupID, userID int) error {
 }
 
 func (s *Store) GetSCIMGroupMembers(groupID int) ([]User, error) {
-	rows, err := s.DB.Query(`SELECT u.id, u.email, u.role, u.first_seen, u.last_login, u.external_id, u.display_name, u.active
+	rows, err := s.DB.Query(`SELECT u.id, u.email, u.role, u.first_seen, u.last_login, u.external_id, u.display_name,
+			u.oidc_issuer, u.oidc_subject, u.preferred_username, u.active
 		FROM users u JOIN scim_group_members gm ON u.id = gm.user_id WHERE gm.group_id = ? ORDER BY u.id`, groupID)
 	if err != nil {
 		return nil, err
@@ -2307,7 +2339,7 @@ func (s *Store) GetSCIMGroupMembers(groupID int) ([]User, error) {
 	for rows.Next() {
 		var u User
 		var active int
-		if err := rows.Scan(&u.ID, &u.Email, &u.Role, &u.FirstSeen, &u.LastLogin, &u.ExternalID, &u.DisplayName, &active); err != nil {
+		if err := rows.Scan(&u.ID, &u.Email, &u.Role, &u.FirstSeen, &u.LastLogin, &u.ExternalID, &u.DisplayName, &u.OIDCIssuer, &u.OIDCSubject, &u.PreferredUsername, &active); err != nil {
 			return nil, err
 		}
 		u.Active = active == 1

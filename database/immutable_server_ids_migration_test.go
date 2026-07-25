@@ -79,7 +79,7 @@ func TestImmutableServerIDMigrationPreservesPopulatedData(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := migrations.Up(); err != nil {
+	if err := migrations.Migrate(38); err != nil {
 		t.Fatalf("migrate populated schema to immutable IDs: %v", err)
 	}
 

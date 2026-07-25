@@ -76,6 +76,25 @@ func TestResticEnvRejectsIncompleteOrMalformedProfiles(t *testing.T) {
 	}
 }
 
+func TestBackupSnapshotsSortNewestFirst(t *testing.T) {
+	snapshots := []backupSnapshot{
+		{ID: "old", Time: "2026-07-23T09:00:00Z"},
+		{ID: "invalid", Time: "not-a-time"},
+		{ID: "new", Time: "2026-07-25T11:30:00.123456789Z"},
+		{ID: "middle", Time: "2026-07-24T18:00:00+02:00"},
+	}
+
+	sortBackupSnapshotsNewestFirst(snapshots)
+
+	got := []string{snapshots[0].ID, snapshots[1].ID, snapshots[2].ID, snapshots[3].ID}
+	want := []string{"new", "middle", "old", "invalid"}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("snapshot order = %v, want %v", got, want)
+		}
+	}
+}
+
 func TestRCONPacketRoundTrip(t *testing.T) {
 	var packet bytes.Buffer
 	if err := writeRCONPacket(&packet, 7, 2, "list"); err != nil {

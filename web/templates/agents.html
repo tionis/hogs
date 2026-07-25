@@ -8,11 +8,32 @@
   </ol>
 </nav>
 
-<h2>Workers</h2>
-<p class="text-muted">
-  Workers connect prepared game-server hosts to HOGS and report their reachability
-  and management capabilities.
-</p>
+<div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
+  <div>
+    <h2 class="mb-1">Workers</h2>
+    <p class="text-muted mb-0">
+      Workers connect prepared game-server hosts to HOGS and report their reachability
+      and management capabilities.
+    </p>
+  </div>
+  <button class="btn btn-primary" type="button" data-bs-toggle="collapse" data-bs-target="#add-worker-guide" aria-expanded="false" aria-controls="add-worker-guide">Add worker</button>
+</div>
+
+<div class="collapse mb-4" id="add-worker-guide">
+  <div class="card card-body">
+    <h3 class="h5">Register a worker</h3>
+    <ol class="mb-3">
+      <li>Install <code>hogs-agent</code> on the game-server host and give it a random shared secret.</li>
+      <li>Expose its API over HTTPS and allow this panel's browser origin.</li>
+      <li>Add the same worker ID, API URLs, and secret file to the HOGS control-plane configuration, then reload HOGS.</li>
+      <li>Return here to verify reachability, then assign panel servers from each server's <strong>Settings</strong> tab.</li>
+    </ol>
+    <p class="text-muted small mb-0">
+      Initial credentials are deliberately host-provisioned and are never accepted or displayed by this web page.
+      See the Node Agent documentation distributed with HOGS for complete configuration examples.
+    </p>
+  </div>
+</div>
 
 {{if .Agents}}
 <div class="table-responsive">
@@ -54,7 +75,8 @@
           {{range .CapabilityLabels}}<span class="badge bg-secondary me-1">{{.}}</span>{{else}}<span class="text-muted">None reported</span>{{end}}
         </td>
         <td>
-          {{range .AssignedServers}}<a class="badge bg-secondary text-decoration-none me-1" href="/servers/{{.Name}}/settings">{{.Name}}</a>{{else}}<span class="text-muted">None</span>{{end}}
+          {{range .AssignedServers}}<a class="badge bg-secondary text-decoration-none me-1" href="/servers/{{.Name}}/settings" title="Immutable ID: {{.ManagementID}}">{{.Name}}</a>{{else}}<span class="text-muted">None assigned</span>{{end}}
+          <div class="mt-2"><a class="small" href="/admin">Add or choose a server</a></div>
         </td>
       </tr>
       {{end}}
@@ -69,10 +91,11 @@
   <div class="card-header">Management workflow</div>
   <div class="card-body">
     <p class="mb-0 text-muted">
-      A system administrator prepares a game server and its worker API. An instance
-      administrator maintains worker endpoints and labels here, then assigns panel
-      servers to workers from each server's edit screen. Worker credentials remain
-      host-provisioned and are never displayed in the panel.
+      A system administrator prepares a game server and adds its immutable server ID
+      to the worker's local <code>servers</code> allowlist. An instance administrator
+      then creates or opens that server in HOGS and assigns the matching worker from
+      the server's <strong>Settings</strong> tab. Removing a panel assignment does not
+      silently widen or rewrite the worker's host-level allowlist.
     </p>
   </div>
 </div>

@@ -23,18 +23,50 @@ func TestOIDCRoleIsDerivedFromCurrentGroupsAndCanDemote(t *testing.T) {
 	if got := authenticator.resolveRole("person@example.test", []string{"instance-admins"}); got != "admin" {
 		t.Fatalf("admin group role=%q", got)
 	}
-	if err := authenticator.provisionUser("person@example.test", "admin", "subject", "Person", []string{"instance-admins"}); err != nil {
+	if _, err := authenticator.provisionUser("person@example.test", "admin", "https://id.example.test", "subject", "person", []string{"instance-admins"}); err != nil {
 		t.Fatal(err)
 	}
 	if got := authenticator.resolveRole("person@example.test", nil); got != "user" {
 		t.Fatalf("role without current admin group=%q, want user", got)
 	}
-	if err := authenticator.provisionUser("person@example.test", "user", "subject", "Person", nil); err != nil {
+	if _, err := authenticator.provisionUser("person@example.test", "user", "https://id.example.test", "subject", "person", nil); err != nil {
 		t.Fatal(err)
 	}
 	user, err := store.GetUserByEmail("person@example.test")
 	if err != nil || user == nil || user.Role != "user" {
 		t.Fatalf("demoted user=%#v err=%v", user, err)
+	}
+}
+
+func TestOIDCIdentityUsesIssuerAndSubjectInsteadOfMutableClaims(t *testing.T) {
+	store, err := database.NewStore(t.TempDir() + "/hogs.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.DB.Close()
+	authenticator := &Authenticator{Store: store, Cfg: &config.Config{}}
+
+	first, err := authenticator.provisionUser(
+		"old-address@example.test", "user", "https://id.example.test", "stable-subject", "old-name", nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := authenticator.provisionUser(
+		"new-address@example.test", "user", "https://id.example.test", "stable-subject", "new-name", nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.ID != second.ID {
+		t.Fatalf("mutable claims created a second user: first=%d second=%d", first.ID, second.ID)
+	}
+	if second.Email != "old-address@example.test" {
+		t.Fatalf("canonical email changed before dependent records can be migrated: %q", second.Email)
+	}
+	stored, err := store.GetUserByOIDCIdentity("https://id.example.test", "stable-subject")
+	if err != nil || stored == nil || stored.PreferredUsername != "new-name" {
+		t.Fatalf("stored OIDC identity=%#v err=%v", stored, err)
 	}
 }
 

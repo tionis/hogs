@@ -99,7 +99,14 @@ function renderSnapshots(output, snapshots) {
   table.appendChild(head);
 
   const body = document.createElement('tbody');
-  for (const snapshot of snapshots) {
+  const orderedSnapshots = [...snapshots].sort((left, right) => {
+    const leftTime = Date.parse(left.time || '');
+    const rightTime = Date.parse(right.time || '');
+    if (Number.isNaN(leftTime)) return Number.isNaN(rightTime) ? 0 : 1;
+    if (Number.isNaN(rightTime)) return -1;
+    return rightTime - leftTime;
+  });
+  for (const snapshot of orderedSnapshots) {
     const row = document.createElement('tr');
 
     const createdCell = document.createElement('td');

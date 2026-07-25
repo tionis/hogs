@@ -6,7 +6,7 @@ HOGS separates three concerns that were previously mixed into one expression:
    reconciliation controls enabled actions, console/RCON, backups, restore, and
    writable path roots.
 2. **Interactive access grants** declare who may use an enabled capability.
-   A grant targets one user email, one OIDC/SCIM group, any authenticated user,
+   A grant targets one user, one OIDC/SCIM group, any authenticated user,
    or everyone (including public visitors), and lists explicit capabilities.
    Grants can allow or explicitly deny; deny always wins. Administrators are
    implicit superusers.
@@ -43,10 +43,24 @@ non-administrator receives `user`. Removing someone from the admin group
 therefore demotes them at their next login instead of retaining an old database
 role. The resolved role is copied into the login session.
 
+## OIDC identity
+
+HOGS binds an account to the OIDC `(issuer, subject)` pair. This is the stable
+identity key; email and `preferred_username` are profile attributes and must
+remain freely changeable at the identity provider. Do not configure an OIDC
+provider to replace its subject with a username for HOGS.
+
+For compatibility with existing installations, user access-grant subjects and
+linked game identities still store the account's canonical email. Once a user
+has logged in after migration 39, HOGS resolves subsequent logins by the stable
+OIDC identity first, so a changed email or username cannot create a second
+account. The canonical email is intentionally not rewritten until those
+dependent records have moved to internal user IDs.
+
 ## Game identities and whitelists
 
 A game identity links an authenticated HOGS user to one in-game username per
-game type. Users can manage their own links from **My Servers**; administrators
+game type. Users can manage their own links from **Account Settings**; administrators
 can assign or correct links from **Users and Game Identities**. Server
 whitelisting reuses the linked identity and records the server-specific
 membership separately.

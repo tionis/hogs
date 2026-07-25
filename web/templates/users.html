@@ -18,10 +18,11 @@
     <thead>
       <tr>
         <th>#</th>
+        <th>OIDC Username</th>
         <th>Email</th>
         <th>Role</th>
         <th>Groups</th>
-        <th>External ID</th>
+        <th>SCIM External ID</th>
         <th>Display Name</th>
         <th>Game Identities</th>
         <th>First Seen</th>
@@ -32,7 +33,8 @@
       {{range .Users}}
       <tr>
         <td>{{.ID}}</td>
-        <td>{{.Email}}</td>
+        <td>{{if .PreferredUsername}}<strong>{{.PreferredUsername}}</strong>{{else}}<em class="text-muted">not supplied</em>{{end}}</td>
+        <td>{{.Email}}{{if .OIDCSubject}} <span class="badge bg-success" title="Bound to a stable OIDC issuer and subject">OIDC bound</span>{{end}}</td>
         <td><span class="badge {{if eq .Role "admin"}}bg-danger{{else}}bg-secondary{{end}}">{{.Role}}</span></td>
         <td>
           {{if .Groups}}

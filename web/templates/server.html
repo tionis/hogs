@@ -1011,7 +1011,14 @@ async function backupAction(action, button) {
         table.className = 'table align-middle';
         table.innerHTML = '<thead><tr><th>Created</th><th>Snapshot</th><th>Tags</th><th>Paths</th></tr></thead>';
         const body = document.createElement('tbody');
-        for (const snapshot of snapshots) {
+        const orderedSnapshots = [...snapshots].sort((left, right) => {
+            const leftTime = Date.parse(left.time || '');
+            const rightTime = Date.parse(right.time || '');
+            if (Number.isNaN(leftTime)) return Number.isNaN(rightTime) ? 0 : 1;
+            if (Number.isNaN(rightTime)) return -1;
+            return rightTime - leftTime;
+        });
+        for (const snapshot of orderedSnapshots) {
             const row = document.createElement('tr');
             const values = [
                 snapshot.time ? new Date(snapshot.time).toLocaleString() : 'Unknown',

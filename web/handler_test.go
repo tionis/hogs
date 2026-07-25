@@ -483,6 +483,9 @@ func TestServerSettingsArePartOfServerView(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	if err := store.CreateAgent(&database.Agent{Name: "Worker A", NodeName: "node-a"}); err != nil {
+		t.Fatal(err)
+	}
 
 	req := httptest.NewRequest(http.MethodGet, "/servers/Managed%20Settings/settings", nil)
 	req = mux.SetURLVars(req, map[string]string{"serverName": "Managed Settings"})
@@ -498,6 +501,8 @@ func TestServerSettingsArePartOfServerView(t *testing.T) {
 		`href="/servers/Managed%20Settings/settings"`, ">Settings</a>",
 		"Server Details", "Presentation state", "Automatic — show live worker state",
 		"This does not start or stop the service",
+		"Management backend", "Assign to worker", "Worker A",
+		"Also add <code>srv-", "below <code>servers:</code>",
 	} {
 		if !contains(body, expected) {
 			t.Errorf("settings page missing %q", expected)
@@ -886,6 +891,11 @@ func TestAgentsRendersConnectionState(t *testing.T) {
 	}
 	if !contains(body, "A system administrator prepares a game server") {
 		t.Error("expected agents page to explain the generic management workflow")
+	}
+	for _, expected := range []string{"Add worker", "Initial credentials are deliberately host-provisioned", "local <code>servers</code> allowlist", "Add or choose a server"} {
+		if !contains(body, expected) {
+			t.Errorf("expected worker enrollment and assignment guidance to contain %q", expected)
+		}
 	}
 	if contains(body, "Gandalf") || contains(body, "No host tunnel interface") {
 		t.Error("agents page must not expose deployment-specific transport guidance")

@@ -890,6 +890,30 @@ func backupRestore(server *ServerConfig, snapshot, target string) map[string]int
 	}
 }
 
+type backupSnapshot struct {
+	ID    string   `json:"id"`
+	Time  string   `json:"time"`
+	Tags  []string `json:"tags"`
+	Paths []string `json:"paths"`
+}
+
+func sortBackupSnapshotsNewestFirst(snapshots []backupSnapshot) {
+	sort.SliceStable(snapshots, func(i, j int) bool {
+		left, leftErr := time.Parse(time.RFC3339Nano, snapshots[i].Time)
+		right, rightErr := time.Parse(time.RFC3339Nano, snapshots[j].Time)
+		switch {
+		case leftErr == nil && rightErr == nil:
+			return left.After(right)
+		case leftErr == nil:
+			return true
+		case rightErr == nil:
+			return false
+		default:
+			return false
+		}
+	})
+}
+
 func backupList(server *ServerConfig) map[string]interface{} {
 	env, err := resticEnv(server)
 	if err != nil {
@@ -917,16 +941,9 @@ func backupList(server *ServerConfig) map[string]interface{} {
 
 	cmd.Wait()
 
-	type snapInfo struct {
-		ID    string   `json:"id"`
-		Time  string   `json:"time"`
-		Tags  []string `json:"tags"`
-		Paths []string `json:"paths"`
-	}
-
-	var result []snapInfo
+	var result []backupSnapshot
 	for _, s := range snapshots {
-		si := snapInfo{}
+		si := backupSnapshot{}
 		if v, ok := s["id"].(string); ok {
 			si.ID = v
 		}
@@ -949,6 +966,7 @@ func backupList(server *ServerConfig) map[string]interface{} {
 		}
 		result = append(result, si)
 	}
+	sortBackupSnapshotsNewestFirst(result)
 
 	return map[string]interface{}{
 		"success":   true,

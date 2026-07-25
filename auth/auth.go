@@ -147,7 +147,6 @@ func (a *Authenticator) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	var claims struct {
 		Email             string      `json:"email"`
 		Sub               string      `json:"sub"`
-		Name              string      `json:"name"`
 		PreferredUsername string      `json:"preferred_username"`
 		Groups            interface{} `json:"-"`
 	}
@@ -159,12 +158,8 @@ func (a *Authenticator) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	groups := extractGroups(idToken, a.Cfg.OIDCGroupsClaim)
 	role := a.resolveRole(claims.Email, groups)
 
-	displayName := claims.Name
-	if displayName == "" {
-		displayName = claims.PreferredUsername
-	}
-
-	if err := a.provisionUser(claims.Email, role, claims.Sub, displayName, groups); err != nil {
+	user, err := a.provisionUser(claims.Email, role, idToken.Issuer, claims.Sub, claims.PreferredUsername, groups)
+	if err != nil {
 		http.Error(w, "Authentication failed", http.StatusInternalServerError)
 		return
 	}
@@ -179,7 +174,7 @@ func (a *Authenticator) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	dbSession := &database.Session{
 		SessionID: sessionID,
 		UserSub:   claims.Sub,
-		UserEmail: claims.Email,
+		UserEmail: user.Email,
 		UserRole:  role,
 		CreatedAt: time.Now().UTC().Format(time.RFC3339),
 		ExpiresAt: expiresAt,
@@ -341,35 +336,48 @@ func (a *Authenticator) resolveRole(email string, groups []string) string {
 	return ""
 }
 
-func (a *Authenticator) provisionUser(email, role, externalID, displayName string, groups []string) error {
+func (a *Authenticator) provisionUser(email, role, issuer, subject, preferredUsername string, groups []string) (*database.User, error) {
+	if strings.TrimSpace(email) == "" || strings.TrimSpace(issuer) == "" || strings.TrimSpace(subject) == "" {
+		return nil, fmt.Errorf("OIDC identity requires issuer, subject, and email claims")
+	}
 	if role == "" {
 		role = "user"
 	}
-	user, err := a.Store.GetUserByEmail(email)
+	user, err := a.Store.GetUserByOIDCIdentity(issuer, subject)
 	if err != nil {
-		return fmt.Errorf("GetUserByEmail failed: %w", err)
+		return nil, fmt.Errorf("GetUserByOIDCIdentity failed: %w", err)
+	}
+	if user == nil {
+		user, err = a.Store.GetUserByEmail(email)
+		if err != nil {
+			return nil, fmt.Errorf("GetUserByEmail failed: %w", err)
+		}
 	}
 	if user == nil {
 		user, err = a.Store.CreateUser(email, role)
 		if err != nil {
-			return fmt.Errorf("CreateUser failed: %w", err)
+			return nil, fmt.Errorf("CreateUser failed: %w", err)
 		}
 	}
 	if user.Role != role {
 		if err := a.Store.UpdateUserRole(user.ID, role); err != nil {
-			return fmt.Errorf("UpdateUserRole failed: %w", err)
+			return nil, fmt.Errorf("UpdateUserRole failed: %w", err)
 		}
+		user.Role = role
 	}
 	if err := a.Store.TouchUserLastLogin(user.ID); err != nil {
-		return fmt.Errorf("TouchUserLastLogin failed: %w", err)
+		return nil, fmt.Errorf("TouchUserLastLogin failed: %w", err)
 	}
-	if err := a.Store.UpdateUserSCIM(user.ID, externalID, displayName, true); err != nil {
-		return fmt.Errorf("UpdateUserSCIM failed: %w", err)
+	if err := a.Store.UpdateUserOIDCIdentity(user.ID, issuer, subject, preferredUsername); err != nil {
+		return nil, fmt.Errorf("UpdateUserOIDCIdentity failed: %w", err)
 	}
 	if err := a.Store.SyncUserOIDCGroups(user.ID, groups); err != nil {
-		return fmt.Errorf("SyncUserOIDCGroups failed: %w", err)
+		return nil, fmt.Errorf("SyncUserOIDCGroups failed: %w", err)
 	}
-	return nil
+	user.OIDCIssuer = issuer
+	user.OIDCSubject = subject
+	user.PreferredUsername = preferredUsername
+	return user, nil
 }
 
 func (a *Authenticator) Middleware(next http.Handler) http.Handler {
