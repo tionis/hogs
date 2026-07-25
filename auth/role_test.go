@@ -32,7 +32,7 @@ func TestOIDCRoleIsDerivedFromCurrentGroupsAndCanDemote(t *testing.T) {
 	if _, err := authenticator.provisionUser("person@example.test", "user", "https://id.example.test", "subject", "person", nil); err != nil {
 		t.Fatal(err)
 	}
-	user, err := store.GetUserByEmail("person@example.test")
+	user, err := store.GetUserByUsername("person")
 	if err != nil || user == nil || user.Role != "user" {
 		t.Fatalf("demoted user=%#v err=%v", user, err)
 	}
@@ -61,8 +61,8 @@ func TestOIDCIdentityUsesIssuerAndSubjectInsteadOfMutableClaims(t *testing.T) {
 	if first.ID != second.ID {
 		t.Fatalf("mutable claims created a second user: first=%d second=%d", first.ID, second.ID)
 	}
-	if second.Email != "old-address@example.test" {
-		t.Fatalf("canonical email changed before dependent records can be migrated: %q", second.Email)
+	if second.Email != "new-name" {
+		t.Fatalf("canonical username was not updated from Authentik: %q", second.Email)
 	}
 	stored, err := store.GetUserByOIDCIdentity("https://id.example.test", "stable-subject")
 	if err != nil || stored == nil || stored.PreferredUsername != "new-name" {

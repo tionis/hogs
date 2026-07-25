@@ -156,7 +156,7 @@ func (a *Authenticator) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	groups := extractGroups(idToken, a.Cfg.OIDCGroupsClaim)
-	role := a.resolveRole(claims.Email, groups)
+	role := a.resolveRole(claims.PreferredUsername, groups)
 
 	user, err := a.provisionUser(claims.Email, role, idToken.Issuer, claims.Sub, claims.PreferredUsername, groups)
 	if err != nil {
@@ -337,8 +337,12 @@ func (a *Authenticator) resolveRole(email string, groups []string) string {
 }
 
 func (a *Authenticator) provisionUser(email, role, issuer, subject, preferredUsername string, groups []string) (*database.User, error) {
-	if strings.TrimSpace(email) == "" || strings.TrimSpace(issuer) == "" || strings.TrimSpace(subject) == "" {
-		return nil, fmt.Errorf("OIDC identity requires issuer, subject, and email claims")
+	username := strings.TrimSpace(preferredUsername)
+	if username == "" {
+		username = strings.TrimSpace(email)
+	}
+	if username == "" || strings.TrimSpace(issuer) == "" || strings.TrimSpace(subject) == "" {
+		return nil, fmt.Errorf("OIDC identity requires issuer, subject, and preferred_username claims")
 	}
 	if role == "" {
 		role = "user"
@@ -348,16 +352,34 @@ func (a *Authenticator) provisionUser(email, role, issuer, subject, preferredUse
 		return nil, fmt.Errorf("GetUserByOIDCIdentity failed: %w", err)
 	}
 	if user == nil {
+		user, err = a.Store.GetUserByExternalID(subject)
+		if err != nil {
+			return nil, fmt.Errorf("GetUserByExternalID failed: %w", err)
+		}
+	}
+	if user == nil {
+		user, err = a.Store.GetUserByUsername(username)
+		if err != nil {
+			return nil, fmt.Errorf("GetUserByUsername failed: %w", err)
+		}
+	}
+	if user == nil && strings.TrimSpace(email) != "" {
 		user, err = a.Store.GetUserByEmail(email)
 		if err != nil {
 			return nil, fmt.Errorf("GetUserByEmail failed: %w", err)
 		}
 	}
 	if user == nil {
-		user, err = a.Store.CreateUser(email, role)
+		user, err = a.Store.CreateUser(username, role)
 		if err != nil {
 			return nil, fmt.Errorf("CreateUser failed: %w", err)
 		}
+	}
+	if user.Email != username {
+		if err := a.Store.UpdateUserUsername(user.ID, username); err != nil {
+			return nil, fmt.Errorf("UpdateUserUsername failed: %w", err)
+		}
+		user.Email = username
 	}
 	if user.Role != role {
 		if err := a.Store.UpdateUserRole(user.ID, role); err != nil {
@@ -368,7 +390,7 @@ func (a *Authenticator) provisionUser(email, role, issuer, subject, preferredUse
 	if err := a.Store.TouchUserLastLogin(user.ID); err != nil {
 		return nil, fmt.Errorf("TouchUserLastLogin failed: %w", err)
 	}
-	if err := a.Store.UpdateUserOIDCIdentity(user.ID, issuer, subject, preferredUsername); err != nil {
+	if err := a.Store.UpdateUserOIDCIdentity(user.ID, issuer, subject, username); err != nil {
 		return nil, fmt.Errorf("UpdateUserOIDCIdentity failed: %w", err)
 	}
 	if err := a.Store.SyncUserOIDCGroups(user.ID, groups); err != nil {
@@ -376,7 +398,7 @@ func (a *Authenticator) provisionUser(email, role, issuer, subject, preferredUse
 	}
 	user.OIDCIssuer = issuer
 	user.OIDCSubject = subject
-	user.PreferredUsername = preferredUsername
+	user.PreferredUsername = username
 	return user, nil
 }
 

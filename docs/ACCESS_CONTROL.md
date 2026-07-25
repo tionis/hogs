@@ -50,17 +50,22 @@ role. The resolved role is copied into the login session.
 
 ## OIDC identity
 
-HOGS binds an account to the OIDC `(issuer, subject)` pair. This is the stable
-identity key; email and `preferred_username` are profile attributes and must
-remain freely changeable at the identity provider. Do not configure an OIDC
-provider to replace its subject with a username for HOGS.
+HOGS is designed for Authentik's paired OIDC and SCIM providers. An account's
+OIDC `(issuer, subject)` pair is stable, and Authentik's SCIM `externalId` must
+contain the same subject. HOGS correlates both protocols through that value and
+enforces uniqueness, so provisioning cannot create a second row for someone
+who has already logged in.
 
-For compatibility with existing installations, user access-grant subjects and
-linked game identities still store the account's canonical email. Once a user
-has logged in after migration 39, HOGS resolves subsequent logins by the stable
-OIDC identity first, so a changed email or username cannot create a second
-account. The canonical email is intentionally not rewritten until those
-dependent records have moved to internal user IDs.
+The panel identifier is Authentik's mutable `preferred_username`, mirrored as
+SCIM `userName`; HOGS does not use email as the account identity. When Authentik
+renames a user, HOGS transactionally moves access grants, whitelist links, game
+identities, and sessions to the new username. Do not configure Authentik to use
+a mutable username as the OIDC subject.
+
+Groups are synchronized as SCIM Group resources and correlated through their
+stable `externalId`. OIDC group claims provide the same current memberships at
+login time. Empty SCIM membership replacements remove stale memberships and
+immediately recalculate roles.
 
 ## Game identities and whitelists
 

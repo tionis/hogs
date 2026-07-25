@@ -225,6 +225,83 @@ func TestCreateUserDefaultRole(t *testing.T) {
 	}
 }
 
+func TestAuthentikIdentityMigrationConsolidatesSCIMDuplicate(t *testing.T) {
+	store, err := NewStore(t.TempDir() + "/hogs.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.DB.Close()
+
+	if _, err := store.DB.Exec("DROP INDEX idx_users_external_id_unique"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.DB.Exec("DROP INDEX idx_users_username_nocase"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.DB.Exec("DROP INDEX idx_scim_groups_external_id_unique"); err != nil {
+		t.Fatal(err)
+	}
+
+	oidcUser, err := store.CreateUser("old-address@example.test", "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpdateUserOIDCIdentity(oidcUser.ID, "https://auth.example.test/application/o/hogs/", "stable-subject", "old-name"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpdateUserSCIM(oidcUser.ID, "stable-subject", "Old Profile", true); err != nil {
+		t.Fatal(err)
+	}
+	scimUser, err := store.CreateUser("authentik-name", "user")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpdateUserSCIM(scimUser.ID, "stable-subject", "Authentik Profile", true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.DB.Exec(`INSERT INTO game_identities(user_email,game_type,username,source)
+		VALUES('old-address@example.test','minecraft','PlayerName','self')`); err != nil {
+		t.Fatal(err)
+	}
+	group := &SCIMGroup{DisplayName: "Mage"}
+	if err := store.CreateSCIMGroup(group); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AddSCIMGroupMember(group.ID, scimUser.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	migration, err := migrationsFS.ReadFile("migrations/000041_authentik_scim_identity.up.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.DB.Exec(string(migration)); err != nil {
+		t.Fatal(err)
+	}
+
+	users, err := store.ListUsers()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(users) != 1 {
+		t.Fatalf("users=%#v, want one consolidated identity", users)
+	}
+	user := users[0]
+	if user.ID != oidcUser.ID || user.Email != "authentik-name" ||
+		user.OIDCSubject != "stable-subject" || user.ExternalID != "stable-subject" ||
+		user.PreferredUsername != "authentik-name" || user.Role != "admin" {
+		t.Fatalf("consolidated user=%#v", user)
+	}
+	identity, err := store.GetGameIdentity("authentik-name", "minecraft")
+	if err != nil || identity == nil || identity.Username != "PlayerName" {
+		t.Fatalf("migrated game identity=%#v err=%v", identity, err)
+	}
+	members, err := store.GetSCIMGroupMembers(group.ID)
+	if err != nil || len(members) != 1 || members[0].ID != oidcUser.ID {
+		t.Fatalf("migrated group members=%#v err=%v", members, err)
+	}
+}
+
 func TestGetUserByEmailNotFound(t *testing.T) {
 	store := testStore(t)
 

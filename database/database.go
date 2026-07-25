@@ -968,6 +968,23 @@ func (s *Store) GetUserByEmail(email string) (*User, error) {
 	return &u, nil
 }
 
+// GetUserByUsername resolves Authentik's mutable username without making its
+// spelling or case part of the stable identity.
+func (s *Store) GetUserByUsername(username string) (*User, error) {
+	row := s.DB.QueryRow("SELECT "+userSelectColumns+" FROM users WHERE email = ? COLLATE NOCASE", username)
+	var u User
+	var active int
+	err := row.Scan(&u.ID, &u.Email, &u.Role, &u.FirstSeen, &u.LastLogin, &u.ExternalID, &u.DisplayName, &u.OIDCIssuer, &u.OIDCSubject, &u.PreferredUsername, &active)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	u.Active = active == 1
+	return &u, nil
+}
+
 func (s *Store) UpdateUserRole(id int, role string) error {
 	_, err := s.DB.Exec("UPDATE users SET role = ? WHERE id = ?", role, id)
 	return err
@@ -2153,6 +2170,24 @@ func (s *Store) GetUserByOIDCIdentity(issuer, subject string) (*User, error) {
 	return &u, nil
 }
 
+func (s *Store) GetUserByOIDCSubject(subject string) (*User, error) {
+	if subject == "" {
+		return nil, nil
+	}
+	row := s.DB.QueryRow("SELECT "+userSelectColumns+" FROM users WHERE oidc_subject = ?", subject)
+	var u User
+	var active int
+	err := row.Scan(&u.ID, &u.Email, &u.Role, &u.FirstSeen, &u.LastLogin, &u.ExternalID, &u.DisplayName, &u.OIDCIssuer, &u.OIDCSubject, &u.PreferredUsername, &active)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	u.Active = active == 1
+	return &u, nil
+}
+
 func (s *Store) UpdateUserOIDCIdentity(id int, issuer, subject, preferredUsername string) error {
 	_, err := s.DB.Exec(
 		"UPDATE users SET oidc_issuer = ?, oidc_subject = ?, preferred_username = ? WHERE id = ?",
@@ -2168,6 +2203,101 @@ func (s *Store) UpdateUserSCIM(id int, externalID, displayName string, active bo
 	}
 	_, err := s.DB.Exec("UPDATE users SET external_id = ?, display_name = ?, active = ? WHERE id = ?", externalID, displayName, activeInt, id)
 	return err
+}
+
+// UpdateUserSCIMIdentity applies Authentik's mutable username and profile data
+// to the stable local user while preserving username-keyed HOGS records.
+func (s *Store) UpdateUserSCIMIdentity(id int, username, externalID, displayName string, active bool) error {
+	username = strings.TrimSpace(username)
+	externalID = strings.TrimSpace(externalID)
+	if username == "" || externalID == "" {
+		return fmt.Errorf("SCIM username and external ID are required")
+	}
+
+	tx, err := s.DB.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if err := migrateUsernameTx(tx, id, username); err != nil {
+		return err
+	}
+
+	activeInt := 0
+	if active {
+		activeInt = 1
+	}
+	if _, err = tx.Exec(`UPDATE users
+		SET email=?,external_id=?,display_name=?,preferred_username=?,active=?
+		WHERE id=?`, username, externalID, displayName, username, activeInt, id); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (s *Store) UpdateUserUsername(id int, username string) error {
+	username = strings.TrimSpace(username)
+	if username == "" {
+		return fmt.Errorf("username is required")
+	}
+	tx, err := s.DB.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := migrateUsernameTx(tx, id, username); err != nil {
+		return err
+	}
+	if _, err := tx.Exec("UPDATE users SET email=?,preferred_username=? WHERE id=?", username, username, id); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func migrateUsernameTx(tx *sql.Tx, id int, username string) error {
+	var oldUsername string
+	if err := tx.QueryRow("SELECT email FROM users WHERE id = ?", id).Scan(&oldUsername); err != nil {
+		return err
+	}
+	var conflictingID int
+	err := tx.QueryRow("SELECT id FROM users WHERE email = ? COLLATE NOCASE AND id <> ?", username, id).Scan(&conflictingID)
+	if err != nil && err != sql.ErrNoRows {
+		return err
+	}
+	if err == nil {
+		return fmt.Errorf("username %q is already assigned to user %d", username, conflictingID)
+	}
+	if oldUsername == username {
+		return nil
+	}
+
+	if _, err = tx.Exec(`INSERT OR IGNORE INTO user_whitelists(user_email,server_id,username)
+		SELECT ?,server_id,username FROM user_whitelists WHERE user_email=?`, username, oldUsername); err != nil {
+		return err
+	}
+	if _, err = tx.Exec("DELETE FROM user_whitelists WHERE user_email=?", oldUsername); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(`INSERT OR IGNORE INTO game_identities(user_email,game_type,username,external_id,source,updated_at)
+		SELECT ?,game_type,username,external_id,source,updated_at FROM game_identities WHERE user_email=?`, username, oldUsername); err != nil {
+		return err
+	}
+	if _, err = tx.Exec("DELETE FROM game_identities WHERE user_email=?", oldUsername); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(`INSERT OR IGNORE INTO server_access_grants(server_id,subject_type,subject,effect,capabilities)
+		SELECT server_id,subject_type,?,effect,capabilities FROM server_access_grants
+		WHERE subject_type='user' AND subject=?`, username, oldUsername); err != nil {
+		return err
+	}
+	if _, err = tx.Exec("DELETE FROM server_access_grants WHERE subject_type='user' AND subject=?", oldUsername); err != nil {
+		return err
+	}
+	if _, err = tx.Exec("UPDATE sessions SET user_email=? WHERE user_email=?", username, oldUsername); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (s *Store) SetUserActive(id int, active bool) error {

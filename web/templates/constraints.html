@@ -32,7 +32,7 @@
             <tr><td><code>server.Tags</code></td><td><code>[]string</code></td><td>Server tags</td></tr>
             <tr><td><code>server.Node</code></td><td><code>string</code></td><td>Agent node name</td></tr>
             <tr><td><code>server.Running</code></td><td><code>bool</code></td><td>Is the server currently online</td></tr>
-            <tr><td><code>user.Email</code></td><td><code>string</code></td><td>Requesting user's email</td></tr>
+            <tr><td><code>user.Email</code></td><td><code>string</code></td><td>Requesting user's Authentik username</td></tr>
             <tr><td><code>user.Role</code></td><td><code>string</code></td><td>User role (<code>admin</code> or <code>user</code>)</td></tr>
             <tr><td><code>user.Groups</code></td><td><code>[]string</code></td><td>User's SCIM groups</td></tr>
             <tr><td><code>user.ClientIP</code></td><td><code>string</code></td><td>Normalized client IPv4 or IPv6 address; empty when unavailable</td></tr>
@@ -221,7 +221,7 @@ action == "view" && (user.Role == "admin" || inList("beta-testers", user.Groups)
         </div>
         <div class="row">
           <div class="col-md-4 mb-3">
-            <label class="form-label">User Email</label>
+            <label class="form-label">Authentik username</label>
             <input type="text" class="form-control form-control-sm" id="test-user-email" value="admin@example.com">
           </div>
           <div class="col-md-4 mb-3">

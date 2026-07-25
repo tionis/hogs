@@ -139,6 +139,8 @@ The repository includes helper scripts for development/testing:
 | `OIDC_ADMIN_GROUP`     | `admins`                        | OIDC group claim value that grants the admin role.                           |
 | `OIDC_USER_GROUP`      | *(Empty)*                       | OIDC group claim value that grants the user role. Empty = any authenticated user is a user. |
 | `OIDC_GROUPS_CLAIM`    | `groups`                        | The OIDC claim path to extract group memberships from.                     |
+| `SCIM_ENABLED`         | `false`                         | Enable the Authentik-oriented SCIM 2.0 user and group endpoint.             |
+| `SCIM_BEARER_TOKEN`    | *(Empty)*                       | Bearer token shared with the Authentik SCIM provider.                       |
 | `PTERODACTYL_URL`      | *(Empty)*                       | Pterodactyl panel URL (e.g. `https://panel.example.com`). **Both this and `PTERODACTYL_APP_KEY` must be set to enable Pterodactyl features.** |
 | `PTERODACTYL_APP_KEY`  | *(Empty)*                       | Pterodactyl **Application** API key (starts with `ptla_`). Get it from your panel's Admin > API section. |
 | `PTERODACTYL_CLIENT_KEY` | *(Empty)*                     | Pterodactyl **Client** API key (starts with `ptlc_`). Required for commands and whitelisting. Get it from your panel's Settings > API section. |

@@ -1754,7 +1754,7 @@ func (h *WebHandler) HelpMarkdown(w http.ResponseWriter, r *http.Request) {
 	md += "| `server.Tags` | `[]string` | Server tags |\n"
 	md += "| `server.Node` | `string` | Pterodactyl node |\n"
 	md += "| `server.Running` | `bool` | Is server online |\n"
-	md += "| `user.Email` | `string` | Requesting user email |\n"
+	md += "| `user.Email` | `string` | Requesting user's Authentik username |\n"
 	md += "| `user.Role` | `string` | User role (admin/user) |\n"
 	md += "| `time.Hour` | `int` | Current hour (0-23) |\n"
 	md += "| `time.Weekday` | `time.Weekday` | Current weekday |\n\n"

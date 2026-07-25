@@ -90,7 +90,7 @@
     <h3 class="h6">Add an entry</h3>
     <form id="managed-whitelist-form" class="row g-2">
       <div class="col-md-5"><input class="form-control" name="username" placeholder="{{.IdentityLabel}}" aria-label="{{.IdentityLabel}}" required></div>
-      <div class="col-md-5"><input class="form-control" name="user_email" type="email" placeholder="Optional linked panel user"></div>
+      <div class="col-md-5"><input class="form-control" name="user_email" type="text" placeholder="Optional linked Authentik username"></div>
       <div class="col-md-2"><button class="btn btn-success w-100" type="submit">Add entry</button></div>
     </form>
     <div id="managed-whitelist-feedback" class="small mt-2" role="status"></div>
@@ -140,8 +140,8 @@
       <input type="hidden" name="server_id" value="{{.Server.ID}}">
       <div class="row g-2 mb-3">
         <div class="col-md-2"><select class="form-select" name="effect"><option value="allow">Allow</option><option value="deny">Deny</option></select></div>
-        <div class="col-md-3"><select class="form-select" name="subject_type"><option value="group">OIDC group</option><option value="user">User email</option><option value="authenticated">Any authenticated user</option><option value="everyone">Everyone, including public</option></select></div>
-        <div class="col-md-7"><input class="form-control" name="subject" placeholder="Group name or user email"></div>
+        <div class="col-md-3"><select class="form-select" name="subject_type"><option value="group">Authentik group</option><option value="user">Authentik user</option><option value="authenticated">Any authenticated user</option><option value="everyone">Everyone, including public</option></select></div>
+        <div class="col-md-7"><input class="form-control" name="subject" placeholder="Authentik group or username"></div>
       </div>
       <div class="row g-2 mb-3">{{range .AccessCatalog}}
         <div class="col-md-6 col-xl-4"><label class="form-check"><input class="form-check-input" type="checkbox" name="capability" value="{{.Name}}"><span class="form-check-label" title="{{.Description}}">{{.Label}} <code>{{.Name}}</code></span></label></div>
@@ -915,9 +915,9 @@ document.addEventListener("DOMContentLoaded", function() {
         const link = linkedByUsername.get(whitelistIdentityKey(username));
         const panelCell = document.createElement('td');
         const email = document.createElement('input');
-        email.type = 'email';
+        email.type = 'text';
         email.className = 'form-control form-control-sm';
-        email.placeholder = 'No panel user linked';
+        email.placeholder = 'No Authentik user linked';
         email.value = link ? link.userEmail : '';
         email.setAttribute('aria-label', `Panel user linked to ${username}`);
         panelCell.append(email);

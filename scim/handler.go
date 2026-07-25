@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -82,7 +83,11 @@ func (h *Handler) ListUsers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if filter != "" {
-		users = filterUsers(users, filter)
+		users, err = filterUsers(users, filter)
+		if err != nil {
+			scimError(w, 400, "invalidFilter", err.Error())
+			return
+		}
 	}
 
 	total := len(users)
@@ -140,18 +145,36 @@ func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
 
 	userName := req.UserName
 	if userName == "" {
-		scimError(w, 400, "invalidValue", "userName (email) is required")
+		scimError(w, 400, "invalidValue", "userName is required")
+		return
+	}
+	if strings.TrimSpace(req.ExternalID) == "" {
+		scimError(w, 400, "invalidValue", "externalId is required for Authentik identity correlation")
 		return
 	}
 
-	existing, err := h.Store.GetUserByEmail(userName)
+	existing, err := h.Store.GetUserByExternalID(req.ExternalID)
 	if err != nil {
 		scimError(w, 500, "InternalServerError", err.Error())
 		return
 	}
-	if existing != nil {
-		scimError(w, 409, "uniqueness", "User already exists")
-		return
+	if existing == nil {
+		existing, err = h.Store.GetUserByOIDCSubject(req.ExternalID)
+		if err != nil {
+			scimError(w, 500, "InternalServerError", err.Error())
+			return
+		}
+	}
+	if existing == nil {
+		existing, err = h.Store.GetUserByUsername(userName)
+		if err != nil {
+			scimError(w, 500, "InternalServerError", err.Error())
+			return
+		}
+		if existing != nil && existing.ExternalID != "" && existing.ExternalID != req.ExternalID {
+			scimError(w, 409, "uniqueness", "userName belongs to a different Authentik identity")
+			return
+		}
 	}
 
 	externalID := req.ExternalID
@@ -168,28 +191,32 @@ func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
 		active = *req.Active
 	}
 
-	role := h.resolveRoleFromGroups(req.Groups)
-
-	user, err := h.Store.CreateUser(userName, role)
-	if err != nil {
-		scimError(w, 500, "InternalServerError", err.Error())
-		return
-	}
-
-	if externalID != "" || displayName != "" {
-		if err := h.Store.UpdateUserSCIM(user.ID, externalID, displayName, active); err != nil {
+	user := existing
+	if user == nil {
+		user, err = h.Store.CreateUser(userName, "user")
+		if err != nil {
 			scimError(w, 500, "InternalServerError", err.Error())
 			return
 		}
 	}
 
+	if err := h.Store.UpdateUserSCIMIdentity(user.ID, userName, externalID, displayName, active); err != nil {
+		scimError(w, 409, "uniqueness", err.Error())
+		return
+	}
+
+	user.Email = userName
 	user.ExternalID = externalID
 	user.DisplayName = displayName
+	user.PreferredUsername = userName
 	user.Active = active
-	user.Role = role
 
-	if len(req.Groups) > 0 {
-		h.syncUserGroups(user.ID, req.Groups)
+	if req.Groups != nil {
+		if err := h.syncUserGroups(user.ID, req.Groups); err != nil {
+			scimError(w, 400, "invalidValue", err.Error())
+			return
+		}
+		h.recalcUserRole(user)
 	}
 
 	scimJSON(w, 201, h.userToSCIM(*user))
@@ -232,26 +259,31 @@ func (h *Handler) ReplaceUser(w http.ResponseWriter, r *http.Request) {
 		active = *req.Active
 	}
 
-	if err := h.Store.UpdateUserSCIM(user.ID, req.ExternalID, displayName, active); err != nil {
-		scimError(w, 500, "InternalServerError", err.Error())
+	if strings.TrimSpace(req.UserName) == "" || strings.TrimSpace(req.ExternalID) == "" {
+		scimError(w, 400, "invalidValue", "userName and externalId are required")
+		return
+	}
+	if user.ExternalID != "" && user.ExternalID != req.ExternalID {
+		scimError(w, 409, "uniqueness", "externalId is immutable")
+		return
+	}
+	if err := h.Store.UpdateUserSCIMIdentity(user.ID, req.UserName, req.ExternalID, displayName, active); err != nil {
+		scimError(w, 409, "uniqueness", err.Error())
 		return
 	}
 
-	role := h.resolveRoleFromGroups(req.Groups)
-	if role != user.Role {
-		if err := h.Store.UpdateUserRole(user.ID, role); err != nil {
-			scimError(w, 500, "InternalServerError", err.Error())
-			return
-		}
-	}
-
+	user.Email = req.UserName
 	user.ExternalID = req.ExternalID
 	user.DisplayName = displayName
+	user.PreferredUsername = req.UserName
 	user.Active = active
-	user.Role = role
 
-	if len(req.Groups) > 0 {
-		h.syncUserGroups(user.ID, req.Groups)
+	if req.Groups != nil {
+		if err := h.syncUserGroups(user.ID, req.Groups); err != nil {
+			scimError(w, 400, "invalidValue", err.Error())
+			return
+		}
+		h.recalcUserRole(user)
 	}
 
 	h.triggerSessionInvalidation(user)
@@ -284,44 +316,61 @@ func (h *Handler) PatchUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	needsSessionInvalidate := false
+	username := user.Email
+	externalID := user.ExternalID
+	displayName := user.DisplayName
+	active := user.Active
 
 	for _, op := range req.Operations {
-		switch op.Op {
+		switch strings.ToLower(op.Op) {
 		case "replace":
-			switch op.Path {
+			switch strings.ToLower(op.Path) {
 			case "active":
-				if active, ok := op.Value.(bool); ok {
-					h.Store.SetUserActive(user.ID, active)
-					user.Active = active
+				if value, ok := op.Value.(bool); ok {
+					active = value
 					needsSessionInvalidate = true
 				}
-			case "displayName":
+			case "displayname":
 				if dn, ok := op.Value.(string); ok {
-					h.Store.UpdateUserSCIM(user.ID, user.ExternalID, dn, user.Active)
-					user.DisplayName = dn
+					displayName = dn
 				}
-			case "externalId":
+			case "externalid":
 				if eid, ok := op.Value.(string); ok {
-					h.Store.UpdateUserSCIM(user.ID, eid, user.DisplayName, user.Active)
-					user.ExternalID = eid
+					if externalID != "" && externalID != eid {
+						scimError(w, 409, "uniqueness", "externalId is immutable")
+						return
+					}
+					externalID = eid
+				}
+			case "username":
+				if name, ok := op.Value.(string); ok {
+					username = name
 				}
 			default:
 				if op.Path == "" && op.Value != nil {
 					if m, ok := op.Value.(map[string]interface{}); ok {
-						if active, ok := m["active"].(bool); ok {
-							h.Store.SetUserActive(user.ID, active)
-							user.Active = active
+						if value, ok := m["active"].(bool); ok {
+							active = value
 							needsSessionInvalidate = true
 						}
 						if dn, ok := m["displayName"].(string); ok {
-							h.Store.UpdateUserSCIM(user.ID, user.ExternalID, dn, user.Active)
-							user.DisplayName = dn
+							displayName = dn
+						}
+						if name, ok := m["userName"].(string); ok {
+							username = name
+						}
+						if eid, ok := m["externalId"].(string); ok {
+							if externalID != "" && externalID != eid {
+								scimError(w, 409, "uniqueness", "externalId is immutable")
+								return
+							}
+							externalID = eid
 						}
 					}
 				}
 			}
 		case "add":
-			if op.Path == "groups" {
+			if strings.EqualFold(op.Path, "groups") {
 				if groupRefs, ok := op.Value.([]interface{}); ok {
 					for _, ref := range groupRefs {
 						if gmap, ok := ref.(map[string]interface{}); ok {
@@ -335,20 +384,31 @@ func (h *Handler) PatchUser(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		case "remove":
-			if op.Path == "active" {
-				h.Store.SetUserActive(user.ID, false)
-				user.Active = false
+			if strings.EqualFold(op.Path, "active") {
+				active = false
 				needsSessionInvalidate = true
-			} else if strings.HasPrefix(op.Path, "groups[value eq") {
-				parts := strings.Split(op.Path, "\"")
-				if len(parts) >= 2 {
-					gid, _ := strconv.Atoi(parts[1])
+			} else if value, ok := scimPathValue(op.Path, "groups"); ok {
+				if gid, err := strconv.Atoi(value); err == nil {
 					h.Store.RemoveSCIMGroupMember(gid, user.ID)
 					needsSessionInvalidate = true
 				}
 			}
 		}
 	}
+
+	if strings.TrimSpace(username) == "" || strings.TrimSpace(externalID) == "" {
+		scimError(w, 400, "invalidValue", "userName and externalId are required")
+		return
+	}
+	if err := h.Store.UpdateUserSCIMIdentity(user.ID, username, externalID, displayName, active); err != nil {
+		scimError(w, 409, "uniqueness", err.Error())
+		return
+	}
+	user.Email = username
+	user.ExternalID = externalID
+	user.DisplayName = displayName
+	user.PreferredUsername = username
+	user.Active = active
 
 	if needsSessionInvalidate {
 		h.recalcUserRole(user)
@@ -387,11 +447,19 @@ func (h *Handler) DeleteUser(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) ListGroups(w http.ResponseWriter, r *http.Request) {
 	startIndex, count := parseListParams(r)
+	filter := r.URL.Query().Get("filter")
 
 	groups, err := h.Store.ListSCIMGroups()
 	if err != nil {
 		scimError(w, 500, "InternalServerError", err.Error())
 		return
+	}
+	if filter != "" {
+		groups, err = filterGroups(groups, filter)
+		if err != nil {
+			scimError(w, 400, "invalidFilter", err.Error())
+			return
+		}
 	}
 
 	total := len(groups)
@@ -451,33 +519,58 @@ func (h *Handler) CreateGroup(w http.ResponseWriter, r *http.Request) {
 		scimError(w, 400, "invalidValue", "displayName is required")
 		return
 	}
+	if strings.TrimSpace(req.ExternalID) == "" {
+		scimError(w, 400, "invalidValue", "externalId is required for Authentik group correlation")
+		return
+	}
 
-	existing, _ := h.Store.GetSCIMGroupByName(req.DisplayName)
+	existing, err := h.Store.GetSCIMGroupByExternalID(req.ExternalID)
 	if existing != nil {
 		scimError(w, 409, "uniqueness", "Group already exists")
 		return
 	}
-
-	group := &database.SCIMGroup{
-		ExternalID:  req.ExternalID,
-		DisplayName: req.DisplayName,
+	if err != nil {
+		scimError(w, 500, "InternalServerError", err.Error())
+		return
 	}
-
-	if err := h.Store.CreateSCIMGroup(group); err != nil {
+	existing, err = h.Store.GetSCIMGroupByName(req.DisplayName)
+	if err != nil {
 		scimError(w, 500, "InternalServerError", err.Error())
 		return
 	}
 
-	if len(req.Members) > 0 {
-		var userIDs []int
-		for _, m := range req.Members {
-			uid, _ := strconv.Atoi(m.Value)
-			if uid > 0 {
-				userIDs = append(userIDs, uid)
-			}
+	group := existing
+	if group == nil {
+		group = &database.SCIMGroup{
+			ExternalID:  req.ExternalID,
+			DisplayName: req.DisplayName,
 		}
-		h.Store.SetSCIMGroupMembers(group.ID, userIDs)
+		if err := h.Store.CreateSCIMGroup(group); err != nil {
+			scimError(w, 500, "InternalServerError", err.Error())
+			return
+		}
+	} else {
+		if group.ExternalID != "" && group.ExternalID != req.ExternalID {
+			scimError(w, 409, "uniqueness", "displayName belongs to a different Authentik group")
+			return
+		}
+		if err := h.Store.UpdateSCIMGroup(group.ID, req.ExternalID, req.DisplayName); err != nil {
+			scimError(w, 500, "InternalServerError", err.Error())
+			return
+		}
+		group.ExternalID = req.ExternalID
 	}
+
+	userIDs, err := h.memberIDs(req.Members)
+	if err != nil {
+		scimError(w, 400, "invalidValue", err.Error())
+		return
+	}
+	if err := h.Store.SetSCIMGroupMembers(group.ID, userIDs); err != nil {
+		scimError(w, 500, "InternalServerError", err.Error())
+		return
+	}
+	h.recalculateUsers(userIDs)
 
 	scimJSON(w, 201, h.groupToSCIM(*group))
 }
@@ -505,23 +598,32 @@ func (h *Handler) ReplaceGroup(w http.ResponseWriter, r *http.Request) {
 		scimError(w, 400, "invalidSyntax", "Invalid JSON")
 		return
 	}
-
-	if req.DisplayName != "" {
-		h.Store.UpdateSCIMGroup(id, req.ExternalID, req.DisplayName)
-		group.DisplayName = req.DisplayName
-		group.ExternalID = req.ExternalID
+	if strings.TrimSpace(req.DisplayName) == "" || strings.TrimSpace(req.ExternalID) == "" {
+		scimError(w, 400, "invalidValue", "displayName and externalId are required")
+		return
 	}
-
-	var userIDs []int
-	for _, m := range req.Members {
-		uid, _ := strconv.Atoi(m.Value)
-		if uid > 0 {
-			userIDs = append(userIDs, uid)
-		}
+	if group.ExternalID != "" && group.ExternalID != req.ExternalID {
+		scimError(w, 409, "uniqueness", "externalId is immutable")
+		return
 	}
-	h.Store.SetSCIMGroupMembers(id, userIDs)
+	oldMembers, _ := h.Store.GetSCIMGroupMembers(id)
+	if err := h.Store.UpdateSCIMGroup(id, req.ExternalID, req.DisplayName); err != nil {
+		scimError(w, 409, "uniqueness", err.Error())
+		return
+	}
+	group.DisplayName = req.DisplayName
+	group.ExternalID = req.ExternalID
 
-	h.invalidateGroupMemberSessions(id)
+	userIDs, err := h.memberIDs(req.Members)
+	if err != nil {
+		scimError(w, 400, "invalidValue", err.Error())
+		return
+	}
+	if err := h.Store.SetSCIMGroupMembers(id, userIDs); err != nil {
+		scimError(w, 500, "InternalServerError", err.Error())
+		return
+	}
+	h.recalculateUsers(appendUserIDs(oldMembers, userIDs))
 
 	scimJSON(w, 200, h.groupToSCIM(*group))
 }
@@ -549,18 +651,22 @@ func (h *Handler) PatchGroup(w http.ResponseWriter, r *http.Request) {
 		scimError(w, 400, "invalidSyntax", "Invalid JSON")
 		return
 	}
+	oldMembers, _ := h.Store.GetSCIMGroupMembers(id)
 
 	for _, op := range req.Operations {
-		switch op.Op {
+		switch strings.ToLower(op.Op) {
 		case "add":
-			if op.Path == "members" {
+			if strings.EqualFold(op.Path, "members") || op.Path == "" {
 				if refs, ok := op.Value.([]interface{}); ok {
 					for _, ref := range refs {
 						if m, ok := ref.(map[string]interface{}); ok {
 							if val, ok := m["value"].(string); ok {
 								uid, _ := strconv.Atoi(val)
 								if uid > 0 {
-									h.Store.AddSCIMGroupMember(id, uid)
+									if err := h.Store.AddSCIMGroupMember(id, uid); err != nil {
+										scimError(w, 400, "invalidValue", err.Error())
+										return
+									}
 								}
 							}
 						}
@@ -568,28 +674,50 @@ func (h *Handler) PatchGroup(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		case "remove":
-			if strings.HasPrefix(op.Path, "members[value eq") {
-				parts := strings.Split(op.Path, "\"")
-				if len(parts) >= 2 {
-					uid, _ := strconv.Atoi(parts[1])
+			if value, ok := scimPathValue(op.Path, "members"); ok {
+				if uid, err := strconv.Atoi(value); err == nil {
 					if uid > 0 {
 						h.Store.RemoveSCIMGroupMember(id, uid)
 					}
 				}
-			} else if op.Path == "members" {
+			} else if strings.EqualFold(op.Path, "members") {
 				h.Store.SetSCIMGroupMembers(id, nil)
 			}
 		case "replace":
-			if op.Path == "displayName" {
+			if strings.EqualFold(op.Path, "displayName") {
 				if dn, ok := op.Value.(string); ok {
-					h.Store.UpdateSCIMGroup(id, group.ExternalID, dn)
+					if err := h.Store.UpdateSCIMGroup(id, group.ExternalID, dn); err != nil {
+						scimError(w, 409, "uniqueness", err.Error())
+						return
+					}
 					group.DisplayName = dn
+				}
+			} else if strings.EqualFold(op.Path, "members") {
+				refs, _ := op.Value.([]interface{})
+				var userIDs []int
+				for _, ref := range refs {
+					if item, ok := ref.(map[string]interface{}); ok {
+						if value, ok := item["value"].(string); ok {
+							if uid, err := strconv.Atoi(value); err == nil && uid > 0 {
+								userIDs = append(userIDs, uid)
+							}
+						}
+					}
+				}
+				if err := h.Store.SetSCIMGroupMembers(id, userIDs); err != nil {
+					scimError(w, 400, "invalidValue", err.Error())
+					return
 				}
 			}
 		}
 	}
 
-	h.invalidateGroupMemberSessions(id)
+	currentMembers, _ := h.Store.GetSCIMGroupMembers(id)
+	var currentIDs []int
+	for _, member := range currentMembers {
+		currentIDs = append(currentIDs, member.ID)
+	}
+	h.recalculateUsers(appendUserIDs(oldMembers, currentIDs))
 
 	scimJSON(w, 200, h.groupToSCIM(*group))
 }
@@ -741,12 +869,86 @@ func (h *Handler) roleFromGroupNames(names []string) string {
 	return "user"
 }
 
-func (h *Handler) syncUserGroups(userID int, groupRefs []scimGroupRef) {
+func (h *Handler) syncUserGroups(userID int, groupRefs []scimGroupRef) error {
+	var groupIDs []int
 	for _, ref := range groupRefs {
-		gid, _ := strconv.Atoi(ref.Value)
-		if gid > 0 {
-			h.Store.AddSCIMGroupMember(gid, userID)
+		gid, err := strconv.Atoi(ref.Value)
+		if err != nil || gid <= 0 {
+			return fmt.Errorf("invalid group reference %q", ref.Value)
 		}
+		groupIDs = append(groupIDs, gid)
+	}
+	current, err := h.Store.GetSCIMGroupsForUser(userID)
+	if err != nil {
+		return err
+	}
+	desired := make(map[int]bool, len(groupIDs))
+	for _, gid := range groupIDs {
+		desired[gid] = true
+		if err := h.Store.AddSCIMGroupMember(gid, userID); err != nil {
+			return err
+		}
+	}
+	for _, group := range current {
+		if !desired[group.ID] {
+			if err := h.Store.RemoveSCIMGroupMember(group.ID, userID); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (h *Handler) memberIDs(refs []scimMemberRef) ([]int, error) {
+	userIDs := make([]int, 0, len(refs))
+	for _, ref := range refs {
+		uid, err := strconv.Atoi(ref.Value)
+		if err != nil || uid <= 0 {
+			return nil, fmt.Errorf("invalid member reference %q", ref.Value)
+		}
+		user, err := h.Store.GetUserByID(uid)
+		if err != nil {
+			return nil, err
+		}
+		if user == nil {
+			return nil, fmt.Errorf("member user %d does not exist", uid)
+		}
+		userIDs = append(userIDs, uid)
+	}
+	return userIDs, nil
+}
+
+func appendUserIDs(users []database.User, ids []int) []int {
+	seen := make(map[int]bool, len(users)+len(ids))
+	result := make([]int, 0, len(users)+len(ids))
+	for _, user := range users {
+		if !seen[user.ID] {
+			seen[user.ID] = true
+			result = append(result, user.ID)
+		}
+	}
+	for _, id := range ids {
+		if id > 0 && !seen[id] {
+			seen[id] = true
+			result = append(result, id)
+		}
+	}
+	return result
+}
+
+func (h *Handler) recalculateUsers(userIDs []int) {
+	seen := make(map[int]bool, len(userIDs))
+	for _, userID := range userIDs {
+		if userID <= 0 || seen[userID] {
+			continue
+		}
+		seen[userID] = true
+		user, err := h.Store.GetUserByID(userID)
+		if err != nil || user == nil {
+			continue
+		}
+		h.recalcUserRole(user)
+		h.triggerSessionInvalidation(user)
 	}
 }
 
@@ -770,47 +972,71 @@ func (h *Handler) invalidateGroupMemberSessions(groupID int) {
 	}
 }
 
-func filterUsers(users []database.User, filter string) []database.User {
-	if strings.Contains(filter, "userName eq") {
-		parts := strings.Split(filter, "\"")
-		if len(parts) >= 2 {
-			email := parts[1]
-			var result []database.User
-			for _, u := range users {
-				if u.Email == email {
-					result = append(result, u)
-				}
-			}
-			return result
+func filterUsers(users []database.User, filter string) ([]database.User, error) {
+	attribute, value, ok := parseEqualityFilter(filter)
+	if !ok {
+		return nil, fmt.Errorf("only exact userName, displayName, and externalId filters are supported")
+	}
+	var result []database.User
+	for _, user := range users {
+		matches := false
+		switch strings.ToLower(attribute) {
+		case "username":
+			matches = strings.EqualFold(user.Email, value)
+		case "externalid":
+			matches = user.ExternalID == value
+		case "displayname":
+			matches = user.DisplayName == value
+		default:
+			return nil, fmt.Errorf("unsupported user filter attribute %q", attribute)
+		}
+		if matches {
+			result = append(result, user)
 		}
 	}
-	if strings.Contains(filter, "externalId eq") {
-		parts := strings.Split(filter, "\"")
-		if len(parts) >= 2 {
-			eid := parts[1]
-			var result []database.User
-			for _, u := range users {
-				if u.ExternalID == eid {
-					result = append(result, u)
-				}
-			}
-			return result
+	return result, nil
+}
+
+func filterGroups(groups []database.SCIMGroup, filter string) ([]database.SCIMGroup, error) {
+	attribute, value, ok := parseEqualityFilter(filter)
+	if !ok {
+		return nil, fmt.Errorf("only exact userName, displayName, and externalId filters are supported")
+	}
+	var result []database.SCIMGroup
+	for _, group := range groups {
+		matches := false
+		switch strings.ToLower(attribute) {
+		case "displayname":
+			matches = group.DisplayName == value
+		case "externalid":
+			matches = group.ExternalID == value
+		default:
+			return nil, fmt.Errorf("unsupported group filter attribute %q", attribute)
+		}
+		if matches {
+			result = append(result, group)
 		}
 	}
-	if strings.Contains(filter, "displayName eq") {
-		parts := strings.Split(filter, "\"")
-		if len(parts) >= 2 {
-			dn := parts[1]
-			var result []database.User
-			for _, u := range users {
-				if u.DisplayName == dn {
-					result = append(result, u)
-				}
-			}
-			return result
-		}
+	return result, nil
+}
+
+var equalityFilterPattern = regexp.MustCompile(`(?i)^\s*(userName|displayName|externalId)\s+eq\s+"([^"]*)"\s*$`)
+var pathValuePattern = regexp.MustCompile(`(?i)^\s*([A-Za-z]+)\s*\[\s*value\s+eq\s+"([^"]+)"\s*\]\s*$`)
+
+func parseEqualityFilter(filter string) (attribute, value string, ok bool) {
+	parts := equalityFilterPattern.FindStringSubmatch(filter)
+	if len(parts) != 3 {
+		return "", "", false
 	}
-	return users
+	return parts[1], parts[2], true
+}
+
+func scimPathValue(path, attribute string) (string, bool) {
+	parts := pathValuePattern.FindStringSubmatch(path)
+	if len(parts) != 3 || !strings.EqualFold(parts[1], attribute) {
+		return "", false
+	}
+	return parts[2], true
 }
 
 func parseListParams(r *http.Request) (startIndex, count int) {
