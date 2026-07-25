@@ -400,7 +400,12 @@ func (h *AutomationHandler) UpdateACLRule(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	http.Redirect(w, r, "/admin/servers/"+strconv.Itoa(serverID), http.StatusFound)
+	server, _ := h.Store.GetServer(serverID)
+	if server == nil {
+		http.Redirect(w, r, "/admin", http.StatusFound)
+		return
+	}
+	http.Redirect(w, r, serverSettingsPath(server), http.StatusFound)
 }
 
 func (h *AutomationHandler) GetAuditLog(w http.ResponseWriter, r *http.Request) {

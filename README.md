@@ -158,7 +158,10 @@ Servers are managed via the web-based Admin Dashboard at `/admin`.
     *   **Name:** Unique identifier (used in URLs and file paths).
     *   **Address:** The server address (e.g., `mc.example.com:25565`).
     *   **Game Type:** `minecraft`, `satisfactory`, `factorio`, or `valheim`.
-    *   **State:** Controls visibility (`online`, `offline`, `planned`, `maintenance`).
+    *   **Presentation state:** `online` uses live worker/query state; `offline`
+        hides the server from anonymous users and suppresses polling; `planned`
+        and `maintenance` remain visible but intentionally suppress live status.
+        This setting never starts or stops the game service.
     *   **Map URL:** Internal URL for proxying maps (e.g., BlueMap for Minecraft).
     *   **Map availability:** Whether the map normally runs with the game server or is an independent service. This changes the explanation shown when the map backend is unavailable.
     *   **Mod Pack URL:** Optional direct download link.

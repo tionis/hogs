@@ -27,12 +27,15 @@
       {{if or .WhitelistSelf .WhitelistManage}}<a class="nav-link {{if eq .Page "whitelist"}}active{{end}}" href="/servers/{{.Server.Name}}/whitelist">Whitelist</a>{{end}}
       {{if .Authenticated}}<a class="nav-link {{if eq .Page "access"}}active{{end}}" href="/servers/{{.Server.Name}}/access">Access</a>{{end}}
       {{if or .BackupList .BackupCreate .BackupRestore}}<a class="nav-link {{if eq .Page "backups"}}active{{end}}" href="/servers/{{.Server.Name}}/backups">Backups</a>{{end}}
+      {{if eq .UserRole "admin"}}<a class="nav-link {{if eq .Page "settings"}}active{{end}}" href="/servers/{{.Server.Name}}/settings">Settings</a>{{end}}
     </div>
   </nav>
   <div class="server-status-poller h5 mb-2 ms-auto flex-shrink-0" data-server="{{.Server.Name}}" data-game-type="{{gameStatusProtocol .Server.GameType}}" data-state="{{.Server.State}}">Checking status...</div>
 </div>
 
-{{if .FilesPage}}
+{{if eq .Page "settings"}}
+{{template "server_settings" .}}
+{{else if .FilesPage}}
 <div class="card mb-4" id="file-browser-card">
   <div class="card-header d-flex justify-content-between align-items-center">
     <span>Managed Files</span>

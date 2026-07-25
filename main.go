@@ -273,6 +273,7 @@ func main() {
 		router.Handle("/servers/{serverName}/whitelist", authenticator.RequireRole("admin", "user")(http.HandlerFunc(webHandler.ServerWhitelist))).Methods("GET")
 		router.Handle("/servers/{serverName}/access", authenticator.RequireRole("admin", "user")(http.HandlerFunc(webHandler.ServerAccess))).Methods("GET")
 		router.Handle("/servers/{serverName}/backups", authenticator.RequireRole("admin", "user")(http.HandlerFunc(webHandler.ServerBackups))).Methods("GET")
+		router.Handle("/servers/{serverName}/settings", authenticator.RequireRole("admin")(http.HandlerFunc(webHandler.ServerSettings))).Methods("GET")
 	} else {
 		router.HandleFunc("/login", func(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Authentication is not configured", http.StatusServiceUnavailable)

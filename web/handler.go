@@ -15,6 +15,7 @@ import (
 	"html/template"
 	"log"
 	"net/http"
+	"net/url"
 	"regexp"
 	"sort"
 	"strconv"
@@ -233,6 +234,7 @@ type PterodactylLinkData struct {
 	PteroIdentifier string                        `json:"pteroIdentifier"`
 	AllowedActions  []string                      `json:"allowedActions"`
 	ACLRule         string                        `json:"aclRule"`
+	Node            string                        `json:"node"`
 	Commands        []database.PterodactylCommand `json:"commands"`
 }
 
@@ -395,6 +397,10 @@ func (h *WebHandler) ServerBackups(w http.ResponseWriter, r *http.Request) {
 	h.renderServerPage(w, r, "backups")
 }
 
+func (h *WebHandler) ServerSettings(w http.ResponseWriter, r *http.Request) {
+	h.renderServerPage(w, r, "settings")
+}
+
 func (h *WebHandler) renderServerPage(w http.ResponseWriter, r *http.Request, page string) {
 	vars := mux.Vars(r)
 	serverName := vars["serverName"]
@@ -451,8 +457,11 @@ func (h *WebHandler) renderServerPage(w http.ResponseWriter, r *http.Request, pa
 		SiteName              string
 		BackgroundURLs        BackgroundURLs
 		PteroConfigured       bool
-		PteroLink             *database.PterodactylLink
+		PteroLink             *PterodactylLinkData
 		PteroCommands         []database.PterodactylCommand
+		GameTypes             []string
+		ServerTags            []string
+		Agents                []database.Agent
 		AllowedActions        []string
 		HasAgent              bool
 		ShowConsole           bool
@@ -483,6 +492,9 @@ func (h *WebHandler) renderServerPage(w http.ResponseWriter, r *http.Request, pa
 		PteroConfigured:       h.Config.PterodactylURL != "",
 		PteroLink:             nil,
 		PteroCommands:         nil,
+		GameTypes:             []string{},
+		ServerTags:            []string{},
+		Agents:                []database.Agent{},
 		AllowedActions:        nil,
 		HasAgent:              hasAgent,
 		ShowConsole:           false,
@@ -567,18 +579,29 @@ func (h *WebHandler) renderServerPage(w http.ResponseWriter, r *http.Request, pa
 		}
 	}
 
-	data.PteroLink = link
 	if link != nil {
 		commands, _ := h.Store.ListPterodactylCommands(server.ID)
+		if commands == nil {
+			commands = []database.PterodactylCommand{}
+		}
 		data.PteroCommands = commands
+		var configuredActions []string
+		_ = json.Unmarshal([]byte(link.AllowedActions), &configuredActions)
+		data.PteroLink = &PterodactylLinkData{
+			ServerID:        server.ID,
+			PteroServerID:   link.PteroServerID,
+			PteroIdentifier: link.PteroIdentifier,
+			AllowedActions:  configuredActions,
+			ACLRule:         link.ACLRule,
+			Node:            link.Node,
+			Commands:        commands,
+		}
 	}
 
 	var allowedActions []string
-	if data.PteroLink != nil {
-		var configuredActions []string
-		json.Unmarshal([]byte(data.PteroLink.AllowedActions), &configuredActions)
-		for _, action := range configuredActions {
-			allowed, evalErr := h.Engine.EvaluateACL(data.PteroLink, server, action, userEnv)
+	if link != nil && data.PteroLink != nil {
+		for _, action := range data.PteroLink.AllowedActions {
+			allowed, evalErr := h.Engine.EvaluateACL(link, server, action, userEnv)
 			if evalErr == nil && allowed {
 				allowedActions = append(allowedActions, action)
 			}
@@ -609,12 +632,29 @@ func (h *WebHandler) renderServerPage(w http.ResponseWriter, r *http.Request, pa
 			http.Error(w, "Backup access denied", http.StatusForbidden)
 			return
 		}
+	case "settings":
+		if userRole != "admin" {
+			http.Error(w, "Instance administrator access required", http.StatusForbidden)
+			return
+		}
+		allServers, _ := h.Store.ListServers()
+		data.GameTypes = h.adminGameTypes(allServers)
+		data.ServerTags, _ = h.Store.GetServerTags(server.ID)
+		if data.ServerTags == nil {
+			data.ServerTags = []string{}
+		}
+		data.Agents, _ = h.Store.ListAgents()
+		if data.Agents == nil {
+			data.Agents = []database.Agent{}
+		}
 	default:
 		http.NotFound(w, r)
 		return
 	}
 
-	tmpl, err := template.New("base.html").Funcs(sharedFuncMap(h.Store)).ParseFS(templateFS, "templates/base.html", "templates/server.html")
+	tmpl, err := template.New("base.html").Funcs(sharedFuncMap(h.Store)).ParseFS(
+		templateFS, "templates/base.html", "templates/server.html", "templates/server_edit.html",
+	)
 	if err != nil {
 		http.Error(w, "Template error: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -691,6 +731,11 @@ func (h *WebHandler) HandleServerCreate(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, err.Error(), http.StatusConflict)
 		return
 	}
+	state, validState := normalizePresentationState(r.FormValue("state"))
+	if !validState {
+		http.Error(w, "Invalid presentation state", http.StatusBadRequest)
+		return
+	}
 	name := strings.TrimSpace(r.FormValue("name"))
 	if !validServerDisplayName(name) {
 		http.Error(w, "Server name must contain 1-120 printable characters", http.StatusBadRequest)
@@ -703,7 +748,7 @@ func (h *WebHandler) HandleServerCreate(w http.ResponseWriter, r *http.Request) 
 		MapURL:      r.FormValue("map_url"),
 		ModURL:      r.FormValue("mod_url"),
 		GameType:    gameType,
-		State:       r.FormValue("state"),
+		State:       state,
 		ShowMOTD:    r.FormValue("show_motd") == "on",
 		Metadata:    h.parseMetadata(r),
 	}
@@ -733,14 +778,11 @@ func (h *WebHandler) HandleServerCreate(w http.ResponseWriter, r *http.Request) 
 
 // HandleServerUpdate handles updating an existing server.
 func (h *WebHandler) ServerEdit(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	idStr := vars["id"]
-	id, err := strconv.Atoi(idStr)
+	id, err := strconv.Atoi(mux.Vars(r)["id"])
 	if err != nil {
 		http.Error(w, "Invalid server ID", http.StatusBadRequest)
 		return
 	}
-
 	server, err := h.Store.GetServer(id)
 	if err != nil {
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
@@ -750,91 +792,7 @@ func (h *WebHandler) ServerEdit(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Server not found", http.StatusNotFound)
 		return
 	}
-
-	var pteroLink *PterodactylLinkData
-	if h.Config.PterodactylURL != "" {
-		link, _ := h.Store.GetPterodactylLink(server.ID)
-		if link != nil {
-			var actions []string
-			json.Unmarshal([]byte(link.AllowedActions), &actions)
-			commands, _ := h.Store.ListPterodactylCommands(server.ID)
-			if commands == nil {
-				commands = []database.PterodactylCommand{}
-			}
-			pteroLink = &PterodactylLinkData{
-				ServerID:        server.ID,
-				PteroServerID:   link.PteroServerID,
-				PteroIdentifier: link.PteroIdentifier,
-				AllowedActions:  actions,
-				ACLRule:         link.ACLRule,
-				Commands:        commands,
-			}
-		}
-	}
-
-	serverTags, _ := h.Store.GetServerTags(server.ID)
-	if serverTags == nil {
-		serverTags = []string{}
-	}
-	accessGrants, _ := h.Store.ListServerAccessGrants(server.ID)
-	if accessGrants == nil {
-		accessGrants = []database.ServerAccessGrant{}
-	}
-	whitelistEntries, _ := h.Store.ListUserWhitelists(server.ID)
-	if whitelistEntries == nil {
-		whitelistEntries = []database.UserWhitelist{}
-	}
-
-	agents, _ := h.Store.ListAgents()
-	if agents == nil {
-		agents = []database.Agent{}
-	}
-	allServers, _ := h.Store.ListServers()
-
-	data := struct {
-		Server             *database.Server
-		GameTypes          []string
-		PteroConfigured    bool
-		PteroLink          *PterodactylLinkData
-		ServerTags         []string
-		AccessGrants       []database.ServerAccessGrant
-		AccessCapabilities []access.Capability
-		WhitelistEntries   []database.UserWhitelist
-		Agents             []database.Agent
-		Authenticated      bool
-		UserRole           string
-		SiteName           string
-		UserEmail          string
-		BackgroundURLs     BackgroundURLs
-	}{
-		Server:             server,
-		GameTypes:          h.adminGameTypes(allServers),
-		PteroConfigured:    h.Config.PterodactylURL != "",
-		PteroLink:          pteroLink,
-		ServerTags:         serverTags,
-		AccessGrants:       accessGrants,
-		AccessCapabilities: access.Capabilities,
-		WhitelistEntries:   whitelistEntries,
-		Agents:             agents,
-		Authenticated:      true,
-		UserRole:           "admin",
-		SiteName:           h.siteName(),
-		UserEmail:          h.Auth.GetUserEmail(r),
-		BackgroundURLs:     h.pickBackgrounds([]string{"home"}),
-	}
-
-	tmpl, err := template.New("base.html").Funcs(sharedFuncMap(h.Store)).ParseFS(templateFS, "templates/base.html", "templates/server_edit.html")
-	if err != nil {
-		http.Error(w, "Template error: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, data); err != nil {
-		http.Error(w, "Render error: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-	buf.WriteTo(w)
+	http.Redirect(w, r, "/servers/"+url.PathEscape(server.Name)+"/settings", http.StatusMovedPermanently)
 }
 
 func (h *WebHandler) HandleServerUpdate(w http.ResponseWriter, r *http.Request) {
@@ -863,6 +821,11 @@ func (h *WebHandler) HandleServerUpdate(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, err.Error(), http.StatusConflict)
 		return
 	}
+	state, validState := normalizePresentationState(r.FormValue("state"))
+	if !validState {
+		http.Error(w, "Invalid presentation state", http.StatusBadRequest)
+		return
+	}
 	name := strings.TrimSpace(r.FormValue("name"))
 	if !validServerDisplayName(name) {
 		http.Error(w, "Server name must contain 1-120 printable characters", http.StatusBadRequest)
@@ -876,7 +839,7 @@ func (h *WebHandler) HandleServerUpdate(w http.ResponseWriter, r *http.Request) 
 		MapURL:      r.FormValue("map_url"),
 		ModURL:      r.FormValue("mod_url"),
 		GameType:    gameType,
-		State:       r.FormValue("state"),
+		State:       state,
 		ShowMOTD:    r.FormValue("show_motd") == "on",
 		Metadata:    h.parseMetadata(r),
 	}
@@ -906,11 +869,22 @@ func (h *WebHandler) HandleServerUpdate(w http.ResponseWriter, r *http.Request) 
 		log.Printf("Warning: failed to prune unused background tags: %v", err)
 	}
 
-	http.Redirect(w, r, "/admin/servers/"+strconv.Itoa(id), http.StatusFound)
+	http.Redirect(w, r, "/servers/"+url.PathEscape(server.Name)+"/settings", http.StatusFound)
 }
 
 func validServerDisplayName(name string) bool {
 	return name != "" && len([]rune(name)) <= 120 && !strings.ContainsAny(name, "\r\n\x00")
+}
+
+func normalizePresentationState(state string) (string, bool) {
+	switch strings.ToLower(strings.TrimSpace(state)) {
+	case "", "online", "auto":
+		return "online", true
+	case "offline", "planned", "maintenance":
+		return strings.ToLower(strings.TrimSpace(state)), true
+	default:
+		return "", false
+	}
 }
 
 // parseMetadata helper to extract metadata from form

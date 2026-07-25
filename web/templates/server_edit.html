@@ -1,17 +1,4 @@
-{{define "title"}}Edit Server{{end}}
-
-{{define "content"}}
-<nav aria-label="breadcrumb">
-  <ol class="breadcrumb">
-    <li class="breadcrumb-item"><a href="/admin">Admin</a></li>
-    <li class="breadcrumb-item active" aria-current="page">Edit: {{.Server.Name}}</li>
-  </ol>
-</nav>
-
-<div class="d-flex justify-content-between align-items-center mb-3">
-  <h2>Edit Server: {{.Server.Name}}</h2>
-</div>
-
+{{define "server_settings"}}
 <div class="row">
   <div class="col-lg-8">
     <div class="card mb-4">
@@ -47,14 +34,14 @@
               <div class="form-text">Choose a known type or enter a lowercase custom slug.</div>
             </div>
             <div class="col-md-6 mb-3">
-              <label for="editState" class="form-label">State</label>
+              <label for="editState" class="form-label">Presentation state</label>
               <select class="form-select" id="editState" name="state">
-                <option value="online" {{if eq .Server.State "online"}}selected{{end}}>Online</option>
-                <option value="offline" {{if eq .Server.State "offline"}}selected{{end}}>Offline</option>
-                <option value="planned" {{if eq .Server.State "planned"}}selected{{end}}>Planned</option>
-                <option value="maintenance" {{if eq .Server.State "maintenance"}}selected{{end}}>Maintenance</option>
-                <option value="auto" {{if eq .Server.State "auto"}}selected{{end}}>Auto</option>
+                <option value="online" {{if or (eq .Server.State "online") (eq .Server.State "auto")}}selected{{end}}>Automatic — show live worker state</option>
+                <option value="offline" {{if eq .Server.State "offline"}}selected{{end}}>Hidden — administratively unavailable</option>
+                <option value="planned" {{if eq .Server.State "planned"}}selected{{end}}>Planned — visible without live polling</option>
+                <option value="maintenance" {{if eq .Server.State "maintenance"}}selected{{end}}>Maintenance — visible but unavailable</option>
               </select>
+              <div class="form-text">This does not start or stop the service. It controls public presentation and whether HOGS polls live status.</div>
             </div>
           </div>
           <div class="mb-3" id="edit-mapurl-group">
@@ -126,7 +113,7 @@
             <div class="form-text">Satisfactory: add <code>api_token</code>; Factorio: add <code>rcon_password</code></div>
           </div>
           <button type="submit" class="btn btn-primary">Save Changes</button>
-          <a href="/admin" class="btn btn-secondary ms-2">Cancel</a>
+          <a href="/{{.Server.Name}}" class="btn btn-secondary ms-2">Cancel</a>
         </form>
       </div>
     </div>
@@ -245,82 +232,6 @@
       </div>
     </div>
     {{end}}
-
-    {{if gameSupportsWhitelist .Server.GameType}}
-    <div class="card mb-4" id="whitelist-management">
-      <div class="card-header">Whitelist Management</div>
-      <div class="card-body">
-        <p class="small text-muted">The server whitelist and its optional panel-user links are managed together on the server page.</p>
-        <a class="btn btn-sm btn-outline-primary" href="/servers/{{.Server.Name}}/whitelist">Open whitelist management</a>
-      </div>
-    </div>
-    {{end}}
-
-    <div class="card mb-4" id="access-control">
-      <div class="card-header">Server Access</div>
-      <div class="card-body">
-        <p class="small text-muted">
-          Instance administrators always have access. Explicit grants are deny-by-default and can
-          target an OIDC user, group, or every authenticated user. Deny grants take precedence.
-        </p>
-        {{if .AccessGrants}}
-        <div class="table-responsive mb-3">
-          <table class="table table-sm align-middle">
-            <thead><tr><th>Effect</th><th>Subject</th><th>Capabilities</th><th></th></tr></thead>
-            <tbody>
-              {{range .AccessGrants}}
-              <tr>
-                <td><span class="badge {{if eq .Effect "deny"}}bg-danger{{else}}bg-success{{end}}">{{.Effect}}</span></td>
-                <td><span class="badge bg-secondary">{{.SubjectType}}</span> {{.Subject}}</td>
-                <td>{{range .Capabilities}}<span class="badge bg-info me-1">{{.}}</span>{{end}}</td>
-                <td>
-                  <form action="/admin/access-grants/delete" method="POST">
-                    <input type="hidden" name="server_id" value="{{$.Server.ID}}">
-                    <input type="hidden" name="grant_id" value="{{.ID}}">
-                    <button class="btn btn-sm btn-outline-danger" type="submit">Remove</button>
-                  </form>
-                </td>
-              </tr>
-              {{end}}
-            </tbody>
-          </table>
-        </div>
-        {{else}}
-        <div class="alert alert-warning py-2 small">No grants exist. Non-administrators cannot access this server.</div>
-        {{end}}
-        <form action="/admin/access-grants/set" method="POST">
-          <input type="hidden" name="server_id" value="{{.Server.ID}}">
-          <div class="row g-2 mb-2">
-            <div class="col-3">
-              <select class="form-select form-select-sm" name="effect">
-                <option value="allow">Allow</option>
-                <option value="deny">Deny</option>
-              </select>
-            </div>
-            <div class="col-3">
-              <select class="form-select form-select-sm" name="subject_type">
-                <option value="group">OIDC group</option>
-                <option value="user">User email</option>
-                <option value="authenticated">Any authenticated user</option>
-                <option value="everyone">Everyone, including public</option>
-              </select>
-            </div>
-            <div class="col-6">
-              <input class="form-control form-control-sm" name="subject" placeholder="Group name or user email">
-            </div>
-          </div>
-          <div class="d-flex flex-wrap gap-2 mb-3">
-            {{range .AccessCapabilities}}
-            <label class="form-check form-check-inline me-1">
-              <input class="form-check-input" type="checkbox" name="capability" value="{{.Name}}">
-              <span class="form-check-label" title="{{.Description}}">{{.Label}}</span>
-            </label>
-            {{end}}
-          </div>
-          <button class="btn btn-sm btn-primary" type="submit">Add or replace grant</button>
-        </form>
-      </div>
-    </div>
 
     <div class="card">
       <div class="card-header">Danger Zone</div>

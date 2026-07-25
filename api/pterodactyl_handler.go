@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/mail"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -180,7 +181,7 @@ func (h *PterodactylHandler) LinkServer(w http.ResponseWriter, r *http.Request) 
 
 	srv, _ := h.Store.GetServer(serverID)
 	if srv != nil {
-		http.Redirect(w, r, "/admin/servers/"+strconv.Itoa(serverID), http.StatusFound)
+		http.Redirect(w, r, serverSettingsPath(srv), http.StatusFound)
 	} else {
 		http.Redirect(w, r, "/admin", http.StatusFound)
 	}
@@ -205,7 +206,7 @@ func (h *PterodactylHandler) UnlinkServer(w http.ResponseWriter, r *http.Request
 
 	srv, _ := h.Store.GetServer(serverID)
 	if srv != nil {
-		http.Redirect(w, r, "/admin/servers/"+strconv.Itoa(serverID), http.StatusFound)
+		http.Redirect(w, r, serverSettingsPath(srv), http.StatusFound)
 	} else {
 		http.Redirect(w, r, "/admin", http.StatusFound)
 	}
@@ -241,7 +242,7 @@ func (h *PterodactylHandler) AddCommand(w http.ResponseWriter, r *http.Request) 
 
 	srv, _ := h.Store.GetServer(serverID)
 	if srv != nil {
-		http.Redirect(w, r, "/admin/servers/"+strconv.Itoa(serverID), http.StatusFound)
+		http.Redirect(w, r, serverSettingsPath(srv), http.StatusFound)
 	} else {
 		http.Redirect(w, r, "/admin", http.StatusFound)
 	}
@@ -267,11 +268,17 @@ func (h *PterodactylHandler) DeleteCommand(w http.ResponseWriter, r *http.Reques
 	serverIDStr := r.FormValue("server_id")
 	if serverIDStr != "" {
 		if sid, err := strconv.Atoi(serverIDStr); err == nil {
-			http.Redirect(w, r, "/admin/servers/"+strconv.Itoa(sid), http.StatusFound)
-			return
+			if srv, _ := h.Store.GetServer(sid); srv != nil {
+				http.Redirect(w, r, serverSettingsPath(srv), http.StatusFound)
+				return
+			}
 		}
 	}
 	http.Redirect(w, r, "/admin", http.StatusFound)
+}
+
+func serverSettingsPath(server *database.Server) string {
+	return "/servers/" + url.PathEscape(server.Name) + "/settings"
 }
 
 func (h *PterodactylHandler) ServerAction(w http.ResponseWriter, r *http.Request) {

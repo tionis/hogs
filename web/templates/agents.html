@@ -54,7 +54,7 @@
           {{range .CapabilityLabels}}<span class="badge bg-secondary me-1">{{.}}</span>{{else}}<span class="text-muted">None reported</span>{{end}}
         </td>
         <td>
-          {{range .AssignedServers}}<a class="badge bg-secondary text-decoration-none me-1" href="/admin/servers/{{.ID}}">{{.Name}}</a>{{else}}<span class="text-muted">None</span>{{end}}
+          {{range .AssignedServers}}<a class="badge bg-secondary text-decoration-none me-1" href="/servers/{{.Name}}/settings">{{.Name}}</a>{{else}}<span class="text-muted">None</span>{{end}}
         </td>
       </tr>
       {{end}}

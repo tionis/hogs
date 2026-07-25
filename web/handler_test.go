@@ -475,6 +475,101 @@ func TestServerDetailRendersAuthenticatedResourceUsage(t *testing.T) {
 	}
 }
 
+func TestServerSettingsArePartOfServerView(t *testing.T) {
+	handler, store, authenticator := testWebHandler(t)
+	if err := store.CreateServer(&database.Server{
+		Name: "Managed Settings", GameType: "minecraft", State: "online",
+		Metadata: map[string]string{"map_lifecycle": "independent"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/servers/Managed%20Settings/settings", nil)
+	req = mux.SetURLVars(req, map[string]string{"serverName": "Managed Settings"})
+	req.AddCookie(createTestSession(t, store, authenticator, "admin@test.com", "admin"))
+	recorder := httptest.NewRecorder()
+	handler.ServerSettings(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("settings status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	body := recorder.Body.String()
+	for _, expected := range []string{
+		`href="/servers/Managed%20Settings/settings"`, ">Settings</a>",
+		"Server Details", "Presentation state", "Automatic — show live worker state",
+		"This does not start or stop the service",
+	} {
+		if !contains(body, expected) {
+			t.Errorf("settings page missing %q", expected)
+		}
+	}
+	if contains(body, "Your Server Access") || contains(body, "Manage Server Access") {
+		t.Error("settings page duplicates the dedicated access section")
+	}
+}
+
+func TestServerSettingsRequireInstanceAdmin(t *testing.T) {
+	handler, store, authenticator := testWebHandler(t)
+	if err := store.CreateServer(&database.Server{
+		Name: "RestrictedSettings", GameType: "minecraft", State: "online",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	server, _ := store.GetServerByName("RestrictedSettings")
+	if err := store.SetServerAccessGrant(&database.ServerAccessGrant{
+		ServerID: server.ID, SubjectType: "user", Subject: "user@test.com", Effect: "allow",
+		Capabilities: []string{"status", "view"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/servers/RestrictedSettings/settings", nil)
+	req = mux.SetURLVars(req, map[string]string{"serverName": "RestrictedSettings"})
+	req.AddCookie(createTestSession(t, store, authenticator, "user@test.com", "user"))
+	recorder := httptest.NewRecorder()
+	handler.ServerSettings(recorder, req)
+
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("settings status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestLegacyServerEditRedirectsToSettingsTab(t *testing.T) {
+	handler, store, _ := testWebHandler(t)
+	if err := store.CreateServer(&database.Server{
+		Name: "Renamed Server", GameType: "factorio", State: "online",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	server, _ := store.GetServerByName("Renamed Server")
+	req := httptest.NewRequest(http.MethodGet, "/admin/servers/"+strconv.Itoa(server.ID), nil)
+	req = mux.SetURLVars(req, map[string]string{"id": strconv.Itoa(server.ID)})
+	recorder := httptest.NewRecorder()
+	handler.ServerEdit(recorder, req)
+
+	if recorder.Code != http.StatusMovedPermanently {
+		t.Fatalf("legacy edit status=%d", recorder.Code)
+	}
+	if location := recorder.Header().Get("Location"); location != "/servers/Renamed%20Server/settings" {
+		t.Fatalf("legacy edit location=%q", location)
+	}
+}
+
+func TestNormalizePresentationState(t *testing.T) {
+	for input, expected := range map[string]string{
+		"": "online", "online": "online", "auto": "online",
+		"offline": "offline", "planned": "planned", "maintenance": "maintenance",
+	} {
+		got, ok := normalizePresentationState(input)
+		if !ok || got != expected {
+			t.Errorf("normalizePresentationState(%q) = %q, %t; want %q, true", input, got, ok, expected)
+		}
+	}
+	if got, ok := normalizePresentationState("running"); ok || got != "" {
+		t.Fatalf("invalid presentation state = %q, %t", got, ok)
+	}
+}
+
 func TestServerDetailAndFilesHonorCapabilities(t *testing.T) {
 	handler, store, authenticator := testWebHandler(t)
 	if err := store.CreateServer(&database.Server{
