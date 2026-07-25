@@ -193,6 +193,7 @@ func TestAgentObservationPreservesProtocolDetails(t *testing.T) {
 	})
 	cache.SetAgentObservation("srv", &ServerStatus{
 		Online: true, Players: 3, MaxPlayers: 20, PlayersKnown: true,
+		Extras: map[string]interface{}{"gateway": map[string]interface{}{"state": "ready"}},
 	})
 	status, found := cache.Get("srv")
 	if !found {
@@ -200,6 +201,9 @@ func TestAgentObservationPreservesProtocolDetails(t *testing.T) {
 	}
 	if status.Version != "1.20.1" || status.ServerMessage != "A useful MOTD" || status.Extras == nil {
 		t.Fatalf("protocol details were discarded: %#v", status)
+	}
+	if status.Extras["protocol"] != 763 || status.Extras["gateway"] == nil {
+		t.Fatalf("agent extras were not merged with protocol details: %#v", status.Extras)
 	}
 	if status.Players != 3 || !status.PlayersKnown {
 		t.Fatalf("agent occupancy was not applied: %#v", status)

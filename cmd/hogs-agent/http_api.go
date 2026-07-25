@@ -137,7 +137,7 @@ func handleStatus(w http.ResponseWriter, r *http.Request, server *ServerConfig) 
 	writeJSONResponse(w, http.StatusOK, StatusReportData{
 		ServerID: r.PathValue("serverID"), Online: active, Players: players,
 		MaxPlayers: maxPlayers, PlayersKnown: known, Version: version,
-		Substate: substate, Resources: resources,
+		Substate: substate, Resources: resources, Gateway: gatewayStatusFor(r.PathValue("serverID")),
 	})
 }
 

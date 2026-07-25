@@ -47,6 +47,7 @@ Only `HOGS_AGENT_CONFIG` is required in the environment:
 
 ```yaml
 node: destiny
+state_dir: /var/lib/hogs-agent
 restic_bin: /usr/bin/restic
 health_addr: 127.0.0.1:9080
 api:
@@ -59,6 +60,16 @@ servers:
     unit: minecraft-cog.service
     game_type: minecraft
     data_dir: /srv/mc/cog
+    gateway:
+      type: minecraft
+      listen: ":25565"
+      backend: 127.0.0.1:25566
+      readiness_timeout: 10m
+      connect_timeout: 2s
+      wake_cooldown: 30s
+      login_rate_limit: 5s
+      default_boot_estimate: 2m
+      starting_message: "The server is starting. Reconnect in about {minutes} minute(s)."
     console:
       type: rcon
       host: 127.0.0.1
@@ -67,6 +78,34 @@ servers:
     backup:
       environment_file: /etc/restic/restic.env
 ```
+
+### On-demand Minecraft gateway
+
+A server can opt into the embedded Minecraft TCP gateway shown above. The
+actual Minecraft process must listen on a different, private backend address;
+the gateway owns the public game port. While the backend is available, the
+gateway transparently relays the connection. While it is unavailable:
+
+- server-list status pings receive a native Minecraft "sleeping" response and
+  never start the service;
+- a syntactically valid login starts the allowlisted systemd unit once and
+  receives a native disconnect message with the estimated wait;
+- concurrent attempts share that startup, and repeated offline login attempts
+  from one source address are rate limited; and
+- the gateway polls the backend until it is ready, then records the boot
+  duration under `state_dir`.
+
+The estimate is the 75th percentile of the latest 20 successful boot samples,
+falling back to `default_boot_estimate`. Gateway state, counters, connection
+counts, the estimate, and recent timestamps are included in the normal agent
+status observation under `extras.gateway`.
+
+The username in the initial login packet is not authenticated and is used only
+for the startup message. It must never authorize a wake or bypass access
+control. Minecraft remains authoritative for authentication, whitelist
+membership, and bans after the backend is ready. This also means a deliberately
+formed login from a non-member may wake the service; preventing that requires a
+separate authenticated pre-login design.
 
 For native TLS, set both `api.tls_cert_file` and `api.tls_key_file` and bind
 the agent to the public listener. When a reverse proxy owns TLS, bind the agent

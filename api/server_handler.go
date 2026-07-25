@@ -103,7 +103,8 @@ func (h *ServerHandler) GetServerStatus(w http.ResponseWriter, r *http.Request) 
 	// Agent observations intentionally contain only process and occupancy data.
 	// A Minecraft result without protocol metadata still needs one modern status
 	// query to populate its MOTD and real game version.
-	needsMinecraftDetails := cached && driver.StatusProtocol == "minecraft" && cachedStatus.Online && cachedStatus.Extras == nil
+	needsMinecraftDetails := cached && driver.StatusProtocol == "minecraft" &&
+		cachedStatus.Online && cachedStatus.ServerMessage == ""
 	if cached && !needsMinecraftDetails {
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(w).Encode(cachedStatus); err != nil {
@@ -147,6 +148,16 @@ func (h *ServerHandler) GetServerStatus(w http.ResponseWriter, r *http.Request) 
 		status.Players = cachedStatus.Players
 		status.MaxPlayers = cachedStatus.MaxPlayers
 		status.PlayersKnown = true
+	}
+	if cached && cachedStatus.Extras != nil {
+		if status.Extras == nil {
+			status.Extras = map[string]interface{}{}
+		}
+		for key, value := range cachedStatus.Extras {
+			if _, found := status.Extras[key]; !found {
+				status.Extras[key] = value
+			}
+		}
 	}
 
 	h.Cache.Set(server.ManagementID, status) // Cache by immutable server ID.

@@ -102,6 +102,16 @@ func (c *ServerStatusCache) SetAgentObservation(serverID string, observation *Se
 		}
 		merged.LastUpdated = observation.LastUpdated
 		merged.Error = observation.Error
+		if observation.Extras != nil {
+			extras := make(map[string]interface{}, len(merged.Extras)+len(observation.Extras))
+			for key, value := range merged.Extras {
+				extras[key] = value
+			}
+			for key, value := range observation.Extras {
+				extras[key] = value
+			}
+			merged.Extras = extras
+		}
 		status = &merged
 	}
 	c.cache[serverID] = &cacheEntry{Status: status, Timestamp: time.Now()}

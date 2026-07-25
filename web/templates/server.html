@@ -373,6 +373,35 @@
         </div>
       </div>
     </div>
+
+    <div class="card mb-4 d-none" id="gateway-status-card">
+      <div class="card-header">On-demand Gateway</div>
+      <ul class="list-group list-group-flush">
+        <li class="list-group-item d-flex justify-content-between align-items-center">
+          <strong>Gateway state</strong>
+          <span id="gateway-state">—</span>
+        </li>
+        <li class="list-group-item d-flex justify-content-between align-items-center">
+          <strong>Estimated startup</strong>
+          <span id="gateway-estimate">—</span>
+        </li>
+        <li class="list-group-item d-flex justify-content-between align-items-center">
+          <strong>Active connections</strong>
+          <span id="gateway-active-connections">—</span>
+        </li>
+        <li class="list-group-item d-flex justify-content-between align-items-center">
+          <strong>Wake starts / attempts</strong>
+          <span id="gateway-wakes">—</span>
+        </li>
+        <li class="list-group-item d-flex justify-content-between align-items-center">
+          <strong>Proxied connections</strong>
+          <span id="gateway-proxied-connections">—</span>
+        </li>
+      </ul>
+      <div class="card-footer small text-muted" id="gateway-detail">
+        The gateway starts this server when a player connects.
+      </div>
+    </div>
     {{end}}
 
   </div>
@@ -599,6 +628,33 @@ window.onServerStatusUpdate = function(serverName, data) {
             playerListEl.innerHTML = `<strong>Online:</strong> ${names}`;
         } else {
             playerListEl.textContent = 'No players online';
+        }
+    }
+
+    const gateway = data.extras && data.extras.gateway;
+    const gatewayCard = document.getElementById('gateway-status-card');
+    if (gatewayCard) {
+        gatewayCard.classList.toggle('d-none', !gateway);
+        if (gateway) {
+            const setGatewayText = (id, value) => {
+                const element = document.getElementById(id);
+                if (element) element.textContent = value;
+            };
+            const seconds = Number(gateway.estimatedBootSeconds || 0);
+            const estimate = seconds > 0
+                ? (seconds < 60 ? `${seconds} seconds` : `about ${Math.ceil(seconds / 60)} minute(s)`)
+                : 'Collecting samples';
+            setGatewayText('gateway-state', String(gateway.state || 'unknown').replace(/^./, c => c.toUpperCase()));
+            setGatewayText('gateway-estimate', estimate);
+            setGatewayText('gateway-active-connections', gateway.activeConnections ?? 0);
+            setGatewayText('gateway-wakes', `${gateway.wakeTriggered ?? 0} / ${gateway.wakeAttempts ?? 0}`);
+            setGatewayText('gateway-proxied-connections', gateway.proxiedConnections ?? 0);
+            setGatewayText(
+                'gateway-detail',
+                gateway.lastError
+                    ? `Last error: ${gateway.lastError}`
+                    : 'Server-list pings do not wake the service. Login attempts do.'
+            );
         }
     }
 

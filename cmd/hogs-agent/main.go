@@ -37,6 +37,7 @@ type StatusReportData struct {
 	PlayersKnown bool            `json:"playersKnown"`
 	Version      string          `json:"version"`
 	Resources    *ResourceStatus `json:"resources,omitempty"`
+	Gateway      *GatewayStatus  `json:"gateway,omitempty"`
 }
 
 type ResourceStatus struct {
@@ -92,6 +93,7 @@ func parsePlayerStatus(gameType, output string) (players, maxPlayers int, known 
 type AgentConfig struct {
 	Node       string                  `yaml:"node"`
 	ResticBin  string                  `yaml:"restic_bin"`
+	StateDir   string                  `yaml:"state_dir"`
 	HealthAddr string                  `yaml:"health_addr"`
 	API        AgentAPIConfig          `yaml:"api"`
 	Servers    map[string]ServerConfig `yaml:"servers"`
@@ -113,6 +115,7 @@ type ServerConfig struct {
 	ExclusiveGroup string        `yaml:"exclusive_group"`
 	Console        ConsoleConfig `yaml:"console"`
 	Backup         BackupConfig  `yaml:"backup"`
+	Gateway        GatewayConfig `yaml:"gateway"`
 }
 
 type ConsoleConfig struct {
@@ -144,6 +147,12 @@ func main() {
 	if agentConfig.ResticBin == "" {
 		agentConfig.ResticBin = "restic"
 	}
+	if agentConfig.StateDir == "" {
+		agentConfig.StateDir = "/var/lib/hogs-agent"
+	}
+	if err := os.MkdirAll(agentConfig.StateDir, 0700); err != nil {
+		log.Fatalf("Create agent state directory: %v", err)
+	}
 
 	go func() {
 		if agentConfig.HealthAddr == "" {
@@ -158,6 +167,11 @@ func main() {
 			log.Printf("Health endpoint error: %v", err)
 		}
 	}()
+
+	gateways, err := startGameGateways(&agentConfig)
+	if err != nil {
+		log.Fatalf("Start game gateways: %v", err)
+	}
 
 	agentSecret, err = os.ReadFile(agentConfig.API.SecretFile)
 	if err != nil {
@@ -189,6 +203,7 @@ func main() {
 	interrupt := make(chan os.Signal, 1)
 	signal.Notify(interrupt, os.Interrupt, syscall.SIGTERM)
 	<-interrupt
+	gateways.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	_ = apiServer.Shutdown(ctx)
@@ -208,6 +223,9 @@ func validateConfig(cfg AgentConfig) error {
 	}
 	if cfg.API.Listen == "" {
 		return fmt.Errorf("api.listen is required")
+	}
+	if cfg.StateDir != "" && !filepath.IsAbs(cfg.StateDir) {
+		return fmt.Errorf("state_dir must be absolute")
 	}
 	if cfg.API.SecretFile == "" || !filepath.IsAbs(cfg.API.SecretFile) {
 		return fmt.Errorf("api.secret_file must be absolute")
@@ -237,6 +255,9 @@ func validateConfig(cfg AgentConfig) error {
 		if server.Backup.EnvironmentFile != "" && !filepath.IsAbs(server.Backup.EnvironmentFile) {
 			return fmt.Errorf("server %q backup environment_file must be absolute", name)
 		}
+		if err := validateGatewayConfig(name, server); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -254,6 +275,7 @@ func agentCapabilities() []string {
 	capabilities := []string{"start", "stop", "restart", "command", "console", "status", "file"}
 	hasWhitelist := false
 	hasBackup := false
+	hasGateway := false
 	for _, server := range agentConfig.Servers {
 		if driver, ok := gametypes.Embedded(server.GameType); ok && driver.SupportsWhitelist() {
 			hasWhitelist = true
@@ -261,12 +283,18 @@ func agentCapabilities() []string {
 		if server.Backup.EnvironmentFile != "" {
 			hasBackup = true
 		}
+		if server.Gateway.Type != "" {
+			hasGateway = true
+		}
 	}
 	if hasWhitelist {
 		capabilities = append(capabilities, "whitelist")
 	}
 	if hasBackup {
 		capabilities = append(capabilities, "backup")
+	}
+	if hasGateway {
+		capabilities = append(capabilities, "gateway")
 	}
 	return capabilities
 }

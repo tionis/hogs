@@ -318,6 +318,7 @@ func (m *Manager) pollStatuses(ctx context.Context, store *database.Store, cache
 				PlayersKnown bool            `json:"playersKnown"`
 				Version      string          `json:"version"`
 				Resources    *ResourceStatus `json:"resources"`
+				Gateway      interface{}     `json:"gateway"`
 			}
 			if response.StatusCode != http.StatusOK || json.NewDecoder(response.Body).Decode(&status) != nil {
 				return
@@ -339,9 +340,15 @@ func (m *Manager) pollStatuses(ctx context.Context, store *database.Store, cache
 					log.Printf("store resource sample for %s: %v", server.Name, err)
 				}
 			}
+			var extras map[string]interface{}
+			if status.Gateway != nil {
+				extras = map[string]interface{}{}
+				extras["gateway"] = status.Gateway
+			}
 			cache.SetAgentObservation(server.ManagementID, &query.ServerStatus{
 				Online: status.Online, Players: status.Players, MaxPlayers: status.MaxPlayers,
 				PlayersKnown: status.PlayersKnown, Version: status.Version, LastUpdated: time.Now(),
+				Extras: extras,
 			})
 		}()
 	}
