@@ -34,7 +34,7 @@ func testManifest() InventoryManifest {
 		Servers: []InventoryServer{{
 			ID: "cog", Name: "cog", Address: "cog.internal:25565", Description: "Managed Minecraft",
 			State: "online", GameType: "minecraft", ShowMOTD: true,
-			Metadata: map[string]string{"edition": "java", "rcon_password": "do-not-return"}, Tags: []string{"game", "minecraft"},
+			Metadata: map[string]string{"edition": "java"}, Tags: []string{"game", "minecraft"},
 			Unit: "cog.service", DataPath: "/srv/cog", Backend: InventoryBackend{Type: "agent", Node: "destiny"},
 			Policy: InventoryServerPolicy{ACLRule: `user.Role == "admin"`, AllowedActions: []string{"restart", "start", "stop"},
 				Operators: []string{"games-admins"}, Console: true, Start: true, Stop: true, Backup: true, Restore: true,
@@ -217,13 +217,26 @@ func TestInventoryStateRedactsSecrets(t *testing.T) {
 		t.Fatalf("state failed: %s", stateRecorder.Body.String())
 	}
 	body := stateRecorder.Body.String()
-	for _, secret := range []string{"webhook-secret", "ntfy://token@", "setting-secret", "do-not-return"} {
+	for _, secret := range []string{"webhook-secret", "ntfy://token@", "setting-secret"} {
 		if bytes.Contains([]byte(body), []byte(secret)) {
 			t.Fatalf("state leaked %q", secret)
 		}
 	}
 	if !bytes.Contains([]byte(body), []byte(`"secret":"***"`)) {
 		t.Fatal("webhook secret redaction marker missing")
+	}
+}
+
+func TestInventoryRejectsSecretLikeServerMetadata(t *testing.T) {
+	handler, _ := testInventoryHandler(t)
+	manifest := testManifest()
+	manifest.Servers[0].Metadata["join_password"] = "must-not-enter-inventory-state"
+	recorder := httptest.NewRecorder()
+	handler.Plan(recorder, requestInventory(t, http.MethodPost, "/api/v1/inventory/plan", manifest))
+	if recorder.Code != http.StatusBadRequest ||
+		!bytes.Contains(recorder.Body.Bytes(), []byte("encrypted server field")) ||
+		bytes.Contains(recorder.Body.Bytes(), []byte("must-not-enter-inventory-state")) {
+		t.Fatalf("secret metadata rejection status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 }
 

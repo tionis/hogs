@@ -27,6 +27,9 @@ func testStore(t *testing.T) *database.Store {
 	if err != nil {
 		t.Fatalf("failed to create store: %v", err)
 	}
+	if err := store.ConfigureServerFieldEncryption("test-server-field-key-material-000000000000"); err != nil {
+		t.Fatalf("failed to configure field encryption: %v", err)
+	}
 	t.Cleanup(func() {
 		store.DB.Close()
 		os.Remove(dbPath)
@@ -405,6 +408,124 @@ func TestServerDetailRenders(t *testing.T) {
 	}
 	if contains(body, "map_lifecycle") || contains(body, "independent") {
 		t.Error("internal map lifecycle metadata rendered in Server Info")
+	}
+}
+
+func TestStructuredServerFieldsRenderByPlacementAndRevealOnDemand(t *testing.T) {
+	handler, store, authenticator := testWebHandler(t)
+	server := &database.Server{Name: "Secret Server", GameType: "generic", State: "online"}
+	if err := store.CreateServer(server); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ReplaceServerFields(server.ID, []database.ServerField{
+		{Key: "region", Label: "Region", Value: "Europe", Placement: database.FieldPlacementSummary, Disclosure: database.FieldDisclosurePlain},
+		{Key: "rules", Label: "Rules", Value: "Be kind", Placement: database.FieldPlacementDetails, Disclosure: database.FieldDisclosurePlain},
+		{Key: "join_password", Label: "Join password", Value: "extremely-secret-value", Placement: database.FieldPlacementDetails, Disclosure: database.FieldDisclosureReveal},
+		{Key: "api_token", Label: "API token", Value: "never-for-users", Placement: database.FieldPlacementInternal, Disclosure: database.FieldDisclosureWriteOnly},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetServerAccessGrant(&database.ServerAccessGrant{
+		ServerID: server.ID, SubjectType: "user", Subject: "player@example.test", Effect: "allow",
+		Capabilities: []string{access.View, access.SecretRead},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	cookie := createTestSession(t, store, authenticator, "player@example.test", "user")
+
+	homeReq := httptest.NewRequest(http.MethodGet, "/", nil)
+	homeReq.AddCookie(cookie)
+	home := httptest.NewRecorder()
+	handler.Home(home, homeReq)
+	if home.Code != http.StatusOK {
+		t.Fatalf("home status=%d body=%s", home.Code, home.Body.String())
+	}
+	homeBody := home.Body.String()
+	if !contains(homeBody, "Region: Europe") || contains(homeBody, "Be kind") ||
+		contains(homeBody, "extremely-secret-value") || contains(homeBody, "never-for-users") {
+		t.Fatalf("home field disclosure was incorrect: %s", homeBody)
+	}
+
+	detailReq := httptest.NewRequest(http.MethodGet, "/servers/Secret%20Server", nil)
+	detailReq = mux.SetURLVars(detailReq, map[string]string{"serverName": "Secret Server"})
+	detailReq.AddCookie(cookie)
+	detail := httptest.NewRecorder()
+	handler.ServerDetail(detail, detailReq)
+	if detail.Code != http.StatusOK {
+		t.Fatalf("detail status=%d body=%s", detail.Code, detail.Body.String())
+	}
+	detailBody := detail.Body.String()
+	for _, expected := range []string{"Region", "Europe", "Rules", "Be kind", "Join password", "toggleServerSecret"} {
+		if !contains(detailBody, expected) {
+			t.Errorf("detail page missing %q", expected)
+		}
+	}
+	if contains(detailBody, "extremely-secret-value") || contains(detailBody, "never-for-users") || contains(detailBody, "API token") {
+		t.Fatal("secret value or internal field leaked into the detail HTML")
+	}
+
+	fields, err := store.ListServerFields(server.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var revealID int
+	for _, field := range fields {
+		if field.Key == "join_password" {
+			revealID = field.ID
+		}
+	}
+	revealReq := httptest.NewRequest(http.MethodPost, "/servers/Secret%20Server/fields/"+strconv.Itoa(revealID)+"/reveal", nil)
+	revealReq = mux.SetURLVars(revealReq, map[string]string{"serverName": "Secret Server", "fieldID": strconv.Itoa(revealID)})
+	revealReq.AddCookie(cookie)
+	reveal := httptest.NewRecorder()
+	handler.RevealServerField(reveal, revealReq)
+	if reveal.Code != http.StatusOK || !contains(reveal.Body.String(), "extremely-secret-value") {
+		t.Fatalf("reveal status=%d body=%s", reveal.Code, reveal.Body.String())
+	}
+	if !strings.Contains(reveal.Header().Get("Cache-Control"), "no-store") {
+		t.Fatalf("reveal cache policy = %q", reveal.Header().Get("Cache-Control"))
+	}
+	entries, err := store.ListAuditLog(10, 0)
+	if err != nil || len(entries) == 0 || entries[0].Action != access.SecretRead ||
+		contains(string(entries[0].Params), "extremely-secret-value") {
+		t.Fatalf("reveal audit=%#v err=%v", entries, err)
+	}
+
+	adminCookie := createTestSession(t, store, authenticator, "admin@example.test", "admin")
+	settingsReq := httptest.NewRequest(http.MethodGet, "/servers/Secret%20Server/settings", nil)
+	settingsReq = mux.SetURLVars(settingsReq, map[string]string{"serverName": "Secret Server"})
+	settingsReq.AddCookie(adminCookie)
+	settings := httptest.NewRecorder()
+	handler.ServerSettings(settings, settingsReq)
+	if settings.Code != http.StatusOK {
+		t.Fatalf("settings status=%d body=%s", settings.Code, settings.Body.String())
+	}
+	if contains(settings.Body.String(), "extremely-secret-value") || contains(settings.Body.String(), "never-for-users") {
+		t.Fatal("server settings preloaded a reveal or write-only value")
+	}
+}
+
+func TestServerSecretRevealRequiresExplicitCapability(t *testing.T) {
+	handler, store, authenticator := testWebHandler(t)
+	server := &database.Server{Name: "Restricted Secret", GameType: "generic", State: "online"}
+	if err := store.CreateServer(server); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ReplaceServerFields(server.ID, []database.ServerField{{
+		Key: "join_password", Label: "Join password", Value: "not-authorized",
+		Placement: database.FieldPlacementDetails, Disclosure: database.FieldDisclosureReveal,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	fields, _ := store.ListServerFields(server.ID)
+	cookie := createTestSession(t, store, authenticator, "viewer@example.test", "user")
+	req := httptest.NewRequest(http.MethodPost, "/servers/Restricted%20Secret/fields/"+strconv.Itoa(fields[0].ID)+"/reveal", nil)
+	req = mux.SetURLVars(req, map[string]string{"serverName": server.Name, "fieldID": strconv.Itoa(fields[0].ID)})
+	req.AddCookie(cookie)
+	recorder := httptest.NewRecorder()
+	handler.RevealServerField(recorder, req)
+	if recorder.Code != http.StatusForbidden || contains(recorder.Body.String(), "not-authorized") {
+		t.Fatalf("unauthorized reveal status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 }
 

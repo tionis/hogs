@@ -128,3 +128,11 @@ func TestMapProxyAllowedOriginsFromEnv(t *testing.T) {
 		t.Fatalf("MapProxyAllowedOrigins = %#v", cfg.MapProxyAllowedOrigins)
 	}
 }
+
+func TestServerSecretKeyFromEnv(t *testing.T) {
+	t.Setenv("SERVER_SECRET_KEY", "stable-test-key-material")
+	cfg := LoadConfig()
+	if cfg.ServerSecretKey != "stable-test-key-material" {
+		t.Fatalf("ServerSecretKey = %q", cfg.ServerSecretKey)
+	}
+}

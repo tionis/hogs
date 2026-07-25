@@ -97,9 +97,39 @@
           })();
           </script>
           <div class="mb-3">
-            <label class="form-label">Metadata</label>
+            <label class="form-label">Server fields</label>
+            <div id="editServerFieldsContainer">
+              {{range .Server.Fields}}
+              <div class="card card-body mb-2 server-field-row">
+                <input type="hidden" name="field_id" value="{{.ID}}">
+                <div class="row g-2">
+                  <div class="col-md-3"><input type="text" class="form-control" name="field_key" placeholder="Key" value="{{.Key}}" required></div>
+                  <div class="col-md-3"><input type="text" class="form-control" name="field_label" placeholder="Label" value="{{.Label}}" required></div>
+                  <div class="col-md-3"><input type="{{if eq .Disclosure "plain"}}text{{else}}password{{end}}" class="form-control" name="field_value" placeholder="{{if eq .Disclosure "plain"}}Value{{else}}Leave blank to keep current value{{end}}" value="{{if eq .Disclosure "plain"}}{{.Value}}{{end}}"></div>
+                  <div class="col-md-3 d-flex gap-2">
+                    <select class="form-select" name="field_placement" aria-label="Field placement" onchange="normalizeServerFieldRow(this.closest('.server-field-row'), 'placement')">
+                      <option value="summary" {{if eq .Placement "summary"}}selected{{end}}>Dashboard and details</option>
+                      <option value="details" {{if eq .Placement "details"}}selected{{end}}>Server details</option>
+                      <option value="internal" {{if eq .Placement "internal"}}selected{{end}}>Internal</option>
+                    </select>
+                    <select class="form-select" name="field_disclosure" aria-label="Field disclosure" onchange="normalizeServerFieldRow(this.closest('.server-field-row'), 'disclosure')">
+                      <option value="plain" {{if eq .Disclosure "plain"}}selected{{end}}>Plain</option>
+                      <option value="reveal" {{if eq .Disclosure "reveal"}}selected{{end}}>Reveal</option>
+                      <option value="write_only" {{if eq .Disclosure "write_only"}}selected{{end}}>Write-only</option>
+                    </select>
+                    <button type="button" class="btn btn-outline-danger" onclick="this.closest('.server-field-row').remove()" aria-label="Remove field">×</button>
+                  </div>
+                </div>
+              </div>
+              {{end}}
+            </div>
+            <button type="button" class="btn btn-sm btn-secondary mt-2" onclick="addServerFieldRow()">+ Add Field</button>
+            <div class="form-text">Dashboard fields are public wherever the server is visible. Reveal fields require the <code>secret.read</code> capability. Internal write-only fields are for backend credentials.</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Advanced backend metadata</label>
             <div id="editMetadataContainer">
-              {{range $k, $v := .Server.Metadata}}
+              {{range $k, $v := .Server.EditableMetadata}}
               {{if ne $k "map_lifecycle"}}
               <div class="input-group mb-2">
                 <input type="text" class="form-control" name="meta_key" placeholder="Key" value="{{$k}}">
@@ -110,7 +140,7 @@
               {{end}}
             </div>
             <button type="button" class="btn btn-sm btn-secondary mt-2" onclick="addMetadataRow()">+ Add Property</button>
-            <div class="form-text">Satisfactory: add <code>api_token</code>; Factorio: add <code>rcon_password</code></div>
+            <div class="form-text">Reserved integration settings belong in internal write-only server fields. Metadata is for non-secret driver configuration.</div>
           </div>
           <button type="submit" class="btn btn-primary">Save Changes</button>
           <a href="/{{.Server.Name}}" class="btn btn-secondary ms-2">Cancel</a>
@@ -281,6 +311,45 @@
       <button type="button" class="btn btn-outline-danger" onclick="this.parentElement.remove()">X</button>
     `;
     container.appendChild(div);
+  }
+
+  function addServerFieldRow() {
+    const container = document.getElementById('editServerFieldsContainer');
+    const div = document.createElement('div');
+    div.className = 'card card-body mb-2 server-field-row';
+    div.innerHTML = `
+      <input type="hidden" name="field_id" value="">
+      <div class="row g-2">
+        <div class="col-md-3"><input type="text" class="form-control" name="field_key" placeholder="Key" required></div>
+        <div class="col-md-3"><input type="text" class="form-control" name="field_label" placeholder="Label" required></div>
+        <div class="col-md-3"><input type="text" class="form-control" name="field_value" placeholder="Value"></div>
+        <div class="col-md-3 d-flex gap-2">
+          <select class="form-select" name="field_placement" aria-label="Field placement" onchange="normalizeServerFieldRow(this.closest('.server-field-row'), 'placement')">
+            <option value="summary">Dashboard and details</option>
+            <option value="details">Server details</option>
+            <option value="internal">Internal</option>
+          </select>
+          <select class="form-select" name="field_disclosure" aria-label="Field disclosure" onchange="normalizeServerFieldRow(this.closest('.server-field-row'), 'disclosure')">
+            <option value="plain">Plain</option>
+            <option value="reveal">Reveal</option>
+            <option value="write_only">Write-only</option>
+          </select>
+          <button type="button" class="btn btn-outline-danger" onclick="this.closest('.server-field-row').remove()" aria-label="Remove field">×</button>
+        </div>
+      </div>`;
+    container.appendChild(div);
+  }
+
+  function normalizeServerFieldRow(row, changed) {
+    const placement = row.querySelector('[name="field_placement"]');
+    const disclosure = row.querySelector('[name="field_disclosure"]');
+    const value = row.querySelector('[name="field_value"]');
+    if (changed === 'disclosure' && disclosure.value === 'reveal') placement.value = 'details';
+    if (changed === 'disclosure' && disclosure.value === 'write_only') placement.value = 'internal';
+    if (changed === 'placement' && placement.value === 'internal') disclosure.value = 'write_only';
+    if (changed === 'placement' && placement.value !== 'internal' && disclosure.value === 'write_only') disclosure.value = 'plain';
+    value.type = disclosure.value === 'plain' ? 'text' : 'password';
+    value.placeholder = disclosure.value === 'plain' ? 'Value' : 'Leave blank to keep current value';
   }
 
   function toggleGameFields() {

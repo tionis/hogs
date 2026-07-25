@@ -20,6 +20,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/tionis/hogs/access"
@@ -480,6 +481,7 @@ func (h *WebHandler) renderServerPage(w http.ResponseWriter, r *http.Request, pa
 		BackupList            bool
 		BackupCreate          bool
 		BackupRestore         bool
+		CanRevealSecrets      bool
 		Page                  string
 		FilesPage             bool
 	}{
@@ -541,16 +543,19 @@ func (h *WebHandler) renderServerPage(w http.ResponseWriter, r *http.Request, pa
 		backupListDecision := database.ServerAccessDecision{Allowed: userRole == "admin"}
 		backupCreateDecision := database.ServerAccessDecision{Allowed: userRole == "admin"}
 		backupRestoreDecision := database.ServerAccessDecision{Allowed: userRole == "admin"}
+		secretReadDecision := database.ServerAccessDecision{Allowed: userRole == "admin"}
 		if userRole != "admin" {
 			selfWhitelistDecision, _ = h.Store.EvaluateServerAccess(server.ID, userEnv.Email, userEnv.Groups, access.WhitelistSelf)
 			backupListDecision, _ = h.Store.EvaluateServerAccess(server.ID, userEnv.Email, userEnv.Groups, access.BackupList)
 			backupCreateDecision, _ = h.Store.EvaluateServerAccess(server.ID, userEnv.Email, userEnv.Groups, access.BackupCreate)
 			backupRestoreDecision, _ = h.Store.EvaluateServerAccess(server.ID, userEnv.Email, userEnv.Groups, access.BackupRestore)
+			secretReadDecision, _ = h.Store.EvaluateServerAccess(server.ID, userEnv.Email, userEnv.Groups, access.SecretRead)
 		}
 		data.WhitelistSelf = selfWhitelistDecision.Allowed
 		data.BackupList = backupListDecision.Allowed
 		data.BackupCreate = backupCreateDecision.Allowed
 		data.BackupRestore = backupRestoreDecision.Allowed
+		data.CanRevealSecrets = secretReadDecision.Allowed
 		if !h.Store.ResolveGameDriver(server.GameType).SupportsWhitelist() {
 			data.WhitelistSelf = false
 			data.WhitelistManage = false
@@ -672,6 +677,82 @@ func (h *WebHandler) renderServerPage(w http.ResponseWriter, r *http.Request, pa
 	buf.WriteTo(w)
 }
 
+// RevealServerField returns one user-facing secret only after an explicit,
+// capability-checked POST. Secret values are never embedded into page HTML.
+func (h *WebHandler) RevealServerField(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store, private")
+	w.Header().Set("Pragma", "no-cache")
+	server, err := h.Store.GetServerByName(mux.Vars(r)["serverName"])
+	if err != nil || server == nil {
+		http.Error(w, "Server not found", http.StatusNotFound)
+		return
+	}
+	fieldID, err := strconv.Atoi(mux.Vars(r)["fieldID"])
+	if err != nil || fieldID <= 0 {
+		http.Error(w, "Field not found", http.StatusNotFound)
+		return
+	}
+	user := h.getUserEnv(r)
+	allowed := user.Role == "admin"
+	reason := "instance administrator"
+	if !allowed {
+		view, viewErr := h.Store.EvaluateServerAccess(server.ID, user.Email, user.Groups, access.View)
+		decision, decisionErr := h.Store.EvaluateServerAccess(server.ID, user.Email, user.Groups, access.SecretRead)
+		if viewErr != nil || decisionErr != nil {
+			http.Error(w, "Could not evaluate server access", http.StatusInternalServerError)
+			return
+		}
+		allowed, reason = view.Allowed && decision.Allowed, decision.Reason
+		if !view.Allowed {
+			reason = view.Reason
+		}
+	}
+	if allowed {
+		constraint, constraintErr := h.Engine.EvaluateConstraints(server, access.SecretRead, user)
+		if constraintErr != nil {
+			h.auditServerFieldReveal(server, user, fieldID, "", "error", "could not evaluate operational constraints")
+			http.Error(w, "Could not evaluate server access", http.StatusInternalServerError)
+			return
+		}
+		if !constraint.Allowed {
+			allowed, reason = false, constraint.Reason
+		}
+	}
+	if !allowed {
+		h.auditServerFieldReveal(server, user, fieldID, "", "denied", reason)
+		http.Error(w, "Secret access denied", http.StatusForbidden)
+		return
+	}
+	field, err := h.Store.GetServerField(server.ID, fieldID)
+	if err != nil || field == nil || field.Disclosure != database.FieldDisclosureReveal {
+		h.auditServerFieldReveal(server, user, fieldID, "", "error", "field is not revealable")
+		http.Error(w, "Field not found", http.StatusNotFound)
+		return
+	}
+	value, err := h.Store.GetServerFieldValue(server.ID, field.ID)
+	if err != nil {
+		h.auditServerFieldReveal(server, user, fieldID, field.Key, "error", "stored secret could not be opened")
+		http.Error(w, "Could not reveal server secret", http.StatusInternalServerError)
+		return
+	}
+	h.auditServerFieldReveal(server, user, fieldID, field.Key, "success", "secret revealed after explicit request")
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{"value": value})
+}
+
+func (h *WebHandler) auditServerFieldReveal(server *database.Server, user *engine.UserEnv, fieldID int, fieldKey, result, reason string) {
+	params, _ := json.Marshal(map[string]interface{}{"fieldId": fieldID, "fieldKey": fieldKey})
+	entry := &database.AuditLogEntry{
+		Timestamp: time.Now().UTC().Format(time.RFC3339), UserEmail: user.Email,
+		ServerName: server.Name, Action: access.SecretRead, Params: params,
+		Result: result, Reason: reason, Source: "web", ClientIP: user.ClientIP,
+		CountryCode: user.CountryCode,
+	}
+	if err := h.Store.CreateAuditLog(entry); err != nil {
+		log.Printf("Warning: failed to audit server secret reveal: %v", err)
+	}
+}
+
 // Admin renders the admin dashboard.
 func (h *WebHandler) Admin(w http.ResponseWriter, r *http.Request) {
 	servers, err := h.Store.ListServers()
@@ -756,9 +837,19 @@ func (h *WebHandler) HandleServerCreate(w http.ResponseWriter, r *http.Request) 
 		ShowMOTD:    r.FormValue("show_motd") == "on",
 		Metadata:    h.parseMetadata(r),
 	}
+	fields, err := h.parseServerFields(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	if err := h.Store.CreateServer(server); err != nil {
 		http.Error(w, "Failed to create server: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := h.Store.ReplaceServerFields(server.ID, fields); err != nil {
+		_ = h.Store.DeleteServer(server.ID)
+		http.Error(w, "Failed to save server fields: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -847,9 +938,18 @@ func (h *WebHandler) HandleServerUpdate(w http.ResponseWriter, r *http.Request) 
 		ShowMOTD:    r.FormValue("show_motd") == "on",
 		Metadata:    h.parseMetadata(r),
 	}
+	fields, err := h.parseServerFields(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	if err := h.Store.UpdateServer(server); err != nil {
 		http.Error(w, "Failed to update server: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := h.Store.ReplaceServerFields(server.ID, fields); err != nil {
+		http.Error(w, "Failed to save server fields: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -906,7 +1006,7 @@ func (h *WebHandler) parseMetadata(r *http.Request) map[string]string {
 	for i := 0; i < count; i++ {
 		k := keys[i]
 		v := values[i]
-		if k != "" {
+		if k != "" && k != "api_token" && k != "rcon_password" {
 			meta[k] = v
 		}
 	}
@@ -916,6 +1016,68 @@ func (h *WebHandler) parseMetadata(r *http.Request) map[string]string {
 	}
 	meta["map_lifecycle"] = lifecycle
 	return meta
+}
+
+func (h *WebHandler) parseServerFields(r *http.Request) ([]database.ServerField, error) {
+	ids := r.Form["field_id"]
+	keys := r.Form["field_key"]
+	labels := r.Form["field_label"]
+	values := r.Form["field_value"]
+	placements := r.Form["field_placement"]
+	disclosures := r.Form["field_disclosure"]
+	count := len(keys)
+	for _, length := range []int{len(labels), len(values), len(placements), len(disclosures)} {
+		if length < count {
+			count = length
+		}
+	}
+	fields := make([]database.ServerField, 0, count+2)
+	seen := make(map[string]bool, count+2)
+	for i := 0; i < count; i++ {
+		if strings.TrimSpace(keys[i]) == "" {
+			continue
+		}
+		id := 0
+		if i < len(ids) && strings.TrimSpace(ids[i]) != "" {
+			parsed, err := strconv.Atoi(ids[i])
+			if err != nil || parsed < 0 {
+				return nil, fmt.Errorf("invalid server field ID")
+			}
+			id = parsed
+		}
+		field := database.ServerField{
+			ID: id, Key: keys[i], Label: labels[i], Value: values[i],
+			Placement: placements[i], Disclosure: disclosures[i],
+		}
+		if err := database.ValidateServerField(field); err != nil {
+			return nil, fmt.Errorf("invalid server field %q: %w", field.Key, err)
+		}
+		if seen[field.Key] {
+			return nil, fmt.Errorf("server field key %q is duplicated", field.Key)
+		}
+		seen[field.Key] = true
+		fields = append(fields, field)
+	}
+
+	// Compatibility for administrators who still submit established backend
+	// credential keys through the advanced metadata editor.
+	metaKeys, metaValues := r.Form["meta_key"], r.Form["meta_value"]
+	for i, key := range metaKeys {
+		if (key != "api_token" && key != "rcon_password") || i >= len(metaValues) || seen[key] {
+			continue
+		}
+		value := metaValues[i]
+		label := "API token"
+		if key == "rcon_password" {
+			label = "RCON password"
+		}
+		fields = append(fields, database.ServerField{
+			Key: key, Label: label, Value: value,
+			Placement:  database.FieldPlacementInternal,
+			Disclosure: database.FieldDisclosureWriteOnly,
+		})
+	}
+	return fields, nil
 }
 
 // HandleServerDelete handles deleting a server.

@@ -37,6 +37,7 @@ type Server struct {
 	GameType     string            `json:"gameType"`
 	ShowMOTD     bool              `json:"showMotd"`
 	Metadata     map[string]string `json:"metadata"`
+	Fields       []ServerField     `json:"fields,omitempty"`
 }
 
 func (s *Server) MapLifecycle() string {
@@ -55,9 +56,13 @@ func (s *Server) PublicMetadata() map[string]string {
 	if s.Metadata == nil {
 		return nil
 	}
+	structured := make(map[string]bool, len(s.Fields))
+	for _, field := range s.Fields {
+		structured[field.Key] = true
+	}
 	public := make(map[string]string, len(s.Metadata))
 	for k, v := range s.Metadata {
-		if !sensitiveMetadataKeys[k] {
+		if !sensitiveMetadataKeys[k] && !structured[k] {
 			public[k] = v
 		}
 	}
@@ -487,6 +492,7 @@ type PublicServer struct {
 	GameType    string            `json:"gameType"`
 	ShowMOTD    bool              `json:"showMotd"`
 	Metadata    map[string]string `json:"metadata"`
+	Fields      []ServerField     `json:"fields,omitempty"`
 }
 
 func (s *Server) ToPublic() *PublicServer {
@@ -501,11 +507,13 @@ func (s *Server) ToPublic() *PublicServer {
 		GameType:    s.GameType,
 		ShowMOTD:    s.ShowMOTD,
 		Metadata:    s.PublicMetadata(),
+		Fields:      s.PublicFields(),
 	}
 }
 
 type Store struct {
-	DB *sql.DB
+	DB                *sql.DB
+	serverFieldCipher *serverFieldCipher
 }
 
 func NewStore(dataSourceName string) (*Store, error) {
@@ -614,6 +622,9 @@ func (s *Store) ListServers() ([]Server, error) {
 		if err != nil {
 			return nil, err
 		}
+		if err := s.hydrateServerFields(srv); err != nil {
+			return nil, err
+		}
 		servers = append(servers, *srv)
 	}
 
@@ -630,6 +641,9 @@ func (s *Store) GetServer(id int) (*Server, error) {
 		}
 		return nil, err
 	}
+	if err := s.hydrateServerFields(srv); err != nil {
+		return nil, err
+	}
 
 	return srv, nil
 }
@@ -644,6 +658,9 @@ func (s *Store) GetServerByName(name string) (*Server, error) {
 		}
 		return nil, err
 	}
+	if err := s.hydrateServerFields(srv); err != nil {
+		return nil, err
+	}
 
 	return srv, nil
 }
@@ -653,6 +670,9 @@ func (s *Store) GetServerByManagementID(managementID string) (*Server, error) {
 	srv, err := scanServer(row)
 	if err == sql.ErrNoRows {
 		return nil, nil
+	}
+	if err == nil {
+		err = s.hydrateServerFields(srv)
 	}
 	return srv, err
 }

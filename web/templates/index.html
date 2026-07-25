@@ -43,11 +43,11 @@
 
           <div id="player-list-{{.Name}}" class="mb-3 small" style="color: var(--text-secondary);"></div>
 
-          {{if .Metadata}}
+          {{if .Fields}}
           <div class="mb-3">
-            {{range $k, $v := .Metadata}}
-              {{if and (ne $k "map_lifecycle") (ne $k "directAddress")}}
-              <span class="badge metadata-badge me-1 mb-1" style="background: var(--badge-bg); color: var(--badge-text);" title="{{$k}}">{{$k}}: {{$v}}</span>
+            {{range .Fields}}
+              {{if and (eq .Placement "summary") (eq .Disclosure "plain")}}
+              <span class="badge metadata-badge me-1 mb-1" style="background: var(--badge-bg); color: var(--badge-text);" title="{{.Label}}">{{.Label}}: {{.Value}}</span>
               {{end}}
             {{end}}
           </div>

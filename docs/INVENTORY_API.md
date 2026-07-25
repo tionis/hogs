@@ -157,8 +157,11 @@ observed through the configured node transport and are never overwritten by the
 manifest. Endpoint addition, credential rotation, and revocation happen through
 the installation's deployment system.
 
-Ordinary readback redacts webhook secrets, notification URLs, secret-like
-settings, and secret-like server metadata. It never returns API keys.
+Ordinary readback redacts webhook secrets, notification URLs, and secret-like
+settings. It never returns API keys. Secret-like server metadata is rejected
+at validation time because the desired manifest is not a secret store. Manage
+join passwords and backend credentials as encrypted server fields in HOGS;
+those fields survive server inventory reconciliation.
 
 ## Desired and observed state
 

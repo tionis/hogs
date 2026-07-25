@@ -345,17 +345,33 @@
          <li class="list-group-item metadata-list-item">
             <strong>Game</strong> <span class="game-badge" style="{{gameBadgeCSS .Server.GameType}}">{{.Server.GameType | gameIcon}}{{.Server.GameType | gameDisplayName}}</span>
          </li>
-         {{range $k, $v := .Server.Metadata}}
-         {{if ne $k "api_token"}}
-         {{if ne $k "rcon_password"}}
-         {{if ne $k "directAddress"}}
-         {{if ne $k "map_lifecycle"}}
+         {{range $field := .Server.Fields}}
+         {{if and (ne $field.Placement "internal") (eq $field.Disclosure "plain")}}
          <li class="list-group-item metadata-list-item">
-            <strong class="metadata-value">{{$k}}</strong> <span class="metadata-value">{{$v}}</span>
+            <strong class="metadata-value">{{$field.Label}}</strong>
+            <span class="metadata-value">{{$field.Value}}</span>
          </li>
          {{end}}
-         {{end}}
-         {{end}}
+         {{if and $.CanRevealSecrets (eq $field.Placement "details") (eq $field.Disclosure "reveal")}}
+         <li class="list-group-item metadata-list-item">
+           <strong class="metadata-value">{{$field.Label}}</strong>
+           <span class="metadata-value-with-action">
+             <code id="server-field-{{$field.ID}}" class="metadata-value">••••••••</code>
+             <button type="button" class="btn btn-sm btn-outline-secondary"
+                     data-endpoint="/servers/{{$.Server.Name}}/fields/{{$field.ID}}/reveal"
+                     data-target="server-field-{{$field.ID}}"
+                     data-copy-button="server-field-copy-{{$field.ID}}"
+                     onclick="toggleServerSecret(this)">Reveal</button>
+             <button type="button" id="server-field-copy-{{$field.ID}}"
+                     class="btn btn-sm btn-outline-secondary p-1 copy-address-button d-none"
+                     data-copy-target="server-field-{{$field.ID}}" onclick="copyServerAddress(this)"
+                     aria-label="Copy {{$field.Label}}" title="Copy {{$field.Label}}">
+               <svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                 <rect x="4.5" y="4.5" width="8" height="9" rx="1"></rect><path d="M6.5 4.5v-2h4v2M3.5 11.5h-1v-9h7v1"></path>
+               </svg>
+             </button>
+           </span>
+         </li>
          {{end}}
          {{end}}
          <li class="list-group-item">
@@ -440,6 +456,41 @@ async function copyServerAddress(button) {
         button.classList.remove('btn-success');
         button.classList.add('btn-outline-secondary');
     }, 1500);
+}
+
+async function toggleServerSecret(button) {
+    const target = document.getElementById(button.dataset.target);
+    const copyButton = document.getElementById(button.dataset.copyButton);
+    if (!target) return;
+    if (button.dataset.revealed === 'true') {
+        target.textContent = '••••••••';
+        button.dataset.revealed = 'false';
+        button.textContent = 'Reveal';
+        if (copyButton) copyButton.classList.add('d-none');
+        return;
+    }
+    const original = button.textContent;
+    button.disabled = true;
+    button.textContent = 'Revealing…';
+    try {
+        const response = await fetch(button.dataset.endpoint, {
+            method: 'POST',
+            headers: {'X-CSRF-Token': getCsrfToken(), 'Accept': 'application/json'},
+            cache: 'no-store'
+        });
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(body.error || 'Could not reveal this secret.');
+        target.textContent = body.value;
+        button.dataset.revealed = 'true';
+        button.textContent = 'Hide';
+        if (copyButton) copyButton.classList.remove('d-none');
+    } catch (error) {
+        target.textContent = '••••••••';
+        button.textContent = original;
+        window.alert(error.message);
+    } finally {
+        button.disabled = false;
+    }
 }
 
 async function runServerAction(action, button) {

@@ -395,6 +395,11 @@ func validateManifest(m *InventoryManifest) error {
 		if _, legacy := server.Metadata["map_lifecycle"]; legacy {
 			return fmt.Errorf("server %q must use mapLifecycle instead of metadata.map_lifecycle", server.Name)
 		}
+		for key := range server.Metadata {
+			if isSensitiveName(key) {
+				return fmt.Errorf("server %q metadata key %q is secret-like; manage it as an encrypted server field instead", server.Name, key)
+			}
+		}
 		if server.Backend.Type == "agent" && (strings.TrimSpace(server.Unit) == "" || strings.TrimSpace(server.DataPath) == "") {
 			return fmt.Errorf("server %q agent backend requires unit and dataPath", server.Name)
 		}

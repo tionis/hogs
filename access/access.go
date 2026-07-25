@@ -25,6 +25,7 @@ const (
 	BackupList      = "backup.list"
 	BackupCreate    = "backup.create"
 	BackupRestore   = "backup.restore"
+	SecretRead      = "secret.read"
 	AccessManage    = "access.manage"
 )
 
@@ -44,6 +45,7 @@ var Capabilities = []Capability{
 	{Name: BackupList, Label: "List backups", Description: "View available snapshots.", Category: "Backups"},
 	{Name: BackupCreate, Label: "Create backups", Description: "Create a new server snapshot.", Category: "Backups"},
 	{Name: BackupRestore, Label: "Restore backups", Description: "Restore a snapshot when deployment policy enables restores.", Category: "Backups"},
+	{Name: SecretRead, Label: "Reveal server secrets", Description: "Reveal user-facing shared secrets such as a game join password.", Category: "Secrets"},
 	{Name: AccessManage, Label: "Manage server access", Description: "Create and remove grants for this server only.", Category: "Administration"},
 }
 

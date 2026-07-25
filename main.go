@@ -93,6 +93,21 @@ func main() {
 	if err != nil {
 		log.Fatalf("could not initialize database: %s\n", err)
 	}
+	serverSecretKey := cfg.ServerSecretKey
+	if serverSecretKey == "" {
+		serverSecretKey = cfg.SessionSecret
+		fallbackName := "SESSION_SECRET"
+		if serverSecretKey == "" {
+			serverSecretKey = database.APIKeyPepper
+			fallbackName = "API_KEY_PEPPER"
+		}
+		log.Printf("WARNING: SERVER_SECRET_KEY not set, using %s as fallback. Set a dedicated stable key before storing server secrets.", fallbackName)
+	} else if len(serverSecretKey) < 32 {
+		log.Fatalln("FATAL: SERVER_SECRET_KEY must contain at least 32 bytes.")
+	}
+	if err := store.ConfigureServerFieldEncryption(serverSecretKey); err != nil {
+		log.Fatalf("could not initialize server field encryption: %s\n", err)
+	}
 	if changed, err := auth.BootstrapAdminAPIKey(store, cfg.BootstrapAdminAPIKeyName, cfg.BootstrapAdminAPIKey); err != nil {
 		log.Fatalf("could not bootstrap admin API key: %s\n", err)
 	} else if changed {
@@ -274,6 +289,7 @@ func main() {
 		router.Handle("/servers/{serverName}/access", authenticator.RequireRole("admin", "user")(http.HandlerFunc(webHandler.ServerAccess))).Methods("GET")
 		router.Handle("/servers/{serverName}/backups", authenticator.RequireRole("admin", "user")(http.HandlerFunc(webHandler.ServerBackups))).Methods("GET")
 		router.Handle("/servers/{serverName}/settings", authenticator.RequireRole("admin")(http.HandlerFunc(webHandler.ServerSettings))).Methods("GET")
+		router.Handle("/servers/{serverName}/fields/{fieldID}/reveal", authenticator.RequireRole("admin", "user")(http.HandlerFunc(webHandler.RevealServerField))).Methods("POST")
 	} else {
 		router.HandleFunc("/login", func(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Authentication is not configured", http.StatusServiceUnavailable)

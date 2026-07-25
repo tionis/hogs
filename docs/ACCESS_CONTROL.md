@@ -21,11 +21,16 @@ grant cannot enable an action disabled by deployment policy.
 Capabilities are explicit and independently grantable: `view`, `status`,
 `start`, `stop`, `restart`, `command`, `console.read`, `console.write`,
 `file.read`, `file.write`, `whitelist.self`, `whitelist.manage`, `backup.list`,
-`backup.create`, `backup.restore`, and `access.manage`. `command` covers only
-commands separately approved for the server. Arbitrary console input requires
-`console.write`; read-only console users cannot send it. `whitelist.self` can
-only manage the caller's linked identity, while `whitelist.manage` is intended
-for server administrators.
+`backup.create`, `backup.restore`, `secret.read`, and `access.manage`.
+`secret.read` reveals user-facing shared game secrets only after an explicit,
+audited request; write-only backend credentials are never revealable. `command`
+covers only commands separately approved for the server. Arbitrary console
+input requires `console.write`; read-only console users cannot send it.
+`whitelist.self` can only manage the caller's linked identity, while
+`whitelist.manage` is intended for server administrators.
+
+Structured field placement and secret handling are documented in
+[server fields and secrets](SERVER_FIELDS.md).
 
 Inventory manifests carry `accessGrants` with `subjectType`, `subject`,
 `effect`, and `capabilities`. Reconciliation replaces the grant set for each

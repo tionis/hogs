@@ -135,6 +135,7 @@ The repository includes helper scripts for development/testing:
 | `OIDC_CLIENT_SECRET`   | *(Empty)*                       | The Client Secret for the application.                                      |
 | `OIDC_REDIRECT_URL`    | `.../auth/callback`             | The callback URL whitelisted in your IDP.                                   |
 | `SESSION_SECRET`        | `super-secret...`               | Random string used to encrypt session cookies. **Change in production!**    |
+| `SERVER_SECRET_KEY`     | `SESSION_SECRET` fallback       | Stable random value of at least 32 bytes used to encrypt server secrets at rest. Use a dedicated backed-up value in production. |
 | `OIDC_ADMIN_GROUP`     | `admins`                        | OIDC group claim value that grants the admin role.                           |
 | `OIDC_USER_GROUP`      | *(Empty)*                       | OIDC group claim value that grants the user role. Empty = any authenticated user is a user. |
 | `OIDC_GROUPS_CLAIM`    | `groups`                        | The OIDC claim path to extract group memberships from.                     |
@@ -165,7 +166,11 @@ Servers are managed via the web-based Admin Dashboard at `/admin`.
     *   **Map URL:** Internal URL for proxying maps (e.g., BlueMap for Minecraft).
     *   **Map availability:** Whether the map normally runs with the game server or is an independent service. This changes the explanation shown when the map backend is unavailable.
     *   **Mod Pack URL:** Optional direct download link.
-    *   **Metadata:** Custom key-value pairs. Satisfactory: add `api_token`; Factorio: add `rcon_password`.
+    *   **Server fields:** Typed dashboard, detail, reveal-on-demand, and
+        internal write-only values. Use reveal fields for join passwords and
+        write-only fields for `api_token`, `rcon_password`, and other backend
+        credentials. See [server fields and secrets](docs/SERVER_FIELDS.md).
+    *   **Advanced metadata:** Non-secret game-driver configuration only.
 
 ### 2. Managing Files
 You can manage mod/game files via the **Admin File Manager** or directly on the filesystem.
@@ -237,10 +242,16 @@ HOGS can connect to a Pterodactyl panel to let authenticated users start/stop/re
 Uses the standard Minecraft query protocol (port 25565). No additional configuration needed. Optionally configure BlueMap URL for map proxy.
 
 #### Satisfactory
-Queries the Satisfactory Dedicated Server REST API. Add `api_token` to server metadata with your API bearer token. Set the address to `host:api_port` (default API port is 15777).
+Queries the Satisfactory Dedicated Server REST API. Add `api_token` as an
+internal/write-only server field containing the API bearer token. Set the
+address to `host:api_port` (default API port is 15777).
 
 #### Factorio
-Uses RCON to query the Factorio server. Add `rcon_password` to server metadata with your RCON password. Optionally add `rcon_address` to specify a different host:port for RCON (defaults to `server.Address`). Without an RCON password, only basic TCP connectivity check is performed.
+Uses RCON to query the Factorio server. Add `rcon_password` as an
+internal/write-only server field. Optionally add non-secret `rcon_address`
+metadata to specify a different host:port for RCON (defaults to
+`server.Address`). Without an RCON password, only basic TCP connectivity check
+is performed.
 
 #### Valheim
 Uses the Steam A2S query protocol. Set the address to `host:port` (default query port is 2457). No additional metadata required.

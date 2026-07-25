@@ -49,7 +49,8 @@ Platform User IDs emitted by Valheim, not display names.
 Satisfactory and StarRupture currently provide join-password admission rather
 than a native per-player allowlist. Their embedded drivers therefore do not
 advertise whitelist support. Password management is a separate server-secret
-workflow and must not be represented as identity-based whitelisting.
+workflow: configure a details/reveal server field and grant `secret.read` to
+the intended users. It must not be represented as identity-based whitelisting.
 
 Verified external identity IDs are stored with linked Minecraft identities so
 future offline changes do not require another profile lookup.
