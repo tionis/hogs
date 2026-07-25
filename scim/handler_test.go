@@ -145,3 +145,33 @@ func TestAuthentikGroupFilterAdoptionAndMembershipReplacement(t *testing.T) {
 		t.Fatalf("role=%q after membership removal", storedUser.Role)
 	}
 }
+
+func TestAuthentikGroupDiscoveryPatchAdoptsExternalID(t *testing.T) {
+	handler, store := testHandler(t)
+	group := &database.SCIMGroup{DisplayName: "Mage"}
+	if err := store.CreateSCIMGroup(group); err != nil {
+		t.Fatal(err)
+	}
+
+	request := scimRequest(t, http.MethodPatch, fmt.Sprintf("/scim/v2/Groups/%d", group.ID), map[string]interface{}{
+		"schemas": []string{"urn:ietf:params:scim:api:messages:2.0:PatchOp"},
+		"Operations": []map[string]interface{}{
+			{
+				"op":    "replace",
+				"path":  "externalId",
+				"value": "mage-id",
+			},
+		},
+	})
+	request = mux.SetURLVars(request, map[string]string{"id": fmt.Sprint(group.ID)})
+	recorder := httptest.NewRecorder()
+	handler.PatchGroup(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("patch status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	adopted, err := store.GetSCIMGroupByExternalID("mage-id")
+	if err != nil || adopted == nil || adopted.ID != group.ID {
+		t.Fatalf("adopted group=%#v err=%v", adopted, err)
+	}
+}

@@ -680,6 +680,21 @@ func (h *Handler) PatchGroup(w http.ResponseWriter, r *http.Request) {
 					}
 					group.DisplayName = dn
 				}
+			} else if strings.EqualFold(op.Path, "externalId") {
+				externalID, ok := op.Value.(string)
+				if !ok || strings.TrimSpace(externalID) == "" {
+					scimError(w, 400, "invalidValue", "externalId must be a non-empty string")
+					return
+				}
+				if group.ExternalID != "" && group.ExternalID != externalID {
+					scimError(w, 409, "uniqueness", "externalId is immutable")
+					return
+				}
+				if err := h.Store.UpdateSCIMGroup(id, externalID, group.DisplayName); err != nil {
+					scimError(w, 409, "uniqueness", err.Error())
+					return
+				}
+				group.ExternalID = externalID
 			} else if strings.EqualFold(op.Path, "members") {
 				refs, _ := op.Value.([]interface{})
 				var userIDs []int
