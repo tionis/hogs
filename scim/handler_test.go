@@ -72,7 +72,7 @@ func TestCreateUserAdoptsOIDCIdentityAndAuthentikUsername(t *testing.T) {
 	if len(users) != 1 {
 		t.Fatalf("users=%#v, want one adopted identity", users)
 	}
-	if users[0].Email != "authentik-name" || users[0].ExternalID != "stable-subject" ||
+	if users[0].Username != "authentik-name" || users[0].ExternalID != "stable-subject" ||
 		users[0].OIDCSubject != "stable-subject" || users[0].PreferredUsername != "authentik-name" {
 		t.Fatalf("adopted user=%#v", users[0])
 	}

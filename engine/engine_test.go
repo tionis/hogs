@@ -438,7 +438,7 @@ func TestEvaluateACLAllowedActions(t *testing.T) {
 	}
 	store.CreatePterodactylLink(link)
 
-	user := &UserEnv{Email: "admin@example.com", Role: "admin"}
+	user := &UserEnv{Username: "admin@example.com", Role: "admin"}
 
 	allowed, err := eng.EvaluateACL(link, created, "start", user)
 	if err != nil {
@@ -473,8 +473,8 @@ func TestEvaluateACLExpressionRule(t *testing.T) {
 	}
 	store.CreatePterodactylLink(link)
 
-	adminUser := &UserEnv{Email: "admin@example.com", Role: "admin"}
-	regularUser := &UserEnv{Email: "user@example.com", Role: "user"}
+	adminUser := &UserEnv{Username: "admin@example.com", Role: "admin"}
+	regularUser := &UserEnv{Username: "user@example.com", Role: "user"}
 
 	allowed, err := eng.EvaluateACL(link, created, "start", adminUser)
 	if err != nil {
@@ -513,14 +513,14 @@ func TestEvaluateACLStructuredGrantOverridesLegacyRule(t *testing.T) {
 		t.Fatal(err)
 	}
 	eng := NewEngine(store, &config.Config{}, query.NewServerStatusCache())
-	user := &UserEnv{Email: "player@example.test", Role: "user", Groups: []string{"Operators"}}
+	user := &UserEnv{Username: "player@example.test", Role: "user", Groups: []string{"Operators"}}
 	if allowed, err := eng.EvaluateACL(link, srv, "start", user); err != nil || !allowed {
 		t.Fatalf("start allowed=%v err=%v", allowed, err)
 	}
 	if allowed, err := eng.EvaluateACL(link, srv, "stop", user); err != nil || allowed {
 		t.Fatalf("stop allowed=%v err=%v", allowed, err)
 	}
-	admin := &UserEnv{Email: "admin@example.test", Role: "admin"}
+	admin := &UserEnv{Username: "admin@example.test", Role: "admin"}
 	if allowed, err := eng.EvaluateACL(link, srv, "stop", admin); err != nil || !allowed {
 		t.Fatalf("admin stop allowed=%v err=%v", allowed, err)
 	}
@@ -534,7 +534,7 @@ func TestEvaluateConstraintsNoConstraints(t *testing.T) {
 	store.CreateServer(srv)
 	created, _ := store.GetServerByName("test")
 
-	user := &UserEnv{Email: "admin@example.com", Role: "admin"}
+	user := &UserEnv{Username: "admin@example.com", Role: "admin"}
 
 	result, err := eng.EvaluateConstraints(created, "start", user)
 	if err != nil {
@@ -563,7 +563,7 @@ func TestEvaluateConstraintsBlocking(t *testing.T) {
 	}
 	store.CreateConstraint(constraint)
 
-	user := &UserEnv{Email: "admin@example.com", Role: "admin"}
+	user := &UserEnv{Username: "admin@example.com", Role: "admin"}
 
 	result, err := eng.EvaluateConstraints(created, "start", user)
 	if err != nil {
@@ -590,7 +590,7 @@ func TestEvaluateConstraintsCanRequireKnownEmptyServer(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	user := &UserEnv{Email: "operator@example.test", Role: "user"}
+	user := &UserEnv{Username: "operator@example.test", Role: "user"}
 
 	if result, err := eng.EvaluateConstraints(server, "stop", user); err != nil || result.Allowed {
 		t.Fatalf("unknown player state should block stop: result=%#v err=%v", result, err)
@@ -613,7 +613,7 @@ func TestEvaluateDeniedNoLink(t *testing.T) {
 	store.CreateServer(srv)
 	created, _ := store.GetServerByName("test")
 
-	user := &UserEnv{Email: "admin@example.com", Role: "admin"}
+	user := &UserEnv{Username: "admin@example.com", Role: "admin"}
 
 	result := eng.Evaluate(created, "start", nil, user)
 	if result.Allowed {
@@ -639,7 +639,7 @@ func TestEvaluateAllowed(t *testing.T) {
 	}
 	store.CreatePterodactylLink(link)
 
-	user := &UserEnv{Email: "admin@example.com", Role: "admin"}
+	user := &UserEnv{Username: "admin@example.com", Role: "admin"}
 
 	result := eng.Evaluate(created, "start", nil, user)
 	if !result.Allowed {
@@ -720,14 +720,14 @@ func TestSourceDetection(t *testing.T) {
 	}
 	store.CreatePterodactylLink(link)
 
-	cronUser := &UserEnv{Email: "system", Role: "system"}
+	cronUser := &UserEnv{Username: "system", Role: "system"}
 	result := eng.Evaluate(created, "start", nil, cronUser)
 	if !result.Allowed {
 		t.Errorf("expected allowed for cron user, got %v", result)
 	}
 
 	var source string
-	row := store.DB.QueryRow("SELECT source FROM audit_log WHERE user_email = ? ORDER BY id DESC LIMIT 1", "system")
+	row := store.DB.QueryRow("SELECT source FROM audit_log WHERE user_username = ? ORDER BY id DESC LIMIT 1", "system")
 	if err := row.Scan(&source); err != nil {
 		t.Fatalf("failed to read audit log source: %v", err)
 	}
@@ -735,26 +735,26 @@ func TestSourceDetection(t *testing.T) {
 		t.Errorf("Source = %q, want %q", source, "cron")
 	}
 
-	apiUser := &UserEnv{Email: "", Role: "admin", ClientIP: "192.0.2.44"}
+	apiUser := &UserEnv{Username: "", Role: "admin", ClientIP: "192.0.2.44"}
 	eng.Evaluate(created, "start", map[string]string{"request": "test"}, apiUser)
 
-	var email, clientIP, reason, params string
-	row = store.DB.QueryRow("SELECT source, user_email, client_ip, reason, params FROM audit_log WHERE user_email = ? ORDER BY id DESC LIMIT 1", "anonymous")
-	if err := row.Scan(&source, &email, &clientIP, &reason, &params); err != nil {
+	var username, clientIP, reason, params string
+	row = store.DB.QueryRow("SELECT source, user_username, client_ip, reason, params FROM audit_log WHERE user_username = ? ORDER BY id DESC LIMIT 1", "anonymous")
+	if err := row.Scan(&source, &username, &clientIP, &reason, &params); err != nil {
 		t.Fatalf("failed to read audit log source: %v", err)
 	}
 	if source != "api" {
 		t.Errorf("Source = %q, want %q", source, "api")
 	}
-	if email != "anonymous" || clientIP != "192.0.2.44" ||
+	if username != "anonymous" || clientIP != "192.0.2.44" ||
 		reason != "authorized by server access policy" || params != `{"request":"test"}` {
-		t.Fatalf("audit context = email=%q ip=%q reason=%q params=%q", email, clientIP, reason, params)
+		t.Fatalf("audit context = username=%q ip=%q reason=%q params=%q", username, clientIP, reason, params)
 	}
 
-	normalUser := &UserEnv{Email: "user@example.com", Role: "admin"}
+	normalUser := &UserEnv{Username: "user@example.com", Role: "admin"}
 	eng.Evaluate(created, "start", nil, normalUser)
 
-	row = store.DB.QueryRow("SELECT source FROM audit_log WHERE user_email = ? ORDER BY id DESC LIMIT 1", "user@example.com")
+	row = store.DB.QueryRow("SELECT source FROM audit_log WHERE user_username = ? ORDER BY id DESC LIMIT 1", "user@example.com")
 	if err := row.Scan(&source); err != nil {
 		t.Fatalf("failed to read audit log source: %v", err)
 	}
@@ -835,7 +835,7 @@ func TestConstraintViolationNotification(t *testing.T) {
 	store.DB.Exec("INSERT INTO constraints (name, condition, strategy, priority, enabled) VALUES (?, ?, ?, ?, ?)",
 		"test-block", "false", "deny", 1, 1)
 
-	user := &UserEnv{Email: "test@example.com", Role: "user"}
+	user := &UserEnv{Username: "test@example.com", Role: "user"}
 	result := eng.Evaluate(server, "start", nil, user)
 
 	if result.Allowed {

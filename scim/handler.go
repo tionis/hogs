@@ -165,18 +165,6 @@ func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if existing == nil {
-		existing, err = h.Store.GetUserByUsername(userName)
-		if err != nil {
-			scimError(w, 500, "InternalServerError", err.Error())
-			return
-		}
-		if existing != nil && existing.ExternalID != "" && existing.ExternalID != req.ExternalID {
-			scimError(w, 409, "uniqueness", "userName belongs to a different Authentik identity")
-			return
-		}
-	}
-
 	externalID := req.ExternalID
 	displayName := req.DisplayName
 	if displayName == "" && len(req.Name.GivenName) > 0 {
@@ -195,7 +183,7 @@ func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	if user == nil {
 		user, err = h.Store.CreateUser(userName, "user")
 		if err != nil {
-			scimError(w, 500, "InternalServerError", err.Error())
+			scimError(w, 409, "uniqueness", err.Error())
 			return
 		}
 	}
@@ -205,7 +193,7 @@ func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user.Email = userName
+	user.Username = userName
 	user.ExternalID = externalID
 	user.DisplayName = displayName
 	user.PreferredUsername = userName
@@ -272,7 +260,7 @@ func (h *Handler) ReplaceUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user.Email = req.UserName
+	user.Username = req.UserName
 	user.ExternalID = req.ExternalID
 	user.DisplayName = displayName
 	user.PreferredUsername = req.UserName
@@ -316,7 +304,7 @@ func (h *Handler) PatchUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	needsSessionInvalidate := false
-	username := user.Email
+	username := user.Username
 	externalID := user.ExternalID
 	displayName := user.DisplayName
 	active := user.Active
@@ -404,7 +392,7 @@ func (h *Handler) PatchUser(w http.ResponseWriter, r *http.Request) {
 		scimError(w, 409, "uniqueness", err.Error())
 		return
 	}
-	user.Email = username
+	user.Username = username
 	user.ExternalID = externalID
 	user.DisplayName = displayName
 	user.PreferredUsername = username
@@ -759,7 +747,7 @@ func (h *Handler) userToSCIM(u database.User) map[string]interface{} {
 	result := map[string]interface{}{
 		"schemas":  []string{"urn:ietf:params:scim:schemas:core:2.0:User"},
 		"id":       fmt.Sprintf("%d", u.ID),
-		"userName": u.Email,
+		"userName": u.Username,
 		"active":   u.Active,
 		"meta": map[string]interface{}{
 			"resourceType": "User",
@@ -959,7 +947,7 @@ func (h *Handler) triggerSessionInvalidation(user *database.User) {
 
 	if user.ExternalID != "" {
 		if err := h.Store.DeleteSessionsBySub(user.ExternalID); err != nil {
-			log.Printf("SCIM: failed to invalidate sessions for user %s: %v", user.Email, err)
+			log.Printf("SCIM: failed to invalidate sessions for user %s: %v", user.Username, err)
 		}
 	}
 }
@@ -982,7 +970,7 @@ func filterUsers(users []database.User, filter string) ([]database.User, error) 
 		matches := false
 		switch strings.ToLower(attribute) {
 		case "username":
-			matches = strings.EqualFold(user.Email, value)
+			matches = strings.EqualFold(user.Username, value)
 		case "externalid":
 			matches = user.ExternalID == value
 		case "displayname":

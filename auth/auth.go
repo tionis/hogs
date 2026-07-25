@@ -76,7 +76,7 @@ func NewAuthenticator(cfg *config.Config, store *database.Store) (*Authenticator
 			ClientSecret: cfg.OIDCClientSecret,
 			RedirectURL:  cfg.OIDCRedirectURL,
 			Endpoint:     provider.Endpoint(),
-			Scopes:       []string{oidc.ScopeOpenID, "profile", "email"},
+			Scopes:       []string{oidc.ScopeOpenID, "profile"},
 		},
 		Verifier:       provider.Verifier(oidcConfig),
 		LogoutVerifier: provider.Verifier(logoutOidcConfig),
@@ -145,10 +145,8 @@ func (a *Authenticator) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var claims struct {
-		Email             string      `json:"email"`
-		Sub               string      `json:"sub"`
-		PreferredUsername string      `json:"preferred_username"`
-		Groups            interface{} `json:"-"`
+		Sub               string `json:"sub"`
+		PreferredUsername string `json:"preferred_username"`
 	}
 	if err := idToken.Claims(&claims); err != nil {
 		http.Error(w, "Authentication failed", http.StatusInternalServerError)
@@ -156,9 +154,9 @@ func (a *Authenticator) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	groups := extractGroups(idToken, a.Cfg.OIDCGroupsClaim)
-	role := a.resolveRole(claims.PreferredUsername, groups)
+	role := a.resolveRole(groups)
 
-	user, err := a.provisionUser(claims.Email, role, idToken.Issuer, claims.Sub, claims.PreferredUsername, groups)
+	user, err := a.provisionUser(role, idToken.Issuer, claims.Sub, claims.PreferredUsername, groups)
 	if err != nil {
 		http.Error(w, "Authentication failed", http.StatusInternalServerError)
 		return
@@ -172,12 +170,12 @@ func (a *Authenticator) HandleCallback(w http.ResponseWriter, r *http.Request) {
 
 	expiresAt := time.Now().UTC().Add(30 * 24 * time.Hour).Format(time.RFC3339)
 	dbSession := &database.Session{
-		SessionID: sessionID,
-		UserSub:   claims.Sub,
-		UserEmail: user.Email,
-		UserRole:  role,
-		CreatedAt: time.Now().UTC().Format(time.RFC3339),
-		ExpiresAt: expiresAt,
+		SessionID:    sessionID,
+		UserSub:      claims.Sub,
+		UserUsername: user.Username,
+		UserRole:     role,
+		CreatedAt:    time.Now().UTC().Format(time.RFC3339),
+		ExpiresAt:    expiresAt,
 	}
 	if err := a.Store.CreateSession(dbSession); err != nil {
 		http.Error(w, "Failed to create session", http.StatusInternalServerError)
@@ -277,7 +275,7 @@ func (a *Authenticator) getSession(r *http.Request) *database.Session {
 	}
 
 	// Verify the user is still active
-	user, err := a.Store.GetUserByEmail(dbSession.UserEmail)
+	user, err := a.Store.GetUserByUsername(dbSession.UserUsername)
 	if err != nil || user == nil || !user.Active {
 		a.Store.DeleteSession(sessionID)
 		return nil
@@ -313,7 +311,7 @@ func extractGroups(idToken *oidc.IDToken, claimName string) []string {
 	}
 }
 
-func (a *Authenticator) resolveRole(email string, groups []string) string {
+func (a *Authenticator) resolveRole(groups []string) string {
 	adminGroup := a.Cfg.OIDCAdminGroup
 	userGroup := a.Cfg.OIDCUserGroup
 
@@ -336,11 +334,8 @@ func (a *Authenticator) resolveRole(email string, groups []string) string {
 	return ""
 }
 
-func (a *Authenticator) provisionUser(email, role, issuer, subject, preferredUsername string, groups []string) (*database.User, error) {
+func (a *Authenticator) provisionUser(role, issuer, subject, preferredUsername string, groups []string) (*database.User, error) {
 	username := strings.TrimSpace(preferredUsername)
-	if username == "" {
-		username = strings.TrimSpace(email)
-	}
 	if username == "" || strings.TrimSpace(issuer) == "" || strings.TrimSpace(subject) == "" {
 		return nil, fmt.Errorf("OIDC identity requires issuer, subject, and preferred_username claims")
 	}
@@ -358,28 +353,16 @@ func (a *Authenticator) provisionUser(email, role, issuer, subject, preferredUse
 		}
 	}
 	if user == nil {
-		user, err = a.Store.GetUserByUsername(username)
-		if err != nil {
-			return nil, fmt.Errorf("GetUserByUsername failed: %w", err)
-		}
-	}
-	if user == nil && strings.TrimSpace(email) != "" {
-		user, err = a.Store.GetUserByEmail(email)
-		if err != nil {
-			return nil, fmt.Errorf("GetUserByEmail failed: %w", err)
-		}
-	}
-	if user == nil {
 		user, err = a.Store.CreateUser(username, role)
 		if err != nil {
 			return nil, fmt.Errorf("CreateUser failed: %w", err)
 		}
 	}
-	if user.Email != username {
+	if user.Username != username {
 		if err := a.Store.UpdateUserUsername(user.ID, username); err != nil {
 			return nil, fmt.Errorf("UpdateUserUsername failed: %w", err)
 		}
-		user.Email = username
+		user.Username = username
 	}
 	if user.Role != role {
 		if err := a.Store.UpdateUserRole(user.ID, role); err != nil {
@@ -470,12 +453,12 @@ func (a *Authenticator) IsAuthenticated(r *http.Request) bool {
 	return a.getSession(r) != nil
 }
 
-func (a *Authenticator) GetUserEmail(r *http.Request) string {
+func (a *Authenticator) GetUsername(r *http.Request) string {
 	dbSession := a.getSession(r)
 	if dbSession == nil {
 		return ""
 	}
-	return dbSession.UserEmail
+	return dbSession.UserUsername
 }
 
 func (a *Authenticator) GetUserRole(r *http.Request) string {

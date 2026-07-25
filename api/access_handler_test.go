@@ -46,7 +46,7 @@ func TestGameIdentityAPIValidatesMinecraftName(t *testing.T) {
 	serverHandler, _ := mapProxyFixture(t, "game", nil)
 	handler := NewAccessHandler(serverHandler.Store)
 	request := httptest.NewRequest(http.MethodPut, "/api/v1/game-identities",
-		bytes.NewBufferString(`{"userEmail":"player@example.test","gameType":"minecraft","username":"bad name"}`))
+		bytes.NewBufferString(`{"userUsername":"player@example.test","gameType":"minecraft","username":"bad name"}`))
 	recorder := httptest.NewRecorder()
 	handler.SetGameIdentity(recorder, request)
 	if recorder.Code != http.StatusBadRequest {
@@ -58,7 +58,7 @@ func TestGameIdentityAPIAcceptsFactorioNameWithSpace(t *testing.T) {
 	serverHandler, _ := mapProxyFixture(t, "game", nil)
 	handler := NewAccessHandler(serverHandler.Store)
 	request := httptest.NewRequest(http.MethodPut, "/api/v1/game-identities",
-		bytes.NewBufferString(`{"userEmail":"player@example.test","gameType":"factorio","username":"Space Cadet"}`))
+		bytes.NewBufferString(`{"userUsername":"player@example.test","gameType":"factorio","username":"Space Cadet"}`))
 	recorder := httptest.NewRecorder()
 	handler.SetGameIdentity(recorder, request)
 	if recorder.Code != http.StatusOK {
@@ -74,7 +74,7 @@ func TestGameIdentityAPIAcceptsValheimPlatformID(t *testing.T) {
 	serverHandler, _ := mapProxyFixture(t, "game", nil)
 	handler := NewAccessHandler(serverHandler.Store)
 	request := httptest.NewRequest(http.MethodPut, "/api/v1/game-identities",
-		bytes.NewBufferString(`{"userEmail":"viking@example.test","gameType":"valheim","username":"Steam_76561198000000000"}`))
+		bytes.NewBufferString(`{"userUsername":"viking@example.test","gameType":"valheim","username":"Steam_76561198000000000"}`))
 	recorder := httptest.NewRecorder()
 	handler.SetGameIdentity(recorder, request)
 	if recorder.Code != http.StatusOK {

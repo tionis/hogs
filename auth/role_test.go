@@ -20,16 +20,16 @@ func TestOIDCRoleIsDerivedFromCurrentGroupsAndCanDemote(t *testing.T) {
 			OIDCUserGroup:  "",
 		},
 	}
-	if got := authenticator.resolveRole("person@example.test", []string{"instance-admins"}); got != "admin" {
+	if got := authenticator.resolveRole([]string{"instance-admins"}); got != "admin" {
 		t.Fatalf("admin group role=%q", got)
 	}
-	if _, err := authenticator.provisionUser("person@example.test", "admin", "https://id.example.test", "subject", "person", []string{"instance-admins"}); err != nil {
+	if _, err := authenticator.provisionUser("admin", "https://id.example.test", "subject", "person", []string{"instance-admins"}); err != nil {
 		t.Fatal(err)
 	}
-	if got := authenticator.resolveRole("person@example.test", nil); got != "user" {
+	if got := authenticator.resolveRole(nil); got != "user" {
 		t.Fatalf("role without current admin group=%q, want user", got)
 	}
-	if _, err := authenticator.provisionUser("person@example.test", "user", "https://id.example.test", "subject", "person", nil); err != nil {
+	if _, err := authenticator.provisionUser("user", "https://id.example.test", "subject", "person", nil); err != nil {
 		t.Fatal(err)
 	}
 	user, err := store.GetUserByUsername("person")
@@ -47,13 +47,13 @@ func TestOIDCIdentityUsesIssuerAndSubjectInsteadOfMutableClaims(t *testing.T) {
 	authenticator := &Authenticator{Store: store, Cfg: &config.Config{}}
 
 	first, err := authenticator.provisionUser(
-		"old-address@example.test", "user", "https://id.example.test", "stable-subject", "old-name", nil,
+		"user", "https://id.example.test", "stable-subject", "old-name", nil,
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
 	second, err := authenticator.provisionUser(
-		"new-address@example.test", "user", "https://id.example.test", "stable-subject", "new-name", nil,
+		"user", "https://id.example.test", "stable-subject", "new-name", nil,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -61,12 +61,53 @@ func TestOIDCIdentityUsesIssuerAndSubjectInsteadOfMutableClaims(t *testing.T) {
 	if first.ID != second.ID {
 		t.Fatalf("mutable claims created a second user: first=%d second=%d", first.ID, second.ID)
 	}
-	if second.Email != "new-name" {
-		t.Fatalf("canonical username was not updated from Authentik: %q", second.Email)
+	if second.Username != "new-name" {
+		t.Fatalf("canonical username was not updated from Authentik: %q", second.Username)
 	}
 	stored, err := store.GetUserByOIDCIdentity("https://id.example.test", "stable-subject")
 	if err != nil || stored == nil || stored.PreferredUsername != "new-name" {
 		t.Fatalf("stored OIDC identity=%#v err=%v", stored, err)
+	}
+}
+
+func TestOIDCRequiresPreferredUsername(t *testing.T) {
+	store, err := database.NewStore(t.TempDir() + "/hogs.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.DB.Close()
+	authenticator := &Authenticator{Store: store, Cfg: &config.Config{}}
+
+	if _, err := authenticator.provisionUser(
+		"user", "https://id.example.test", "stable-subject", "", nil,
+	); err == nil {
+		t.Fatal("OIDC identity without preferred_username was accepted")
+	}
+}
+
+func TestOIDCAdoptsSCIMIdentityOnlyByStableSubject(t *testing.T) {
+	store, err := database.NewStore(t.TempDir() + "/hogs.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.DB.Close()
+	authenticator := &Authenticator{Store: store, Cfg: &config.Config{}}
+
+	user, err := store.CreateUser("authentik-name", "user")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpdateUserSCIM(user.ID, "stable-subject", "Authentik User", true); err != nil {
+		t.Fatal(err)
+	}
+	adopted, err := authenticator.provisionUser(
+		"user", "https://id.example.test", "stable-subject", "authentik-name", nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if adopted.ID != user.ID || adopted.OIDCSubject != "stable-subject" {
+		t.Fatalf("adopted user=%#v", adopted)
 	}
 }
 

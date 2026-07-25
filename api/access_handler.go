@@ -109,7 +109,7 @@ func (h *AccessHandler) EffectiveAccess(w http.ResponseWriter, r *http.Request) 
 			}
 			continue
 		}
-		decision, err := h.Store.EvaluateServerAccess(server.ID, user.Email, user.Groups, capability.Name)
+		decision, err := h.Store.EvaluateServerAccess(server.ID, user.Username, user.Groups, capability.Name)
 		if err != nil {
 			http.Error(w, "Failed to evaluate access", http.StatusInternalServerError)
 			return
@@ -117,7 +117,7 @@ func (h *AccessHandler) EffectiveAccess(w http.ResponseWriter, r *http.Request) 
 		decisions[capability.Name] = decision
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"server": server.Name, "user": user.Email, "role": user.Role,
+		"server": server.Name, "user": user.Username, "role": user.Role,
 		"groups": user.Groups, "capabilities": decisions,
 	})
 }
@@ -153,7 +153,7 @@ func (h *AccessHandler) server(w http.ResponseWriter, r *http.Request) (*databas
 }
 
 func (h *AccessHandler) ListGameIdentities(w http.ResponseWriter, r *http.Request) {
-	identities, err := h.Store.ListGameIdentities(r.URL.Query().Get("userEmail"))
+	identities, err := h.Store.ListGameIdentities(r.URL.Query().Get("userUsername"))
 	if err != nil {
 		http.Error(w, "Failed to load game identities", http.StatusInternalServerError)
 		return
@@ -175,11 +175,11 @@ func (h *AccessHandler) SetGameIdentity(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "Invalid game identity", http.StatusBadRequest)
 		return
 	}
-	identity.UserEmail = strings.TrimSpace(identity.UserEmail)
+	identity.UserUsername = strings.TrimSpace(identity.UserUsername)
 	identity.GameType = strings.ToLower(strings.TrimSpace(identity.GameType))
 	identity.Username = strings.TrimSpace(identity.Username)
 	identity.Source = "admin"
-	if identity.UserEmail == "" || !apiGameTypePattern.MatchString(identity.GameType) ||
+	if identity.UserUsername == "" || !apiGameTypePattern.MatchString(identity.GameType) ||
 		!apiGameUsernamePattern.MatchString(identity.Username) {
 		http.Error(w, "Invalid game identity", http.StatusBadRequest)
 		return
@@ -190,7 +190,7 @@ func (h *AccessHandler) SetGameIdentity(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	identity.ExternalID = ""
-	if existing, _ := h.Store.GetGameIdentity(identity.UserEmail, identity.GameType); existing != nil &&
+	if existing, _ := h.Store.GetGameIdentity(identity.UserUsername, identity.GameType); existing != nil &&
 		driver.IdentitiesEqual(existing.Username, identity.Username) {
 		identity.ExternalID = existing.ExternalID
 	}
@@ -202,13 +202,13 @@ func (h *AccessHandler) SetGameIdentity(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *AccessHandler) DeleteGameIdentity(w http.ResponseWriter, r *http.Request) {
-	email := r.URL.Query().Get("userEmail")
+	username := r.URL.Query().Get("userUsername")
 	gameType := r.URL.Query().Get("gameType")
-	if email == "" || gameType == "" {
-		http.Error(w, "userEmail and gameType are required", http.StatusBadRequest)
+	if username == "" || gameType == "" {
+		http.Error(w, "userUsername and gameType are required", http.StatusBadRequest)
 		return
 	}
-	if err := h.Store.DeleteGameIdentity(email, gameType); err != nil {
+	if err := h.Store.DeleteGameIdentity(username, gameType); err != nil {
 		http.Error(w, "Failed to delete game identity", http.StatusInternalServerError)
 		return
 	}

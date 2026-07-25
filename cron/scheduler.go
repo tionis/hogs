@@ -79,8 +79,8 @@ func (s *Scheduler) addJobInternal(job database.CronJob) error {
 	}
 
 	user := &engine.UserEnv{
-		Email: "system",
-		Role:  "system",
+		Username: "system",
+		Role:     "system",
 	}
 
 	entryID, err := s.Cron.AddFunc(job.Schedule, func() {

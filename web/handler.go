@@ -198,22 +198,22 @@ func (h *WebHandler) userRole(r *http.Request) string {
 }
 
 func (h *WebHandler) getUserEnv(r *http.Request) *engine.UserEnv {
-	email := "anonymous"
+	username := "anonymous"
 	role := "user"
 	if h.Auth != nil {
-		email = h.Auth.GetUserEmail(r)
+		username = h.Auth.GetUsername(r)
 		role = h.Auth.GetUserRole(r)
 	}
-	if email == "" {
-		email = "anonymous"
+	if username == "" {
+		username = "anonymous"
 	}
 	if role == "" {
 		role = "user"
 	}
 
 	var groups []string
-	if email != "anonymous" && h.Store != nil {
-		user, _ := h.Store.GetUserByEmail(email)
+	if username != "anonymous" && h.Store != nil {
+		user, _ := h.Store.GetUserByUsername(username)
 		if user != nil {
 			scimGroups, _ := h.Store.GetSCIMGroupsForUser(user.ID)
 			for _, g := range scimGroups {
@@ -223,7 +223,7 @@ func (h *WebHandler) getUserEnv(r *http.Request) *engine.UserEnv {
 	}
 
 	return &engine.UserEnv{
-		Email: email, Role: role, Groups: groups,
+		Username: username, Role: role, Groups: groups,
 		ClientIP:    auth.ClientIP(r, h.Config != nil && h.Config.TrustProxyHeaders),
 		CountryCode: auth.ClientCountry(r, h.Config != nil && h.Config.TrustProxyHeaders),
 	}
@@ -267,13 +267,13 @@ func (h *WebHandler) Forbidden(w http.ResponseWriter, r *http.Request) {
 	data := struct {
 		Authenticated  bool
 		UserRole       string
-		UserEmail      string
+		UserUsername   string
 		SiteName       string
 		BackgroundURLs BackgroundURLs
 	}{
 		Authenticated:  true,
 		UserRole:       h.Auth.GetUserRole(r),
-		UserEmail:      h.Auth.GetUserEmail(r),
+		UserUsername:   h.Auth.GetUsername(r),
 		SiteName:       h.siteName(),
 		BackgroundURLs: h.pickBackgrounds([]string{"home"}),
 	}
@@ -320,7 +320,7 @@ func (h *WebHandler) Home(w http.ResponseWriter, r *http.Request) {
 		if s.State != "offline" || isAuthenticated {
 			view := database.ServerAccessDecision{Allowed: userEnv.Role == "admin" || userEnv.Role == "system"}
 			if !view.Allowed {
-				view, _ = h.Store.EvaluateServerAccess(s.ID, userEnv.Email, userEnv.Groups, access.View)
+				view, _ = h.Store.EvaluateServerAccess(s.ID, userEnv.Username, userEnv.Groups, access.View)
 			}
 			if !view.Allowed {
 				continue
@@ -421,7 +421,7 @@ func (h *WebHandler) renderServerPage(w http.ResponseWriter, r *http.Request, pa
 	userEnv := h.getUserEnv(r)
 	view := database.ServerAccessDecision{Allowed: userEnv.Role == "admin" || userEnv.Role == "system"}
 	if !view.Allowed {
-		view, _ = h.Store.EvaluateServerAccess(server.ID, userEnv.Email, userEnv.Groups, access.View)
+		view, _ = h.Store.EvaluateServerAccess(server.ID, userEnv.Username, userEnv.Groups, access.View)
 	}
 	if !view.Allowed {
 		http.Error(w, "Server not found", http.StatusNotFound)
@@ -454,7 +454,7 @@ func (h *WebHandler) renderServerPage(w http.ResponseWriter, r *http.Request, pa
 		Server                *database.Server
 		Authenticated         bool
 		UserRole              string
-		UserEmail             string
+		UserUsername          string
 		SiteName              string
 		BackgroundURLs        BackgroundURLs
 		PteroConfigured       bool
@@ -488,7 +488,7 @@ func (h *WebHandler) renderServerPage(w http.ResponseWriter, r *http.Request, pa
 		Server:                server,
 		Authenticated:         isAuthenticated,
 		UserRole:              userRole,
-		UserEmail:             h.Auth.GetUserEmail(r),
+		UserUsername:          h.Auth.GetUsername(r),
 		SiteName:              h.siteName(),
 		BackgroundURLs:        h.pickBackgrounds([]string{server.GameType}),
 		PteroConfigured:       h.Config.PterodactylURL != "",
@@ -516,7 +516,7 @@ func (h *WebHandler) renderServerPage(w http.ResponseWriter, r *http.Request, pa
 		for _, capability := range access.Capabilities {
 			decision := database.ServerAccessDecision{Allowed: true, Reason: "instance administrator"}
 			if userRole != "admin" {
-				decision, _ = h.Store.EvaluateServerAccess(server.ID, userEnv.Email, userEnv.Groups, capability.Name)
+				decision, _ = h.Store.EvaluateServerAccess(server.ID, userEnv.Username, userEnv.Groups, capability.Name)
 			}
 			data.EffectiveAccess = append(data.EffectiveAccess, EffectiveAccessEntry{
 				Name: capability.Name, Label: capability.Label, Allowed: decision.Allowed, Reason: decision.Reason,
@@ -524,7 +524,7 @@ func (h *WebHandler) renderServerPage(w http.ResponseWriter, r *http.Request, pa
 		}
 		manageDecision := database.ServerAccessDecision{Allowed: userRole == "admin"}
 		if userRole != "admin" {
-			manageDecision, _ = h.Store.EvaluateServerAccess(server.ID, userEnv.Email, userEnv.Groups, access.AccessManage)
+			manageDecision, _ = h.Store.EvaluateServerAccess(server.ID, userEnv.Username, userEnv.Groups, access.AccessManage)
 		}
 		data.ManageAccess = manageDecision.Allowed
 		if data.ManageAccess {
@@ -535,7 +535,7 @@ func (h *WebHandler) renderServerPage(w http.ResponseWriter, r *http.Request, pa
 		}
 		whitelistDecision := database.ServerAccessDecision{Allowed: userRole == "admin"}
 		if userRole != "admin" {
-			whitelistDecision, _ = h.Store.EvaluateServerAccess(server.ID, userEnv.Email, userEnv.Groups, access.WhitelistManage)
+			whitelistDecision, _ = h.Store.EvaluateServerAccess(server.ID, userEnv.Username, userEnv.Groups, access.WhitelistManage)
 		}
 		data.WhitelistManage = whitelistDecision.Allowed
 
@@ -545,11 +545,11 @@ func (h *WebHandler) renderServerPage(w http.ResponseWriter, r *http.Request, pa
 		backupRestoreDecision := database.ServerAccessDecision{Allowed: userRole == "admin"}
 		secretReadDecision := database.ServerAccessDecision{Allowed: userRole == "admin"}
 		if userRole != "admin" {
-			selfWhitelistDecision, _ = h.Store.EvaluateServerAccess(server.ID, userEnv.Email, userEnv.Groups, access.WhitelistSelf)
-			backupListDecision, _ = h.Store.EvaluateServerAccess(server.ID, userEnv.Email, userEnv.Groups, access.BackupList)
-			backupCreateDecision, _ = h.Store.EvaluateServerAccess(server.ID, userEnv.Email, userEnv.Groups, access.BackupCreate)
-			backupRestoreDecision, _ = h.Store.EvaluateServerAccess(server.ID, userEnv.Email, userEnv.Groups, access.BackupRestore)
-			secretReadDecision, _ = h.Store.EvaluateServerAccess(server.ID, userEnv.Email, userEnv.Groups, access.SecretRead)
+			selfWhitelistDecision, _ = h.Store.EvaluateServerAccess(server.ID, userEnv.Username, userEnv.Groups, access.WhitelistSelf)
+			backupListDecision, _ = h.Store.EvaluateServerAccess(server.ID, userEnv.Username, userEnv.Groups, access.BackupList)
+			backupCreateDecision, _ = h.Store.EvaluateServerAccess(server.ID, userEnv.Username, userEnv.Groups, access.BackupCreate)
+			backupRestoreDecision, _ = h.Store.EvaluateServerAccess(server.ID, userEnv.Username, userEnv.Groups, access.BackupRestore)
+			secretReadDecision, _ = h.Store.EvaluateServerAccess(server.ID, userEnv.Username, userEnv.Groups, access.SecretRead)
 		}
 		data.WhitelistSelf = selfWhitelistDecision.Allowed
 		data.BackupList = backupListDecision.Allowed
@@ -571,11 +571,11 @@ func (h *WebHandler) renderServerPage(w http.ResponseWriter, r *http.Request, pa
 			data.ShowFiles, data.FileWrite = true, true
 			data.ShowResources = true
 		} else {
-			consoleRead, _ := h.Store.EvaluateServerAccess(server.ID, userEnv.Email, userEnv.Groups, access.ConsoleRead)
-			consoleWrite, _ := h.Store.EvaluateServerAccess(server.ID, userEnv.Email, userEnv.Groups, access.ConsoleWrite)
-			fileRead, _ := h.Store.EvaluateServerAccess(server.ID, userEnv.Email, userEnv.Groups, access.FileRead)
-			fileWrite, _ := h.Store.EvaluateServerAccess(server.ID, userEnv.Email, userEnv.Groups, access.FileWrite)
-			status, _ := h.Store.EvaluateServerAccess(server.ID, userEnv.Email, userEnv.Groups, access.Status)
+			consoleRead, _ := h.Store.EvaluateServerAccess(server.ID, userEnv.Username, userEnv.Groups, access.ConsoleRead)
+			consoleWrite, _ := h.Store.EvaluateServerAccess(server.ID, userEnv.Username, userEnv.Groups, access.ConsoleWrite)
+			fileRead, _ := h.Store.EvaluateServerAccess(server.ID, userEnv.Username, userEnv.Groups, access.FileRead)
+			fileWrite, _ := h.Store.EvaluateServerAccess(server.ID, userEnv.Username, userEnv.Groups, access.FileWrite)
+			status, _ := h.Store.EvaluateServerAccess(server.ID, userEnv.Username, userEnv.Groups, access.Status)
 			data.ShowConsole, data.ConsoleWrite = consoleRead.Allowed, consoleWrite.Allowed
 			data.ShowFiles, data.FileWrite = fileRead.Allowed, fileWrite.Allowed
 			data.ShowResources = status.Allowed
@@ -696,8 +696,8 @@ func (h *WebHandler) RevealServerField(w http.ResponseWriter, r *http.Request) {
 	allowed := user.Role == "admin"
 	reason := "instance administrator"
 	if !allowed {
-		view, viewErr := h.Store.EvaluateServerAccess(server.ID, user.Email, user.Groups, access.View)
-		decision, decisionErr := h.Store.EvaluateServerAccess(server.ID, user.Email, user.Groups, access.SecretRead)
+		view, viewErr := h.Store.EvaluateServerAccess(server.ID, user.Username, user.Groups, access.View)
+		decision, decisionErr := h.Store.EvaluateServerAccess(server.ID, user.Username, user.Groups, access.SecretRead)
 		if viewErr != nil || decisionErr != nil {
 			http.Error(w, "Could not evaluate server access", http.StatusInternalServerError)
 			return
@@ -743,7 +743,7 @@ func (h *WebHandler) RevealServerField(w http.ResponseWriter, r *http.Request) {
 func (h *WebHandler) auditServerFieldReveal(server *database.Server, user *engine.UserEnv, fieldID int, fieldKey, result, reason string) {
 	params, _ := json.Marshal(map[string]interface{}{"fieldId": fieldID, "fieldKey": fieldKey})
 	entry := &database.AuditLogEntry{
-		Timestamp: time.Now().UTC().Format(time.RFC3339), UserEmail: user.Email,
+		Timestamp: time.Now().UTC().Format(time.RFC3339), UserUsername: user.Username,
 		ServerName: server.Name, Action: access.SecretRead, Params: params,
 		Result: result, Reason: reason, Source: "web", ClientIP: user.ClientIP,
 		CountryCode: user.CountryCode,
@@ -773,7 +773,7 @@ func (h *WebHandler) Admin(w http.ResponseWriter, r *http.Request) {
 		Authenticated   bool
 		UserRole        string
 		SiteName        string
-		UserEmail       string
+		UserUsername    string
 		BackgroundURLs  BackgroundURLs
 	}{
 		Servers:         servers,
@@ -782,7 +782,7 @@ func (h *WebHandler) Admin(w http.ResponseWriter, r *http.Request) {
 		Authenticated:   true,
 		UserRole:        "admin",
 		SiteName:        h.siteName(),
-		UserEmail:       h.Auth.GetUserEmail(r),
+		UserUsername:    h.Auth.GetUsername(r),
 		BackgroundURLs:  h.pickBackgrounds([]string{"home"}),
 	}
 
@@ -1138,7 +1138,7 @@ func (h *WebHandler) BackgroundManager(w http.ResponseWriter, r *http.Request) {
 		Authenticated  bool
 		UserRole       string
 		SiteName       string
-		UserEmail      string
+		UserUsername   string
 		BackgroundURLs BackgroundURLs
 	}{
 		Backgrounds:    backgrounds,
@@ -1146,7 +1146,7 @@ func (h *WebHandler) BackgroundManager(w http.ResponseWriter, r *http.Request) {
 		Authenticated:  true,
 		UserRole:       "admin",
 		SiteName:       h.siteName(),
-		UserEmail:      h.Auth.GetUserEmail(r),
+		UserUsername:   h.Auth.GetUsername(r),
 		BackgroundURLs: h.pickBackgrounds([]string{"home"}),
 	}
 
@@ -1191,13 +1191,13 @@ func (h *WebHandler) Settings(w http.ResponseWriter, r *http.Request) {
 		SiteName       string
 		Authenticated  bool
 		UserRole       string
-		UserEmail      string
+		UserUsername   string
 		BackgroundURLs BackgroundURLs
 	}{
 		SiteName:       siteName,
 		Authenticated:  true,
 		UserRole:       "admin",
-		UserEmail:      h.Auth.GetUserEmail(r),
+		UserUsername:   h.Auth.GetUsername(r),
 		BackgroundURLs: h.pickBackgrounds([]string{"home"}),
 	}
 
@@ -1231,7 +1231,7 @@ func (h *WebHandler) Users(w http.ResponseWriter, r *http.Request) {
 	var usersWithGroups []UserWithGroups
 	for _, u := range users {
 		groups, _ := h.Store.GetSCIMGroupsForUser(u.ID)
-		identities, _ := h.Store.ListGameIdentities(u.Email)
+		identities, _ := h.Store.ListGameIdentities(u.Username)
 		usersWithGroups = append(usersWithGroups, UserWithGroups{
 			User:       u,
 			Groups:     groups,
@@ -1244,14 +1244,14 @@ func (h *WebHandler) Users(w http.ResponseWriter, r *http.Request) {
 		Authenticated  bool
 		UserRole       string
 		SiteName       string
-		UserEmail      string
+		UserUsername   string
 		BackgroundURLs BackgroundURLs
 	}{
 		Users:          usersWithGroups,
 		Authenticated:  true,
 		UserRole:       "admin",
 		SiteName:       h.siteName(),
-		UserEmail:      h.Auth.GetUserEmail(r),
+		UserUsername:   h.Auth.GetUsername(r),
 		BackgroundURLs: h.pickBackgrounds([]string{"home"}),
 	}
 
@@ -1280,11 +1280,11 @@ func (h *WebHandler) GameTypes(w http.ResponseWriter, r *http.Request) {
 		Authenticated  bool
 		UserRole       string
 		SiteName       string
-		UserEmail      string
+		UserUsername   string
 		BackgroundURLs BackgroundURLs
 	}{
 		GameTypes: gameTypes, Authenticated: true, UserRole: "admin",
-		SiteName: h.siteName(), UserEmail: h.Auth.GetUserEmail(r),
+		SiteName: h.siteName(), UserUsername: h.Auth.GetUsername(r),
 		BackgroundURLs: h.pickBackgrounds([]string{"home"}),
 	}
 	tmpl, err := template.New("base.html").Funcs(sharedFuncMap(h.Store)).ParseFS(
@@ -1443,7 +1443,7 @@ func (h *WebHandler) canManageServerAccess(r *http.Request, serverID int) bool {
 	if user == nil {
 		return false
 	}
-	decision, err := h.Store.EvaluateServerAccess(serverID, user.Email, user.Groups, access.AccessManage)
+	decision, err := h.Store.EvaluateServerAccess(serverID, user.Username, user.Groups, access.AccessManage)
 	return err == nil && decision.Allowed
 }
 
@@ -1459,27 +1459,27 @@ func (h *WebHandler) HandleGameIdentitySet(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	role := h.userRole(r)
-	email := h.Auth.GetUserEmail(r)
+	panelUsername := h.Auth.GetUsername(r)
 	source := "self"
-	if role == "admin" && strings.TrimSpace(r.FormValue("user_email")) != "" {
-		email = strings.TrimSpace(r.FormValue("user_email"))
+	if role == "admin" && strings.TrimSpace(r.FormValue("user_username")) != "" {
+		panelUsername = strings.TrimSpace(r.FormValue("user_username"))
 		source = "admin"
 	}
 	gameType := normalizeGameType(r.FormValue("game_type"))
 	username := strings.TrimSpace(r.FormValue("username"))
 	driver := h.Store.ResolveGameDriver(gameType)
-	if email == "" || !validGameType(gameType) || !validGameUsername(gameType, username) ||
+	if panelUsername == "" || !validGameType(gameType) || !validGameUsername(gameType, username) ||
 		!driver.IdentityValid(username) {
 		http.Error(w, "Invalid game identity", http.StatusBadRequest)
 		return
 	}
 	externalID := ""
-	if existing, _ := h.Store.GetGameIdentity(email, gameType); existing != nil &&
+	if existing, _ := h.Store.GetGameIdentity(panelUsername, gameType); existing != nil &&
 		driver.IdentitiesEqual(existing.Username, username) {
 		externalID = existing.ExternalID
 	}
 	if err := h.Store.SetGameIdentity(&database.GameIdentity{
-		UserEmail: email, GameType: gameType, Username: username,
+		UserUsername: panelUsername, GameType: gameType, Username: username,
 		ExternalID: externalID, Source: source,
 	}); err != nil {
 		http.Error(w, "Failed to save game identity", http.StatusInternalServerError)
@@ -1498,12 +1498,12 @@ func (h *WebHandler) HandleGameIdentityDelete(w http.ResponseWriter, r *http.Req
 		return
 	}
 	role := h.userRole(r)
-	email := h.Auth.GetUserEmail(r)
-	if role == "admin" && strings.TrimSpace(r.FormValue("user_email")) != "" {
-		email = strings.TrimSpace(r.FormValue("user_email"))
+	panelUsername := h.Auth.GetUsername(r)
+	if role == "admin" && strings.TrimSpace(r.FormValue("user_username")) != "" {
+		panelUsername = strings.TrimSpace(r.FormValue("user_username"))
 	}
 	gameType := normalizeGameType(r.FormValue("game_type"))
-	if err := h.Store.DeleteGameIdentity(email, gameType); err != nil {
+	if err := h.Store.DeleteGameIdentity(panelUsername, gameType); err != nil {
 		http.Error(w, "Failed to delete game identity", http.StatusInternalServerError)
 		return
 	}
@@ -1532,7 +1532,7 @@ func (h *WebHandler) UserSettings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	user := h.getUserEnv(r)
-	identities, _ := h.Store.ListGameIdentities(user.Email)
+	identities, _ := h.Store.ListGameIdentities(user.Username)
 	if identities == nil {
 		identities = []database.GameIdentity{}
 	}
@@ -1542,7 +1542,7 @@ func (h *WebHandler) UserSettings(w http.ResponseWriter, r *http.Request) {
 		GameTypes      []string
 		Authenticated  bool
 		UserRole       string
-		UserEmail      string
+		UserUsername   string
 		SiteName       string
 		BackgroundURLs BackgroundURLs
 	}{
@@ -1550,7 +1550,7 @@ func (h *WebHandler) UserSettings(w http.ResponseWriter, r *http.Request) {
 		GameTypes:      configuredGameTypes(servers),
 		Authenticated:  true,
 		UserRole:       h.userRole(r),
-		UserEmail:      user.Email,
+		UserUsername:   user.Username,
 		SiteName:       h.siteName(),
 		BackgroundURLs: h.pickBackgrounds([]string{"home"}),
 	}
@@ -1594,7 +1594,7 @@ func (h *WebHandler) CommandManager(w http.ResponseWriter, r *http.Request) {
 		Authenticated  bool
 		UserRole       string
 		SiteName       string
-		UserEmail      string
+		UserUsername   string
 		BackgroundURLs BackgroundURLs
 	}{
 		Server:         server,
@@ -1602,7 +1602,7 @@ func (h *WebHandler) CommandManager(w http.ResponseWriter, r *http.Request) {
 		Authenticated:  true,
 		UserRole:       "admin",
 		SiteName:       h.siteName(),
-		UserEmail:      h.Auth.GetUserEmail(r),
+		UserUsername:   h.Auth.GetUsername(r),
 		BackgroundURLs: h.pickBackgrounds([]string{"home"}),
 	}
 
@@ -1631,14 +1631,14 @@ func (h *WebHandler) ConstraintManager(w http.ResponseWriter, r *http.Request) {
 		Authenticated  bool
 		UserRole       string
 		SiteName       string
-		UserEmail      string
+		UserUsername   string
 		BackgroundURLs BackgroundURLs
 	}{
 		Constraints:    constraints,
 		Authenticated:  true,
 		UserRole:       "admin",
 		SiteName:       h.siteName(),
-		UserEmail:      h.Auth.GetUserEmail(r),
+		UserUsername:   h.Auth.GetUsername(r),
 		BackgroundURLs: h.pickBackgrounds([]string{"home"}),
 	}
 
@@ -1673,7 +1673,7 @@ func (h *WebHandler) CronManager(w http.ResponseWriter, r *http.Request) {
 		Authenticated  bool
 		UserRole       string
 		SiteName       string
-		UserEmail      string
+		UserUsername   string
 		BackgroundURLs BackgroundURLs
 	}{
 		CronJobs:       jobs,
@@ -1681,7 +1681,7 @@ func (h *WebHandler) CronManager(w http.ResponseWriter, r *http.Request) {
 		Authenticated:  true,
 		UserRole:       "admin",
 		SiteName:       h.siteName(),
-		UserEmail:      h.Auth.GetUserEmail(r),
+		UserUsername:   h.Auth.GetUsername(r),
 		BackgroundURLs: h.pickBackgrounds([]string{"home"}),
 	}
 
@@ -1754,7 +1754,7 @@ func (h *WebHandler) HelpMarkdown(w http.ResponseWriter, r *http.Request) {
 	md += "| `server.Tags` | `[]string` | Server tags |\n"
 	md += "| `server.Node` | `string` | Pterodactyl node |\n"
 	md += "| `server.Running` | `bool` | Is server online |\n"
-	md += "| `user.Email` | `string` | Requesting user's Authentik username |\n"
+	md += "| `user.Username` | `string` | Requesting user's Authentik username |\n"
 	md += "| `user.Role` | `string` | User role (admin/user) |\n"
 	md += "| `time.Hour` | `int` | Current hour (0-23) |\n"
 	md += "| `time.Weekday` | `time.Weekday` | Current weekday |\n\n"
@@ -2045,7 +2045,7 @@ func (h *WebHandler) Dashboard(w http.ResponseWriter, r *http.Request) {
 		Authenticated      bool
 		UserRole           string
 		SiteName           string
-		UserEmail          string
+		UserUsername       string
 		BackgroundURLs     BackgroundURLs
 	}{
 		Servers:            servers,
@@ -2062,7 +2062,7 @@ func (h *WebHandler) Dashboard(w http.ResponseWriter, r *http.Request) {
 		Authenticated:      true,
 		UserRole:           "admin",
 		SiteName:           h.siteName(),
-		UserEmail:          h.Auth.GetUserEmail(r),
+		UserUsername:       h.Auth.GetUsername(r),
 		BackgroundURLs:     h.pickBackgrounds([]string{"home"}),
 	}
 
@@ -2092,14 +2092,14 @@ func (h *WebHandler) Backups(w http.ResponseWriter, r *http.Request) {
 		Authenticated  bool
 		UserRole       string
 		SiteName       string
-		UserEmail      string
+		UserUsername   string
 		BackgroundURLs BackgroundURLs
 	}{
 		Servers:        servers,
 		Authenticated:  true,
 		UserRole:       "admin",
 		SiteName:       h.siteName(),
-		UserEmail:      h.Auth.GetUserEmail(r),
+		UserUsername:   h.Auth.GetUsername(r),
 		BackgroundURLs: h.pickBackgrounds([]string{"home"}),
 	}
 

@@ -66,19 +66,19 @@ func grantPublicView(t *testing.T, store *database.Store, serverName string) {
 	}
 }
 
-func createTestSession(t *testing.T, store *database.Store, authenticator *auth.Authenticator, email, role string) *http.Cookie {
+func createTestSession(t *testing.T, store *database.Store, authenticator *auth.Authenticator, username, role string) *http.Cookie {
 	t.Helper()
 	// Create user in DB
-	_, err := store.DB.Exec("INSERT INTO users (email, role, active) VALUES (?, ?, 1) ON CONFLICT(email) DO UPDATE SET role = ?", email, role, role)
+	_, err := store.DB.Exec("INSERT INTO users (username, role, active) VALUES (?, ?, 1) ON CONFLICT(username) DO UPDATE SET role = ?", username, role, role)
 	if err != nil {
 		t.Fatalf("failed to create test user: %v", err)
 	}
 
 	// Create DB session
-	sessionID := "test-session-" + email
+	sessionID := "test-session-" + username
 	_, err = store.DB.Exec(
-		"INSERT INTO sessions (session_id, user_email, user_role, expires_at) VALUES (?, ?, ?, ?)",
-		sessionID, email, role, time.Now().UTC().Add(24*time.Hour).Format(time.RFC3339),
+		"INSERT INTO sessions (session_id, user_username, user_role, expires_at) VALUES (?, ?, ?, ?)",
+		sessionID, username, role, time.Now().UTC().Add(24*time.Hour).Format(time.RFC3339),
 	)
 	if err != nil {
 		t.Fatalf("failed to create test session: %v", err)
@@ -235,14 +235,14 @@ func TestAuditLogUsesJSONFieldNamesAndRequestContext(t *testing.T) {
 		t.Fatalf("audit status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 	for _, expected := range []string{
-		"e.userEmail", "e.serverName", "e.clientIp", "e.countryCode",
+		"e.userUsername", "e.serverName", "e.clientIp", "e.countryCode",
 		"JSON.stringify(e.params", "<th>Client</th>", "<th>Context</th>",
 	} {
 		if !contains(recorder.Body.String(), expected) {
 			t.Errorf("audit page missing %q", expected)
 		}
 	}
-	if contains(recorder.Body.String(), "e.user_email") || contains(recorder.Body.String(), "e.server_name") {
+	if contains(recorder.Body.String(), "e.user_username") || contains(recorder.Body.String(), "e.server_name") {
 		t.Error("audit page still reads obsolete snake_case JSON fields")
 	}
 }
@@ -251,7 +251,7 @@ func TestUserSettingsContainsLinkedGameAccounts(t *testing.T) {
 	handler, store, authenticator := testWebHandler(t)
 	store.CreateServer(&database.Server{Name: "IdentitySrv", GameType: "minecraft", State: "online"})
 	if err := store.SetGameIdentity(&database.GameIdentity{
-		UserEmail: "player@example.test", GameType: "minecraft", Username: "TestPlayer", Source: "self",
+		UserUsername: "player@example.test", GameType: "minecraft", Username: "TestPlayer", Source: "self",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -716,14 +716,14 @@ func TestServerDetailAndFilesHonorCapabilities(t *testing.T) {
 	if err := store.CreateAgent(&database.Agent{Name: "capability-node", NodeName: "capability-node"}); err != nil {
 		t.Fatal(err)
 	}
-	const email = "player@example.test"
+	const panelUsername = "player"
 	if err := store.SetServerAccessGrant(&database.ServerAccessGrant{
-		ServerID: server.ID, SubjectType: "user", Subject: email, Effect: "allow",
+		ServerID: server.ID, SubjectType: "user", Subject: panelUsername, Effect: "allow",
 		Capabilities: []string{access.View, access.Status},
 	}); err != nil {
 		t.Fatal(err)
 	}
-	cookie := createTestSession(t, store, authenticator, email, "user")
+	cookie := createTestSession(t, store, authenticator, panelUsername, "user")
 
 	renderDetail := func() *httptest.ResponseRecorder {
 		req := httptest.NewRequest(http.MethodGet, "/CapabilitySrv", nil)
@@ -768,7 +768,7 @@ func TestServerDetailAndFilesHonorCapabilities(t *testing.T) {
 	}
 
 	if err := store.SetServerAccessGrant(&database.ServerAccessGrant{
-		ServerID: server.ID, SubjectType: "user", Subject: email, Effect: "allow",
+		ServerID: server.ID, SubjectType: "user", Subject: panelUsername, Effect: "allow",
 		Capabilities: []string{access.View, access.Status, access.ConsoleRead, access.FileRead, access.FileWrite},
 	}); err != nil {
 		t.Fatal(err)

@@ -223,7 +223,7 @@ func (h *AgentHandler) AgentFileAccess(w http.ResponseWriter, r *http.Request) {
 	}
 
 	user := userEnvFromRequest(h.Store, h.Auth, r)
-	access, err := h.Manager.DirectAccess(node, user.Email, method, route, filePath, targetPath, maxBytes)
+	access, err := h.Manager.DirectAccess(node, user.Username, method, route, filePath, targetPath, maxBytes)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return
@@ -668,7 +668,7 @@ func (h *AgentHandler) AgentBackupRestore(w http.ResponseWriter, r *http.Request
 	result, err := h.Service.BackupRestore(serverName, req.Snapshot, req.ConfirmServerID)
 	if err != nil {
 		if h.Engine != nil {
-			h.Engine.LogAction(server.Name, string(managedBackupRestore), user.Email, "failed", err.Error(), "web", map[string]string{"snapshot": req.Snapshot})
+			h.Engine.LogAction(server.Name, string(managedBackupRestore), user.Username, "failed", err.Error(), "web", map[string]string{"snapshot": req.Snapshot})
 		}
 		if result != nil {
 			w.Header().Set("Content-Type", "application/json")
@@ -680,7 +680,7 @@ func (h *AgentHandler) AgentBackupRestore(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if h.Engine != nil {
-		h.Engine.LogAction(server.Name, string(managedBackupRestore), user.Email, "success", "transactional restore completed", "web", map[string]string{"snapshot": req.Snapshot})
+		h.Engine.LogAction(server.Name, string(managedBackupRestore), user.Username, "success", "transactional restore completed", "web", map[string]string{"snapshot": req.Snapshot})
 	}
 
 	w.Header().Set("Content-Type", "application/json")

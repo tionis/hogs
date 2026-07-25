@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/mail"
 	"net/url"
 	"strconv"
 	"strings"
@@ -485,12 +484,12 @@ func (h *PterodactylHandler) WhitelistSet(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	userEmail := user.Email
-	if userEmail == "" || userEmail == "anonymous" {
+	userUsername := user.Username
+	if userUsername == "" || userUsername == "anonymous" {
 		http.Error(w, "Authenticated identity is required", http.StatusUnauthorized)
 		return
 	}
-	existing, _ := h.Store.GetUserWhitelist(userEmail, server.ID)
+	existing, _ := h.Store.GetUserWhitelist(userUsername, server.ID)
 	if r.FormValue("op") == "remove" {
 		if existing == nil {
 			w.Header().Set("Content-Type", "application/json")
@@ -524,7 +523,7 @@ func (h *PterodactylHandler) WhitelistSet(w http.ResponseWriter, r *http.Request
 			http.Error(w, fmt.Sprintf("%s whitelist removal failed: %s", b.Name(), operationErr), http.StatusInternalServerError)
 			return
 		}
-		if err := h.Store.DeleteUserWhitelist(userEmail, server.ID); err != nil {
+		if err := h.Store.DeleteUserWhitelist(userUsername, server.ID); err != nil {
 			http.Error(w, "Failed to update whitelist entry", http.StatusInternalServerError)
 			return
 		}
@@ -535,7 +534,7 @@ func (h *PterodactylHandler) WhitelistSet(w http.ResponseWriter, r *http.Request
 		})
 		return
 	}
-	identity, _ := h.Store.GetGameIdentity(userEmail, server.GameType)
+	identity, _ := h.Store.GetGameIdentity(userUsername, server.GameType)
 	if identity == nil || !driver.IdentityValid(identity.Username) {
 		http.Error(w, "Link a valid in-game identity in User Settings before adding yourself to this whitelist.", http.StatusBadRequest)
 		return
@@ -586,7 +585,7 @@ func (h *PterodactylHandler) WhitelistSet(w http.ResponseWriter, r *http.Request
 
 	if identity.Username != username || identity.ExternalID != externalID {
 		if err := h.Store.SetGameIdentity(&database.GameIdentity{
-			UserEmail: userEmail, GameType: server.GameType, Username: username,
+			UserUsername: userUsername, GameType: server.GameType, Username: username,
 			ExternalID: externalID, Source: "self",
 		}); err != nil {
 			http.Error(w, "Failed to save linked game identity", http.StatusInternalServerError)
@@ -594,7 +593,7 @@ func (h *PterodactylHandler) WhitelistSet(w http.ResponseWriter, r *http.Request
 		}
 	}
 	if err := h.Store.SetUserWhitelistForIdentity(
-		userEmail, server.ID, username, driver.IdentityCaseSensitive,
+		userUsername, server.ID, username, driver.IdentityCaseSensitive,
 	); err != nil {
 		http.Error(w, "Failed to save whitelist entry", http.StatusInternalServerError)
 		return
@@ -620,14 +619,14 @@ func (h *PterodactylHandler) AdminWhitelist(w http.ResponseWriter, r *http.Reque
 	}
 	user := h.getUserEnv(r)
 	if user.Role != "admin" && user.Role != "system" {
-		decision, accessErr := h.Store.EvaluateServerAccess(server.ID, user.Email, user.Groups, access.WhitelistManage)
+		decision, accessErr := h.Store.EvaluateServerAccess(server.ID, user.Username, user.Groups, access.WhitelistManage)
 		if accessErr != nil {
 			http.Error(w, "Failed to evaluate server access", http.StatusInternalServerError)
 			return
 		}
 		if !decision.Allowed {
 			if h.Engine != nil {
-				h.Engine.LogAction(server.Name, access.WhitelistManage, user.Email, "denied", decision.Reason, "web", nil)
+				h.Engine.LogAction(server.Name, access.WhitelistManage, user.Username, "denied", decision.Reason, "web", nil)
 			}
 			http.Error(w, "Whitelist management permission required: "+decision.Reason, http.StatusForbidden)
 			return
@@ -701,16 +700,21 @@ func (h *PterodactylHandler) AdminWhitelist(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "A valid in-game username and operation are required", http.StatusBadRequest)
 		return
 	}
-	email := strings.TrimSpace(r.FormValue("user_email"))
-	if email != "" {
-		address, parseErr := mail.ParseAddress(email)
-		if parseErr != nil || !strings.EqualFold(address.Address, email) {
-			http.Error(w, "A valid panel user email is required", http.StatusBadRequest)
+	panelUsername := strings.TrimSpace(r.FormValue("user_username"))
+	if panelUsername != "" {
+		panelUser, lookupErr := h.Store.GetUserByUsername(panelUsername)
+		if lookupErr != nil {
+			http.Error(w, "Failed to resolve the Authentik user", http.StatusInternalServerError)
 			return
 		}
+		if panelUser == nil {
+			http.Error(w, "The Authentik username does not exist", http.StatusBadRequest)
+			return
+		}
+		panelUsername = panelUser.Username
 	}
 	if op == "link" {
-		if email == "" {
+		if panelUsername == "" {
 			if err := h.Store.DeleteUserWhitelistsByIdentity(
 				server.ID, username, driver.IdentityCaseSensitive,
 			); err != nil {
@@ -724,32 +728,32 @@ func (h *PterodactylHandler) AdminWhitelist(w http.ResponseWriter, r *http.Reque
 			return
 		}
 		externalID := ""
-		if identity, _ := h.Store.GetGameIdentity(email, server.GameType); identity != nil &&
+		if identity, _ := h.Store.GetGameIdentity(panelUsername, server.GameType); identity != nil &&
 			driver.IdentitiesEqual(identity.Username, username) {
 			externalID = identity.ExternalID
 		}
 		if err := h.Store.SetGameIdentity(&database.GameIdentity{
-			UserEmail: email, GameType: server.GameType, Username: username,
+			UserUsername: panelUsername, GameType: server.GameType, Username: username,
 			ExternalID: externalID, Source: "admin",
 		}); err != nil {
 			http.Error(w, "Failed to save the linked game identity", http.StatusInternalServerError)
 			return
 		}
 		if err := h.Store.SetUserWhitelistForIdentity(
-			email, server.ID, username, driver.IdentityCaseSensitive,
+			panelUsername, server.ID, username, driver.IdentityCaseSensitive,
 		); err != nil {
 			http.Error(w, "Failed to save the panel-user link", http.StatusInternalServerError)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]string{
-			"status": "ok", "message": fmt.Sprintf("%s is now linked to %s", username, email),
+			"status": "ok", "message": fmt.Sprintf("%s is now linked to %s", username, panelUsername),
 		})
 		return
 	}
 	externalID := ""
-	if email != "" && op == "add" {
-		if identity, _ := h.Store.GetGameIdentity(email, server.GameType); identity != nil &&
+	if panelUsername != "" && op == "add" {
+		if identity, _ := h.Store.GetGameIdentity(panelUsername, server.GameType); identity != nil &&
 			driver.IdentitiesEqual(identity.Username, username) {
 			externalID = identity.ExternalID
 		}
@@ -789,16 +793,16 @@ func (h *PterodactylHandler) AdminWhitelist(w http.ResponseWriter, r *http.Reque
 			http.Error(w, "Player was removed, but the panel-user link could not be cleared", http.StatusInternalServerError)
 			return
 		}
-	} else if email != "" {
+	} else if panelUsername != "" {
 		if err := h.Store.SetGameIdentity(&database.GameIdentity{
-			UserEmail: email, GameType: server.GameType, Username: username,
+			UserUsername: panelUsername, GameType: server.GameType, Username: username,
 			ExternalID: externalID, Source: "admin",
 		}); err != nil {
 			http.Error(w, "Player was added, but the linked game identity could not be saved", http.StatusInternalServerError)
 			return
 		}
 		if err := h.Store.SetUserWhitelistForIdentity(
-			email, server.ID, username, driver.IdentityCaseSensitive,
+			panelUsername, server.ID, username, driver.IdentityCaseSensitive,
 		); err != nil {
 			http.Error(w, "Player was added, but the panel-user link could not be saved", http.StatusInternalServerError)
 			return
@@ -852,14 +856,14 @@ func (h *PterodactylHandler) WhitelistStatus(w http.ResponseWriter, r *http.Requ
 	}
 
 	user := h.getUserEnv(r)
-	userEmail := user.Email
-	if userEmail == "" || userEmail == "anonymous" {
+	userUsername := user.Username
+	if userUsername == "" || userUsername == "anonymous" {
 		http.Error(w, "Authenticated identity is required", http.StatusUnauthorized)
 		return
 	}
 
-	existing, _ := h.Store.GetUserWhitelist(userEmail, server.ID)
-	identity, _ := h.Store.GetGameIdentity(userEmail, server.GameType)
+	existing, _ := h.Store.GetUserWhitelist(userUsername, server.ID)
+	identity, _ := h.Store.GetGameIdentity(userUsername, server.GameType)
 
 	w.Header().Set("Content-Type", "application/json")
 	response := map[string]string{"username": "", "linkedUsername": ""}

@@ -29,26 +29,26 @@ func userEnvFromRequest(store *database.Store, authenticator *auth.Authenticator
 	trustProxy := len(trustProxyHeaders) > 0 && trustProxyHeaders[0]
 	if key := auth.GetAPIKeyFromContext(r); key != nil {
 		return &engine.UserEnv{
-			Email: "api-key:" + key.Name, Role: key.Role, Groups: []string{},
+			Username: "api-key:" + key.Name, Role: key.Role, Groups: []string{},
 			ClientIP: auth.ClientIP(r, trustProxy), CountryCode: auth.ClientCountry(r, trustProxy),
 		}
 	}
-	email := "anonymous"
+	username := "anonymous"
 	role := "user"
 	if authenticator != nil {
-		email = authenticator.GetUserEmail(r)
+		username = authenticator.GetUsername(r)
 		role = authenticator.GetUserRole(r)
 	}
-	if email == "" {
-		email = "anonymous"
+	if username == "" {
+		username = "anonymous"
 	}
 	if role == "" {
 		role = "user"
 	}
 
 	var groups []string
-	if email != "anonymous" && store != nil {
-		user, _ := store.GetUserByEmail(email)
+	if username != "anonymous" && store != nil {
+		user, _ := store.GetUserByUsername(username)
 		if user != nil {
 			scimGroups, _ := store.GetSCIMGroupsForUser(user.ID)
 			for _, group := range scimGroups {
@@ -57,7 +57,7 @@ func userEnvFromRequest(store *database.Store, authenticator *auth.Authenticator
 		}
 	}
 	return &engine.UserEnv{
-		Email: email, Role: role, Groups: groups,
+		Username: username, Role: role, Groups: groups,
 		ClientIP: auth.ClientIP(r, trustProxy), CountryCode: auth.ClientCountry(r, trustProxy),
 	}
 }
@@ -101,13 +101,13 @@ func authorizeManagedCapability(store *database.Store, eng *engine.Engine, authe
 	trustProxy := eng != nil && eng.Config != nil && eng.Config.TrustProxyHeaders
 	user := userEnvFromRequest(store, authenticator, r, trustProxy)
 	if user.Role != "admin" {
-		decision, accessErr := store.EvaluateServerAccess(server.ID, user.Email, user.Groups, string(capability))
+		decision, accessErr := store.EvaluateServerAccess(server.ID, user.Username, user.Groups, string(capability))
 		if accessErr != nil {
 			return nil, nil, http.StatusInternalServerError, fmt.Errorf("evaluate server access: %w", accessErr)
 		}
 		if !decision.Allowed {
 			if eng != nil {
-				eng.LogAction(server.Name, string(capability), user.Email, "denied", decision.Reason, "web", nil)
+				eng.LogAction(server.Name, string(capability), user.Username, "denied", decision.Reason, "web", nil)
 			}
 			return nil, nil, http.StatusForbidden, fmt.Errorf("access denied: %s", decision.Reason)
 		}
@@ -126,7 +126,7 @@ func authorizeManagedCapability(store *database.Store, eng *engine.Engine, authe
 				status = http.StatusForbidden
 			}
 			if eng != nil {
-				eng.LogAction(server.Name, string(capability), user.Email, "blocked", result.Reason, "web", nil)
+				eng.LogAction(server.Name, string(capability), user.Username, "blocked", result.Reason, "web", nil)
 			}
 			return nil, nil, status, fmt.Errorf("%s", result.Reason)
 		}

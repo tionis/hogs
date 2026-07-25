@@ -75,7 +75,7 @@ Constraint evaluation environment exposes:
 | `action` | `string` | The requested action (`start`, `stop`, `restart`, `command:name`) |
 | `server` | `ServerEnv` | Target server: `.ID`, `.Name`, `.GameType`, `.Tags`, `.Node`, `.Running`, `.Players`, `.PlayersKnown` |
 | `servers` | `[]ServerEnv` | All known servers with their current running state |
-| `user` | `UserEnv` | Requesting user: `.Email`, `.Role` |
+| `user` | `UserEnv` | Requesting user: `.Username`, `.Role` |
 | `time` | `TimeEnv` | `.Hour`, `.Weekday`, `.Now` (Go `time.Time`) |
 
 **Helper functions available in `expr`**:
@@ -154,7 +154,7 @@ Cron jobs execute as a system user with role `"system"`. They flow through the s
 CREATE TABLE audit_log (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     timestamp   TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    user_email  TEXT NOT NULL,
+    user_username  TEXT NOT NULL,
     server_name TEXT NOT NULL,
     action      TEXT NOT NULL,
     params      TEXT NOT NULL DEFAULT '{}',

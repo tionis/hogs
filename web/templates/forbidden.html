@@ -13,9 +13,9 @@
         <p class="text-muted mb-2">
           This area is restricted to instance administrators.
         </p>
-        {{if .UserEmail}}
+        {{if .UserUsername}}
         <p class="small text-muted mb-4">
-          You are signed in as <strong>{{.UserEmail}}</strong> with the
+          You are signed in as <strong>{{.UserUsername}}</strong> with the
           <strong>{{.UserRole}}</strong> role.
         </p>
         {{end}}

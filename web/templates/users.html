@@ -34,7 +34,7 @@
       <tr>
         <td>{{.ID}}</td>
         <td>{{if .PreferredUsername}}<strong>{{.PreferredUsername}}</strong>{{else}}<em class="text-muted">not supplied</em>{{end}}</td>
-        <td>{{.Email}}{{if .OIDCSubject}} <span class="badge bg-success" title="Bound to a stable OIDC issuer and subject">OIDC bound</span>{{end}}</td>
+        <td>{{.Username}}{{if .OIDCSubject}} <span class="badge bg-success" title="Bound to a stable OIDC issuer and subject">OIDC bound</span>{{end}}</td>
         <td><span class="badge {{if eq .Role "admin"}}bg-danger{{else}}bg-secondary{{end}}">{{.Role}}</span></td>
         <td>
           {{if .Groups}}
@@ -54,14 +54,14 @@
             <code>{{.Username}}</code>
             <span class="text-muted small">({{.Source}})</span>
             <form action="/account/game-identities/delete" method="POST" class="ms-auto">
-              <input type="hidden" name="user_email" value="{{.UserEmail}}">
+              <input type="hidden" name="user_username" value="{{.UserUsername}}">
               <input type="hidden" name="game_type" value="{{.GameType}}">
               <button type="submit" class="btn btn-sm btn-outline-danger py-0">Remove</button>
             </form>
           </div>
           {{end}}
           <form action="/account/game-identities/set" method="POST" class="row g-1 mt-1">
-            <input type="hidden" name="user_email" value="{{.Email}}">
+            <input type="hidden" name="user_username" value="{{.Username}}">
             <div class="col-4"><input name="game_type" class="form-control form-control-sm" placeholder="minecraft" required></div>
             <div class="col-5"><input name="username" class="form-control form-control-sm" placeholder="In-game name" required></div>
             <div class="col-3"><button class="btn btn-sm btn-outline-primary w-100" type="submit">Link</button></div>

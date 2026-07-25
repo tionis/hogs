@@ -90,7 +90,7 @@
     <h3 class="h6">Add an entry</h3>
     <form id="managed-whitelist-form" class="row g-2">
       <div class="col-md-5"><input class="form-control" name="username" placeholder="{{.IdentityLabel}}" aria-label="{{.IdentityLabel}}" required></div>
-      <div class="col-md-5"><input class="form-control" name="user_email" type="text" placeholder="Optional linked Authentik username"></div>
+      <div class="col-md-5"><input class="form-control" name="user_username" type="text" placeholder="Optional linked Authentik username"></div>
       <div class="col-md-2"><button class="btn btn-success w-100" type="submit">Add entry</button></div>
     </form>
     <div id="managed-whitelist-feedback" class="small mt-2" role="status"></div>
@@ -549,7 +549,7 @@ window.onServerStatusUpdate = function(serverName, data) {
 
 document.addEventListener("DOMContentLoaded", function() {
     const serverName = "{{.Server.Name}}";
-    const userEmail = "{{.UserEmail}}";
+    const userUsername = "{{.UserUsername}}";
     const container = document.getElementById('file-browser');
 
     {{if .Server.MapURL}}
@@ -914,13 +914,13 @@ document.addEventListener("DOMContentLoaded", function() {
 
         const link = linkedByUsername.get(whitelistIdentityKey(username));
         const panelCell = document.createElement('td');
-        const email = document.createElement('input');
-        email.type = 'text';
-        email.className = 'form-control form-control-sm';
-        email.placeholder = 'No Authentik user linked';
-        email.value = link ? link.userEmail : '';
-        email.setAttribute('aria-label', `Panel user linked to ${username}`);
-        panelCell.append(email);
+        const panelUserInput = document.createElement('input');
+        panelUserInput.type = 'text';
+        panelUserInput.className = 'form-control form-control-sm';
+        panelUserInput.placeholder = 'No Authentik user linked';
+        panelUserInput.value = link ? link.userUsername : '';
+        panelUserInput.setAttribute('aria-label', `Panel user linked to ${username}`);
+        panelCell.append(panelUserInput);
         row.append(panelCell);
 
         const actions = document.createElement('td');
@@ -928,11 +928,11 @@ document.addEventListener("DOMContentLoaded", function() {
         const save = whitelistElement('button', 'btn btn-sm btn-outline-primary me-1', 'Save link');
         save.type = 'button';
         save.addEventListener('click', async () => {
-          if (!email.reportValidity()) return;
+          if (!panelUserInput.reportValidity()) return;
           save.disabled = true;
           try {
             const result = await managedWhitelistRequest(new URLSearchParams({
-              op: 'link', username, user_email: email.value.trim()
+              op: 'link', username, user_username: panelUserInput.value.trim()
             }));
             managedWhitelistFeedback.className = 'small mt-2 text-success';
             managedWhitelistFeedback.textContent = result.message;
@@ -1012,7 +1012,7 @@ document.addEventListener("DOMContentLoaded", function() {
 
     {{if eq .Page "whitelist"}}
     function loadWhitelistStatus() {
-      if (!userEmail) return;
+      if (!userUsername) return;
       fetch(`/api/servers/${encodeURIComponent(serverName)}/whitelist`)
       .then(async response => {
         if (!response.ok) throw new Error((await response.text()).trim() || `HTTP ${response.status}`);

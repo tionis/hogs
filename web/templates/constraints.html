@@ -32,7 +32,7 @@
             <tr><td><code>server.Tags</code></td><td><code>[]string</code></td><td>Server tags</td></tr>
             <tr><td><code>server.Node</code></td><td><code>string</code></td><td>Agent node name</td></tr>
             <tr><td><code>server.Running</code></td><td><code>bool</code></td><td>Is the server currently online</td></tr>
-            <tr><td><code>user.Email</code></td><td><code>string</code></td><td>Requesting user's Authentik username</td></tr>
+            <tr><td><code>user.Username</code></td><td><code>string</code></td><td>Requesting user's Authentik username</td></tr>
             <tr><td><code>user.Role</code></td><td><code>string</code></td><td>User role (<code>admin</code> or <code>user</code>)</td></tr>
             <tr><td><code>user.Groups</code></td><td><code>[]string</code></td><td>User's SCIM groups</td></tr>
             <tr><td><code>user.ClientIP</code></td><td><code>string</code></td><td>Normalized client IPv4 or IPv6 address; empty when unavailable</td></tr>
@@ -85,7 +85,7 @@ user.Role != "admin" && server.GameType != "minecraft"
 !hasTag(server, "restricted") || inList("minecraft-players", user.Groups)
 
 # Hide server from anonymous users (visibility constraint using "view" action)
-action == "view" && user.Email != "anonymous"
+action == "view" && user.Username != "anonymous"
 
 # Only show server to admins or members of the "beta-testers" group
 action == "view" && (user.Role == "admin" || inList("beta-testers", user.Groups))
@@ -222,7 +222,7 @@ action == "view" && (user.Role == "admin" || inList("beta-testers", user.Groups)
         <div class="row">
           <div class="col-md-4 mb-3">
             <label class="form-label">Authentik username</label>
-            <input type="text" class="form-control form-control-sm" id="test-user-email" value="admin@example.com">
+            <input type="text" class="form-control form-control-sm" id="test-username" value="admin">
           </div>
           <div class="col-md-4 mb-3">
             <label class="form-label">User Role</label>
@@ -333,7 +333,7 @@ async function testConstraint() {
       Running: document.getElementById('test-server-running').checked
     },
     user: {
-      Email: document.getElementById('test-user-email').value,
+      Username: document.getElementById('test-username').value,
       Role: document.getElementById('test-user-role').value,
       Groups: groups,
       ClientIP: document.getElementById('test-user-client-ip').value,

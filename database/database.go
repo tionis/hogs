@@ -70,15 +70,15 @@ func (s *Server) PublicMetadata() map[string]string {
 }
 
 type UserWhitelist struct {
-	ID        int    `json:"id"`
-	UserEmail string `json:"userEmail"`
-	ServerID  int    `json:"serverId"`
-	Username  string `json:"username"`
+	ID           int    `json:"id"`
+	UserUsername string `json:"userUsername"`
+	ServerID     int    `json:"serverId"`
+	Username     string `json:"username"`
 }
 
 func (s *Store) ListUserWhitelists(serverID int) ([]UserWhitelist, error) {
-	rows, err := s.DB.Query(`SELECT id,user_email,server_id,username
-		FROM user_whitelists WHERE server_id=? ORDER BY lower(username),lower(user_email)`, serverID)
+	rows, err := s.DB.Query(`SELECT id,user_username,server_id,username
+		FROM user_whitelists WHERE server_id=? ORDER BY lower(username),lower(user_username)`, serverID)
 	if err != nil {
 		return nil, err
 	}
@@ -86,7 +86,7 @@ func (s *Store) ListUserWhitelists(serverID int) ([]UserWhitelist, error) {
 	var entries []UserWhitelist
 	for rows.Next() {
 		var entry UserWhitelist
-		if err := rows.Scan(&entry.ID, &entry.UserEmail, &entry.ServerID, &entry.Username); err != nil {
+		if err := rows.Scan(&entry.ID, &entry.UserUsername, &entry.ServerID, &entry.Username); err != nil {
 			return nil, err
 		}
 		entries = append(entries, entry)
@@ -310,7 +310,7 @@ type ServerAccessDecision struct {
 }
 
 // EvaluateServerAccess applies matching grants with explicit deny precedence.
-func (s *Store) EvaluateServerAccess(serverID int, email string, groups []string, capability string) (ServerAccessDecision, error) {
+func (s *Store) EvaluateServerAccess(serverID int, username string, groups []string, capability string) (ServerAccessDecision, error) {
 	grants, err := s.ListServerAccessGrants(serverID)
 	if err != nil {
 		return ServerAccessDecision{}, err
@@ -325,8 +325,8 @@ func (s *Store) EvaluateServerAccess(serverID int, email string, groups []string
 	allowedBy := ""
 	for _, grant := range grants {
 		matches := grant.SubjectType == "everyone" ||
-			(grant.SubjectType == "authenticated" && email != "" && email != "anonymous") ||
-			(grant.SubjectType == "user" && strings.EqualFold(grant.Subject, email))
+			(grant.SubjectType == "authenticated" && username != "" && username != "anonymous") ||
+			(grant.SubjectType == "user" && strings.EqualFold(grant.Subject, username))
 		if grant.SubjectType == "group" {
 			_, matches = groupSet[grant.Subject]
 		}
@@ -357,29 +357,29 @@ func (s *Store) EvaluateServerAccess(serverID int, email string, groups []string
 	}, nil
 }
 
-func (s *Store) ServerAccessAllowed(serverID int, email string, groups []string, capability string) (bool, bool, error) {
-	decision, err := s.EvaluateServerAccess(serverID, email, groups, capability)
+func (s *Store) ServerAccessAllowed(serverID int, username string, groups []string, capability string) (bool, bool, error) {
+	decision, err := s.EvaluateServerAccess(serverID, username, groups, capability)
 	return decision.Allowed, decision.Governed, err
 }
 
 type GameIdentity struct {
-	ID         int    `json:"id"`
-	UserEmail  string `json:"userEmail"`
-	GameType   string `json:"gameType"`
-	Username   string `json:"username"`
-	ExternalID string `json:"externalId,omitempty"`
-	Source     string `json:"source"`
-	UpdatedAt  string `json:"updatedAt"`
+	ID           int    `json:"id"`
+	UserUsername string `json:"userUsername"`
+	GameType     string `json:"gameType"`
+	Username     string `json:"username"`
+	ExternalID   string `json:"externalId,omitempty"`
+	Source       string `json:"source"`
+	UpdatedAt    string `json:"updatedAt"`
 }
 
-func (s *Store) ListGameIdentities(email string) ([]GameIdentity, error) {
-	query := "SELECT id,user_email,game_type,username,external_id,source,updated_at FROM game_identities"
+func (s *Store) ListGameIdentities(username string) ([]GameIdentity, error) {
+	query := "SELECT id,user_username,game_type,username,external_id,source,updated_at FROM game_identities"
 	var args []interface{}
-	if email != "" {
-		query += " WHERE user_email=?"
-		args = append(args, email)
+	if username != "" {
+		query += " WHERE user_username=?"
+		args = append(args, username)
 	}
-	query += " ORDER BY user_email,game_type"
+	query += " ORDER BY user_username,game_type"
 	rows, err := s.DB.Query(query, args...)
 	if err != nil {
 		return nil, err
@@ -388,7 +388,7 @@ func (s *Store) ListGameIdentities(email string) ([]GameIdentity, error) {
 	var identities []GameIdentity
 	for rows.Next() {
 		var identity GameIdentity
-		if err := rows.Scan(&identity.ID, &identity.UserEmail, &identity.GameType, &identity.Username, &identity.ExternalID, &identity.Source, &identity.UpdatedAt); err != nil {
+		if err := rows.Scan(&identity.ID, &identity.UserUsername, &identity.GameType, &identity.Username, &identity.ExternalID, &identity.Source, &identity.UpdatedAt); err != nil {
 			return nil, err
 		}
 		identities = append(identities, identity)
@@ -396,11 +396,11 @@ func (s *Store) ListGameIdentities(email string) ([]GameIdentity, error) {
 	return identities, rows.Err()
 }
 
-func (s *Store) GetGameIdentity(email, gameType string) (*GameIdentity, error) {
-	row := s.DB.QueryRow(`SELECT id,user_email,game_type,username,external_id,source,updated_at
-		FROM game_identities WHERE user_email=? AND game_type=?`, email, gameType)
+func (s *Store) GetGameIdentity(username, gameType string) (*GameIdentity, error) {
+	row := s.DB.QueryRow(`SELECT id,user_username,game_type,username,external_id,source,updated_at
+		FROM game_identities WHERE user_username=? AND game_type=?`, username, gameType)
 	var identity GameIdentity
-	if err := row.Scan(&identity.ID, &identity.UserEmail, &identity.GameType, &identity.Username, &identity.ExternalID, &identity.Source, &identity.UpdatedAt); err != nil {
+	if err := row.Scan(&identity.ID, &identity.UserUsername, &identity.GameType, &identity.Username, &identity.ExternalID, &identity.Source, &identity.UpdatedAt); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
@@ -410,23 +410,23 @@ func (s *Store) GetGameIdentity(email, gameType string) (*GameIdentity, error) {
 }
 
 func (s *Store) SetGameIdentity(identity *GameIdentity) error {
-	_, err := s.DB.Exec(`INSERT INTO game_identities(user_email,game_type,username,external_id,source,updated_at)
-		VALUES(?,?,?,?,?,CURRENT_TIMESTAMP) ON CONFLICT(user_email,game_type)
+	_, err := s.DB.Exec(`INSERT INTO game_identities(user_username,game_type,username,external_id,source,updated_at)
+		VALUES(?,?,?,?,?,CURRENT_TIMESTAMP) ON CONFLICT(user_username,game_type)
 		DO UPDATE SET username=excluded.username,external_id=excluded.external_id,
 		source=excluded.source,updated_at=CURRENT_TIMESTAMP`,
-		identity.UserEmail, identity.GameType, identity.Username, identity.ExternalID, identity.Source)
+		identity.UserUsername, identity.GameType, identity.Username, identity.ExternalID, identity.Source)
 	return err
 }
 
-func (s *Store) DeleteGameIdentity(email, gameType string) error {
-	_, err := s.DB.Exec("DELETE FROM game_identities WHERE user_email=? AND game_type=?", email, gameType)
+func (s *Store) DeleteGameIdentity(username, gameType string) error {
+	_, err := s.DB.Exec("DELETE FROM game_identities WHERE user_username=? AND game_type=?", username, gameType)
 	return err
 }
 
-func (s *Store) GetUserWhitelist(email string, serverID int) (*UserWhitelist, error) {
-	row := s.DB.QueryRow("SELECT id, user_email, server_id, username FROM user_whitelists WHERE user_email = ? AND server_id = ?", email, serverID)
+func (s *Store) GetUserWhitelist(username string, serverID int) (*UserWhitelist, error) {
+	row := s.DB.QueryRow("SELECT id, user_username, server_id, username FROM user_whitelists WHERE user_username = ? AND server_id = ?", username, serverID)
 	var uw UserWhitelist
-	err := row.Scan(&uw.ID, &uw.UserEmail, &uw.ServerID, &uw.Username)
+	err := row.Scan(&uw.ID, &uw.UserUsername, &uw.ServerID, &uw.Username)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
@@ -436,35 +436,35 @@ func (s *Store) GetUserWhitelist(email string, serverID int) (*UserWhitelist, er
 	return &uw, nil
 }
 
-func (s *Store) SetUserWhitelist(email string, serverID int, username string) error {
-	return s.SetUserWhitelistForIdentity(email, serverID, username, false)
+func (s *Store) SetUserWhitelist(panelUsername string, serverID int, gameUsername string) error {
+	return s.SetUserWhitelistForIdentity(panelUsername, serverID, gameUsername, false)
 }
 
-func (s *Store) SetUserWhitelistForIdentity(email string, serverID int, username string, caseSensitive bool) error {
+func (s *Store) SetUserWhitelistForIdentity(panelUsername string, serverID int, gameUsername string, caseSensitive bool) error {
 	tx, err := s.DB.Begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 	deleteQuery := `DELETE FROM user_whitelists
-		WHERE server_id=? AND lower(username)=lower(?) AND lower(user_email)<>lower(?)`
+		WHERE server_id=? AND lower(username)=lower(?) AND lower(user_username)<>lower(?)`
 	if caseSensitive {
 		deleteQuery = `DELETE FROM user_whitelists
-			WHERE server_id=? AND username=? AND lower(user_email)<>lower(?)`
+			WHERE server_id=? AND username=? AND lower(user_username)<>lower(?)`
 	}
-	if _, err = tx.Exec(deleteQuery, serverID, username, email); err != nil {
+	if _, err = tx.Exec(deleteQuery, serverID, gameUsername, panelUsername); err != nil {
 		return err
 	}
-	if _, err = tx.Exec(`INSERT INTO user_whitelists (user_email, server_id, username)
-		VALUES (?, ?, ?) ON CONFLICT(user_email, server_id) DO UPDATE SET username=excluded.username`,
-		email, serverID, username); err != nil {
+	if _, err = tx.Exec(`INSERT INTO user_whitelists (user_username, server_id, username)
+		VALUES (?, ?, ?) ON CONFLICT(user_username, server_id) DO UPDATE SET username=excluded.username`,
+		panelUsername, serverID, gameUsername); err != nil {
 		return err
 	}
 	return tx.Commit()
 }
 
-func (s *Store) DeleteUserWhitelist(email string, serverID int) error {
-	_, err := s.DB.Exec("DELETE FROM user_whitelists WHERE user_email = ? AND server_id = ?", email, serverID)
+func (s *Store) DeleteUserWhitelist(username string, serverID int) error {
+	_, err := s.DB.Exec("DELETE FROM user_whitelists WHERE user_username = ? AND server_id = ?", username, serverID)
 	return err
 }
 
@@ -927,7 +927,7 @@ func (s *Store) SetSetting(key, value string) error {
 
 type User struct {
 	ID                int    `json:"id"`
-	Email             string `json:"email"`
+	Username          string `json:"username"`
 	Role              string `json:"role"`
 	FirstSeen         string `json:"firstSeen"`
 	LastLogin         string `json:"lastLogin"`
@@ -939,42 +939,27 @@ type User struct {
 	Active            bool   `json:"active"`
 }
 
-const userSelectColumns = "id,email,role,first_seen,last_login,external_id,display_name,oidc_issuer,oidc_subject,preferred_username,active"
+const userSelectColumns = "id,username,role,first_seen,last_login,external_id,display_name,oidc_issuer,oidc_subject,preferred_username,active"
 
-func (s *Store) CreateUser(email, role string) (*User, error) {
+func (s *Store) CreateUser(username, role string) (*User, error) {
 	if role == "" {
 		role = "user"
 	}
-	result, err := s.DB.Exec("INSERT INTO users (email, role) VALUES (?, ?)", email, role)
+	result, err := s.DB.Exec("INSERT INTO users (username, role) VALUES (?, ?)", username, role)
 	if err != nil {
 		return nil, err
 	}
 	id, _ := result.LastInsertId()
-	return &User{ID: int(id), Email: email, Role: role}, nil
-}
-
-func (s *Store) GetUserByEmail(email string) (*User, error) {
-	row := s.DB.QueryRow("SELECT "+userSelectColumns+" FROM users WHERE email = ?", email)
-	var u User
-	var active int
-	err := row.Scan(&u.ID, &u.Email, &u.Role, &u.FirstSeen, &u.LastLogin, &u.ExternalID, &u.DisplayName, &u.OIDCIssuer, &u.OIDCSubject, &u.PreferredUsername, &active)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, nil
-		}
-		return nil, err
-	}
-	u.Active = active == 1
-	return &u, nil
+	return &User{ID: int(id), Username: username, Role: role}, nil
 }
 
 // GetUserByUsername resolves Authentik's mutable username without making its
 // spelling or case part of the stable identity.
 func (s *Store) GetUserByUsername(username string) (*User, error) {
-	row := s.DB.QueryRow("SELECT "+userSelectColumns+" FROM users WHERE email = ? COLLATE NOCASE", username)
+	row := s.DB.QueryRow("SELECT "+userSelectColumns+" FROM users WHERE username = ? COLLATE NOCASE", username)
 	var u User
 	var active int
-	err := row.Scan(&u.ID, &u.Email, &u.Role, &u.FirstSeen, &u.LastLogin, &u.ExternalID, &u.DisplayName, &u.OIDCIssuer, &u.OIDCSubject, &u.PreferredUsername, &active)
+	err := row.Scan(&u.ID, &u.Username, &u.Role, &u.FirstSeen, &u.LastLogin, &u.ExternalID, &u.DisplayName, &u.OIDCIssuer, &u.OIDCSubject, &u.PreferredUsername, &active)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
@@ -1006,7 +991,7 @@ func (s *Store) ListUsers() ([]User, error) {
 	for rows.Next() {
 		var u User
 		var active int
-		if err := rows.Scan(&u.ID, &u.Email, &u.Role, &u.FirstSeen, &u.LastLogin, &u.ExternalID, &u.DisplayName, &u.OIDCIssuer, &u.OIDCSubject, &u.PreferredUsername, &active); err != nil {
+		if err := rows.Scan(&u.ID, &u.Username, &u.Role, &u.FirstSeen, &u.LastLogin, &u.ExternalID, &u.DisplayName, &u.OIDCIssuer, &u.OIDCSubject, &u.PreferredUsername, &active); err != nil {
 			return nil, err
 		}
 		u.Active = active == 1
@@ -1565,25 +1550,25 @@ func (s *Store) ListCronJobLogs(cronJobID, limit int) ([]CronJobLog, error) {
 }
 
 type AuditLogEntry struct {
-	ID          int             `json:"id"`
-	Timestamp   string          `json:"timestamp"`
-	UserEmail   string          `json:"userEmail"`
-	ServerName  string          `json:"serverName"`
-	Action      string          `json:"action"`
-	Params      json.RawMessage `json:"params"`
-	Result      string          `json:"result"`
-	Reason      string          `json:"reason"`
-	Source      string          `json:"source"`
-	ClientIP    string          `json:"clientIp"`
-	CountryCode string          `json:"countryCode"`
+	ID           int             `json:"id"`
+	Timestamp    string          `json:"timestamp"`
+	UserUsername string          `json:"userUsername"`
+	ServerName   string          `json:"serverName"`
+	Action       string          `json:"action"`
+	Params       json.RawMessage `json:"params"`
+	Result       string          `json:"result"`
+	Reason       string          `json:"reason"`
+	Source       string          `json:"source"`
+	ClientIP     string          `json:"clientIp"`
+	CountryCode  string          `json:"countryCode"`
 }
 
 func (s *Store) CreateAuditLog(entry *AuditLogEntry) error {
 	if entry.Params == nil {
 		entry.Params = json.RawMessage("{}")
 	}
-	result, err := s.DB.Exec("INSERT INTO audit_log (timestamp, user_email, server_name, action, params, result, reason, source, client_ip, country_code) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		entry.Timestamp, entry.UserEmail, entry.ServerName, entry.Action, string(entry.Params), entry.Result, entry.Reason, entry.Source, entry.ClientIP, entry.CountryCode)
+	result, err := s.DB.Exec("INSERT INTO audit_log (timestamp, user_username, server_name, action, params, result, reason, source, client_ip, country_code) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		entry.Timestamp, entry.UserUsername, entry.ServerName, entry.Action, string(entry.Params), entry.Result, entry.Reason, entry.Source, entry.ClientIP, entry.CountryCode)
 	if err != nil {
 		return err
 	}
@@ -1596,7 +1581,7 @@ func (s *Store) ListAuditLog(limit, offset int) ([]AuditLogEntry, error) {
 	if limit <= 0 {
 		limit = 100
 	}
-	rows, err := s.DB.Query("SELECT id, timestamp, user_email, server_name, action, params, result, reason, source, client_ip, country_code FROM audit_log ORDER BY id DESC LIMIT ? OFFSET ?", limit, offset)
+	rows, err := s.DB.Query("SELECT id, timestamp, user_username, server_name, action, params, result, reason, source, client_ip, country_code FROM audit_log ORDER BY id DESC LIMIT ? OFFSET ?", limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -1606,7 +1591,7 @@ func (s *Store) ListAuditLog(limit, offset int) ([]AuditLogEntry, error) {
 	for rows.Next() {
 		var e AuditLogEntry
 		var params []byte
-		if err := rows.Scan(&e.ID, &e.Timestamp, &e.UserEmail, &e.ServerName, &e.Action, &params, &e.Result, &e.Reason, &e.Source, &e.ClientIP, &e.CountryCode); err != nil {
+		if err := rows.Scan(&e.ID, &e.Timestamp, &e.UserUsername, &e.ServerName, &e.Action, &params, &e.Result, &e.Reason, &e.Source, &e.ClientIP, &e.CountryCode); err != nil {
 			return nil, err
 		}
 		e.Params = json.RawMessage(params)
@@ -2037,18 +2022,18 @@ func (bg *Background) URL() string {
 }
 
 type Session struct {
-	ID        int    `json:"id"`
-	SessionID string `json:"sessionId"`
-	UserSub   string `json:"userSub"`
-	UserEmail string `json:"userEmail"`
-	UserRole  string `json:"userRole"`
-	CreatedAt string `json:"createdAt"`
-	ExpiresAt string `json:"expiresAt"`
+	ID           int    `json:"id"`
+	SessionID    string `json:"sessionId"`
+	UserSub      string `json:"userSub"`
+	UserUsername string `json:"userUsername"`
+	UserRole     string `json:"userRole"`
+	CreatedAt    string `json:"createdAt"`
+	ExpiresAt    string `json:"expiresAt"`
 }
 
 func (s *Store) CreateSession(session *Session) error {
-	result, err := s.DB.Exec("INSERT INTO sessions (session_id, user_sub, user_email, user_role, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)",
-		session.SessionID, session.UserSub, session.UserEmail, session.UserRole, session.CreatedAt, session.ExpiresAt)
+	result, err := s.DB.Exec("INSERT INTO sessions (session_id, user_sub, user_username, user_role, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)",
+		session.SessionID, session.UserSub, session.UserUsername, session.UserRole, session.CreatedAt, session.ExpiresAt)
 	if err != nil {
 		return err
 	}
@@ -2058,9 +2043,9 @@ func (s *Store) CreateSession(session *Session) error {
 }
 
 func (s *Store) GetSession(sessionID string) (*Session, error) {
-	row := s.DB.QueryRow("SELECT id, session_id, user_sub, user_email, user_role, created_at, expires_at FROM sessions WHERE session_id = ?", sessionID)
+	row := s.DB.QueryRow("SELECT id, session_id, user_sub, user_username, user_role, created_at, expires_at FROM sessions WHERE session_id = ?", sessionID)
 	var session Session
-	err := row.Scan(&session.ID, &session.SessionID, &session.UserSub, &session.UserEmail, &session.UserRole, &session.CreatedAt, &session.ExpiresAt)
+	err := row.Scan(&session.ID, &session.SessionID, &session.UserSub, &session.UserUsername, &session.UserRole, &session.CreatedAt, &session.ExpiresAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
@@ -2126,7 +2111,7 @@ func (s *Store) GetUserByID(id int) (*User, error) {
 	row := s.DB.QueryRow("SELECT "+userSelectColumns+" FROM users WHERE id = ?", id)
 	var u User
 	var active int
-	err := row.Scan(&u.ID, &u.Email, &u.Role, &u.FirstSeen, &u.LastLogin, &u.ExternalID, &u.DisplayName, &u.OIDCIssuer, &u.OIDCSubject, &u.PreferredUsername, &active)
+	err := row.Scan(&u.ID, &u.Username, &u.Role, &u.FirstSeen, &u.LastLogin, &u.ExternalID, &u.DisplayName, &u.OIDCIssuer, &u.OIDCSubject, &u.PreferredUsername, &active)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
@@ -2141,7 +2126,7 @@ func (s *Store) GetUserByExternalID(externalID string) (*User, error) {
 	row := s.DB.QueryRow("SELECT "+userSelectColumns+" FROM users WHERE external_id = ?", externalID)
 	var u User
 	var active int
-	err := row.Scan(&u.ID, &u.Email, &u.Role, &u.FirstSeen, &u.LastLogin, &u.ExternalID, &u.DisplayName, &u.OIDCIssuer, &u.OIDCSubject, &u.PreferredUsername, &active)
+	err := row.Scan(&u.ID, &u.Username, &u.Role, &u.FirstSeen, &u.LastLogin, &u.ExternalID, &u.DisplayName, &u.OIDCIssuer, &u.OIDCSubject, &u.PreferredUsername, &active)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
@@ -2159,7 +2144,7 @@ func (s *Store) GetUserByOIDCIdentity(issuer, subject string) (*User, error) {
 	row := s.DB.QueryRow("SELECT "+userSelectColumns+" FROM users WHERE oidc_issuer = ? AND oidc_subject = ?", issuer, subject)
 	var u User
 	var active int
-	err := row.Scan(&u.ID, &u.Email, &u.Role, &u.FirstSeen, &u.LastLogin, &u.ExternalID, &u.DisplayName, &u.OIDCIssuer, &u.OIDCSubject, &u.PreferredUsername, &active)
+	err := row.Scan(&u.ID, &u.Username, &u.Role, &u.FirstSeen, &u.LastLogin, &u.ExternalID, &u.DisplayName, &u.OIDCIssuer, &u.OIDCSubject, &u.PreferredUsername, &active)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
@@ -2177,7 +2162,7 @@ func (s *Store) GetUserByOIDCSubject(subject string) (*User, error) {
 	row := s.DB.QueryRow("SELECT "+userSelectColumns+" FROM users WHERE oidc_subject = ?", subject)
 	var u User
 	var active int
-	err := row.Scan(&u.ID, &u.Email, &u.Role, &u.FirstSeen, &u.LastLogin, &u.ExternalID, &u.DisplayName, &u.OIDCIssuer, &u.OIDCSubject, &u.PreferredUsername, &active)
+	err := row.Scan(&u.ID, &u.Username, &u.Role, &u.FirstSeen, &u.LastLogin, &u.ExternalID, &u.DisplayName, &u.OIDCIssuer, &u.OIDCSubject, &u.PreferredUsername, &active)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
@@ -2229,7 +2214,7 @@ func (s *Store) UpdateUserSCIMIdentity(id int, username, externalID, displayName
 		activeInt = 1
 	}
 	if _, err = tx.Exec(`UPDATE users
-		SET email=?,external_id=?,display_name=?,preferred_username=?,active=?
+		SET username=?,external_id=?,display_name=?,preferred_username=?,active=?
 		WHERE id=?`, username, externalID, displayName, username, activeInt, id); err != nil {
 		return err
 	}
@@ -2249,7 +2234,7 @@ func (s *Store) UpdateUserUsername(id int, username string) error {
 	if err := migrateUsernameTx(tx, id, username); err != nil {
 		return err
 	}
-	if _, err := tx.Exec("UPDATE users SET email=?,preferred_username=? WHERE id=?", username, username, id); err != nil {
+	if _, err := tx.Exec("UPDATE users SET username=?,preferred_username=? WHERE id=?", username, username, id); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -2257,11 +2242,11 @@ func (s *Store) UpdateUserUsername(id int, username string) error {
 
 func migrateUsernameTx(tx *sql.Tx, id int, username string) error {
 	var oldUsername string
-	if err := tx.QueryRow("SELECT email FROM users WHERE id = ?", id).Scan(&oldUsername); err != nil {
+	if err := tx.QueryRow("SELECT username FROM users WHERE id = ?", id).Scan(&oldUsername); err != nil {
 		return err
 	}
 	var conflictingID int
-	err := tx.QueryRow("SELECT id FROM users WHERE email = ? COLLATE NOCASE AND id <> ?", username, id).Scan(&conflictingID)
+	err := tx.QueryRow("SELECT id FROM users WHERE username = ? COLLATE NOCASE AND id <> ?", username, id).Scan(&conflictingID)
 	if err != nil && err != sql.ErrNoRows {
 		return err
 	}
@@ -2272,18 +2257,18 @@ func migrateUsernameTx(tx *sql.Tx, id int, username string) error {
 		return nil
 	}
 
-	if _, err = tx.Exec(`INSERT OR IGNORE INTO user_whitelists(user_email,server_id,username)
-		SELECT ?,server_id,username FROM user_whitelists WHERE user_email=?`, username, oldUsername); err != nil {
+	if _, err = tx.Exec(`INSERT OR IGNORE INTO user_whitelists(user_username,server_id,username)
+		SELECT ?,server_id,username FROM user_whitelists WHERE user_username=?`, username, oldUsername); err != nil {
 		return err
 	}
-	if _, err = tx.Exec("DELETE FROM user_whitelists WHERE user_email=?", oldUsername); err != nil {
+	if _, err = tx.Exec("DELETE FROM user_whitelists WHERE user_username=?", oldUsername); err != nil {
 		return err
 	}
-	if _, err = tx.Exec(`INSERT OR IGNORE INTO game_identities(user_email,game_type,username,external_id,source,updated_at)
-		SELECT ?,game_type,username,external_id,source,updated_at FROM game_identities WHERE user_email=?`, username, oldUsername); err != nil {
+	if _, err = tx.Exec(`INSERT OR IGNORE INTO game_identities(user_username,game_type,username,external_id,source,updated_at)
+		SELECT ?,game_type,username,external_id,source,updated_at FROM game_identities WHERE user_username=?`, username, oldUsername); err != nil {
 		return err
 	}
-	if _, err = tx.Exec("DELETE FROM game_identities WHERE user_email=?", oldUsername); err != nil {
+	if _, err = tx.Exec("DELETE FROM game_identities WHERE user_username=?", oldUsername); err != nil {
 		return err
 	}
 	if _, err = tx.Exec(`INSERT OR IGNORE INTO server_access_grants(server_id,subject_type,subject,effect,capabilities)
@@ -2294,7 +2279,7 @@ func migrateUsernameTx(tx *sql.Tx, id int, username string) error {
 	if _, err = tx.Exec("DELETE FROM server_access_grants WHERE subject_type='user' AND subject=?", oldUsername); err != nil {
 		return err
 	}
-	if _, err = tx.Exec("UPDATE sessions SET user_email=? WHERE user_email=?", username, oldUsername); err != nil {
+	if _, err = tx.Exec("UPDATE sessions SET user_username=? WHERE user_username=?", username, oldUsername); err != nil {
 		return err
 	}
 	return nil
@@ -2477,7 +2462,7 @@ func (s *Store) RemoveSCIMGroupMember(groupID, userID int) error {
 }
 
 func (s *Store) GetSCIMGroupMembers(groupID int) ([]User, error) {
-	rows, err := s.DB.Query(`SELECT u.id, u.email, u.role, u.first_seen, u.last_login, u.external_id, u.display_name,
+	rows, err := s.DB.Query(`SELECT u.id, u.username, u.role, u.first_seen, u.last_login, u.external_id, u.display_name,
 			u.oidc_issuer, u.oidc_subject, u.preferred_username, u.active
 		FROM users u JOIN scim_group_members gm ON u.id = gm.user_id WHERE gm.group_id = ? ORDER BY u.id`, groupID)
 	if err != nil {
@@ -2489,7 +2474,7 @@ func (s *Store) GetSCIMGroupMembers(groupID int) ([]User, error) {
 	for rows.Next() {
 		var u User
 		var active int
-		if err := rows.Scan(&u.ID, &u.Email, &u.Role, &u.FirstSeen, &u.LastLogin, &u.ExternalID, &u.DisplayName, &u.OIDCIssuer, &u.OIDCSubject, &u.PreferredUsername, &active); err != nil {
+		if err := rows.Scan(&u.ID, &u.Username, &u.Role, &u.FirstSeen, &u.LastLogin, &u.ExternalID, &u.DisplayName, &u.OIDCIssuer, &u.OIDCSubject, &u.PreferredUsername, &active); err != nil {
 			return nil, err
 		}
 		u.Active = active == 1

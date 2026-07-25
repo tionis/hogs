@@ -28,7 +28,7 @@ type ServerEnv struct {
 }
 
 type UserEnv struct {
-	Email       string   `json:"email"`
+	Username    string   `json:"username"`
 	Role        string   `json:"role"`
 	Groups      []string `json:"groups"`
 	ClientIP    string   `json:"clientIp"`
@@ -261,7 +261,7 @@ func (e *Engine) EvaluateACL(link *database.PterodactylLink, server *database.Se
 	if action == "whitelist" {
 		capability = "whitelist.self"
 	}
-	decision, err := e.Store.EvaluateServerAccess(server.ID, user.Email, user.Groups, capability)
+	decision, err := e.Store.EvaluateServerAccess(server.ID, user.Username, user.Groups, capability)
 	if err != nil {
 		return false, fmt.Errorf("evaluate server access: %w", err)
 	}
@@ -438,27 +438,27 @@ func (e *Engine) RenderTemplate(template string, params map[string]string) strin
 func (e *Engine) Evaluate(server *database.Server, action string, params map[string]string, user *UserEnv) *ActionResult {
 	source := "web"
 	if user != nil {
-		if user.Email == "system" && user.Role == "system" {
+		if user.Username == "system" && user.Role == "system" {
 			source = "cron"
-		} else if user.Email == "" && user.Role == "admin" {
+		} else if user.Username == "" && user.Role == "admin" {
 			source = "api"
 		}
 	}
 
 	auditEntry := &database.AuditLogEntry{
-		Action:     action,
-		ServerName: server.Name,
-		UserEmail:  "anonymous",
-		Timestamp:  time.Now().UTC().Format(time.RFC3339),
-		Params:     paramsToJSON(params),
-		Result:     "allowed",
-		Reason:     "authorized by server access policy",
-		Source:     source,
+		Action:       action,
+		ServerName:   server.Name,
+		UserUsername: "anonymous",
+		Timestamp:    time.Now().UTC().Format(time.RFC3339),
+		Params:       paramsToJSON(params),
+		Result:       "allowed",
+		Reason:       "authorized by server access policy",
+		Source:       source,
 	}
 	if user != nil {
-		auditEntry.UserEmail = user.Email
-		if auditEntry.UserEmail == "" {
-			auditEntry.UserEmail = "anonymous"
+		auditEntry.UserUsername = user.Username
+		if auditEntry.UserUsername == "" {
+			auditEntry.UserUsername = "anonymous"
 		}
 		auditEntry.ClientIP = user.ClientIP
 		auditEntry.CountryCode = user.CountryCode
@@ -495,7 +495,7 @@ func (e *Engine) Evaluate(server *database.Server, action string, params map[str
 		}
 		auditEntry.Reason = fmt.Sprintf("access denied for capability %s", capability)
 		if user != nil && user.Role != "admin" && user.Role != "system" {
-			if decision, decisionErr := e.Store.EvaluateServerAccess(server.ID, user.Email, user.Groups, capability); decisionErr == nil {
+			if decision, decisionErr := e.Store.EvaluateServerAccess(server.ID, user.Username, user.Groups, capability); decisionErr == nil {
 				auditEntry.Reason = decision.Reason
 			}
 		}
@@ -515,7 +515,7 @@ func (e *Engine) Evaluate(server *database.Server, action string, params map[str
 	}
 
 	if e.Notifier != nil {
-		go e.Notifier.Send(fmt.Sprintf("server_%s", action), fmt.Sprintf("Action %s on server %s by %s", action, server.Name, auditEntry.UserEmail))
+		go e.Notifier.Send(fmt.Sprintf("server_%s", action), fmt.Sprintf("Action %s on server %s by %s", action, server.Name, auditEntry.UserUsername))
 	}
 
 	return &ActionResult{Allowed: true, Result: "allowed", Status: 200}
@@ -539,16 +539,16 @@ func (e *Engine) EvaluateVisibility(server *database.Server, user *UserEnv) bool
 	return result.Allowed
 }
 
-func (e *Engine) LogAction(serverName, action, userEmail, result, reason, source string, params map[string]string) {
+func (e *Engine) LogAction(serverName, action, userUsername, result, reason, source string, params map[string]string) {
 	entry := &database.AuditLogEntry{
-		Timestamp:  time.Now().UTC().Format(time.RFC3339),
-		UserEmail:  userEmail,
-		ServerName: serverName,
-		Action:     action,
-		Params:     paramsToJSON(params),
-		Result:     result,
-		Reason:     reason,
-		Source:     source,
+		Timestamp:    time.Now().UTC().Format(time.RFC3339),
+		UserUsername: userUsername,
+		ServerName:   serverName,
+		Action:       action,
+		Params:       paramsToJSON(params),
+		Result:       result,
+		Reason:       reason,
+		Source:       source,
 	}
 	if err := e.Store.CreateAuditLog(entry); err != nil {
 		log.Printf("Warning: failed to write audit log: %v", err)

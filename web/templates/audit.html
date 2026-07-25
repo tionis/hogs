@@ -75,7 +75,7 @@ function loadLog(newOffset) {
             : '<span class="text-muted">—</span>';
           row.innerHTML =
             '<td class="small">' + escHtml(e.timestamp) + '</td>' +
-            '<td>' + escHtml(e.userEmail || 'anonymous') + '</td>' +
+            '<td>' + escHtml(e.userUsername || 'anonymous') + '</td>' +
             '<td>' + escHtml(e.serverName || '—') + '</td>' +
             '<td><code>' + escHtml(e.action) + '</code></td>' +
             '<td>' + resultBadge(e.result) + '</td>' +

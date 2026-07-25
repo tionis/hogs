@@ -321,7 +321,7 @@ func (h *ServerHandler) canAccessServer(r *http.Request, server *database.Server
 	if user.Role == "admin" || user.Role == "system" {
 		return true
 	}
-	decision, err := h.Store.EvaluateServerAccess(server.ID, user.Email, user.Groups, capability)
+	decision, err := h.Store.EvaluateServerAccess(server.ID, user.Username, user.Groups, capability)
 	return err == nil && decision.Allowed
 }
 

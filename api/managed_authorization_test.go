@@ -71,14 +71,14 @@ func TestAPIKeyPrincipalPreservesMachineIdentityAndRole(t *testing.T) {
 	auth.APIKeyMiddleware(store, http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		principal = userEnvFromRequest(store, nil, r)
 	})).ServeHTTP(recorder, req)
-	if principal == nil || principal.Email != "api-key:acceptance-moderator" || principal.Role != "user" {
+	if principal == nil || principal.Username != "api-key:acceptance-moderator" || principal.Role != "user" {
 		t.Fatalf("wrong API-key principal: %#v", principal)
 	}
 }
 
-func managedTestRequest(t *testing.T, store *database.Store, authenticator *auth.Authenticator, email, role string, groups ...string) *http.Request {
+func managedTestRequest(t *testing.T, store *database.Store, authenticator *auth.Authenticator, username, role string, groups ...string) *http.Request {
 	t.Helper()
-	user, err := store.CreateUser(email, role)
+	user, err := store.CreateUser(username, role)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,9 +91,9 @@ func managedTestRequest(t *testing.T, store *database.Store, authenticator *auth
 			t.Fatal(err)
 		}
 	}
-	sessionID := "session-" + email
+	sessionID := "session-" + username
 	if err := store.CreateSession(&database.Session{
-		SessionID: sessionID, UserEmail: email, UserRole: role,
+		SessionID: sessionID, UserUsername: username, UserRole: role,
 		CreatedAt: time.Now().UTC().Format(time.RFC3339), ExpiresAt: time.Now().UTC().Add(time.Hour).Format(time.RFC3339),
 	}); err != nil {
 		t.Fatal(err)
@@ -123,7 +123,7 @@ func TestManagedConsoleAllowsConfiguredNonAdminOperator(t *testing.T) {
 	if err != nil || status != http.StatusOK {
 		t.Fatalf("operator authorization failed: status=%d err=%v", status, err)
 	}
-	if user.Email != "moderator@example.test" || user.Role != "user" {
+	if user.Username != "moderator@example.test" || user.Role != "user" {
 		t.Fatalf("wrong authenticated identity: %#v", user)
 	}
 }
@@ -249,7 +249,7 @@ func TestWhitelistStatusIgnoresCallerSuppliedIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	req := managedTestRequest(t, store, authenticator, "player@example.test", "user")
-	req.URL.RawQuery = "user_email=victim%40example.test"
+	req.URL.RawQuery = "user_username=victim%40example.test"
 	req = mux.SetURLVars(req, map[string]string{"serverName": "managed-test"})
 	recorder := httptest.NewRecorder()
 	handler := NewPterodactylHandler(store, &config.Config{}, eng, nil, authenticator)

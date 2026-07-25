@@ -135,12 +135,20 @@ WHERE id IN (SELECT keeper_id FROM authentik_identity_merge);
 
 DROP TABLE authentik_identity_merge;
 
+-- The legacy schema called the panel identity an email address. HOGS now uses
+-- Authentik usernames throughout; historical values remain unchanged.
+ALTER TABLE users RENAME COLUMN email TO username;
+ALTER TABLE user_whitelists RENAME COLUMN user_email TO user_username;
+ALTER TABLE game_identities RENAME COLUMN user_email TO user_username;
+ALTER TABLE sessions RENAME COLUMN user_email TO user_username;
+ALTER TABLE audit_log RENAME COLUMN user_email TO user_username;
+
 CREATE UNIQUE INDEX idx_users_external_id_unique
     ON users(external_id)
     WHERE external_id <> '';
 
 CREATE UNIQUE INDEX idx_users_username_nocase
-    ON users(email COLLATE NOCASE);
+    ON users(username COLLATE NOCASE);
 
 CREATE UNIQUE INDEX idx_scim_groups_external_id_unique
     ON scim_groups(external_id)

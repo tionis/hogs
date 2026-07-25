@@ -1,9 +1,15 @@
 package database
 
 import (
+	"database/sql"
 	"encoding/json"
 	"os"
 	"testing"
+
+	"github.com/golang-migrate/migrate/v4"
+	migratesqlite "github.com/golang-migrate/migrate/v4/database/sqlite3"
+	"github.com/golang-migrate/migrate/v4/source/iofs"
+	_ "github.com/mattn/go-sqlite3"
 )
 
 func testStore(t *testing.T) *Store {
@@ -18,6 +24,38 @@ func testStore(t *testing.T) *Store {
 		os.Remove(dbPath)
 	})
 	return store
+}
+
+func migrateTestDatabaseTo(t *testing.T, dbPath string, steps int) *sql.DB {
+	t.Helper()
+	dsn := sqliteDSNWithForeignKeys(dbPath)
+	sourceDriver, err := iofs.New(migrationsFS, "migrations")
+	if err != nil {
+		t.Fatal(err)
+	}
+	migrationDB, err := sql.Open("sqlite3", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dbDriver, err := migratesqlite.WithInstance(migrationDB, &migratesqlite.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	migrator, err := migrate.NewWithInstance("iofs", sourceDriver, "sqlite3", dbDriver)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := migrator.Steps(steps); err != nil {
+		t.Fatal(err)
+	}
+	if sourceErr, databaseErr := migrator.Close(); sourceErr != nil || databaseErr != nil {
+		t.Fatalf("close migrator: source=%v database=%v", sourceErr, databaseErr)
+	}
+	db, err := sql.Open("sqlite3", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return db
 }
 
 func TestCreateAndGetServer(t *testing.T) {
@@ -191,22 +229,22 @@ func TestCreateAndGetUser(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateUser failed: %v", err)
 	}
-	if user.Email != "alice@example.com" {
-		t.Errorf("Email = %q, want %q", user.Email, "alice@example.com")
+	if user.Username != "alice@example.com" {
+		t.Errorf("Username = %q, want %q", user.Username, "alice@example.com")
 	}
 	if user.Role != "admin" {
 		t.Errorf("Role = %q, want %q", user.Role, "admin")
 	}
 
-	got, err := store.GetUserByEmail("alice@example.com")
+	got, err := store.GetUserByUsername("alice@example.com")
 	if err != nil {
-		t.Fatalf("GetUserByEmail failed: %v", err)
+		t.Fatalf("GetUserByUsername failed: %v", err)
 	}
 	if got == nil {
 		t.Fatal("expected user, got nil")
 	}
-	if got.Email != "alice@example.com" {
-		t.Errorf("Email = %q, want %q", got.Email, "alice@example.com")
+	if got.Username != "alice@example.com" {
+		t.Errorf("Username = %q, want %q", got.Username, "alice@example.com")
 	}
 	if got.Role != "admin" {
 		t.Errorf("Role = %q, want %q", got.Role, "admin")
@@ -226,58 +264,48 @@ func TestCreateUserDefaultRole(t *testing.T) {
 }
 
 func TestAuthentikIdentityMigrationConsolidatesSCIMDuplicate(t *testing.T) {
-	store, err := NewStore(t.TempDir() + "/hogs.db")
+	dbPath := t.TempDir() + "/hogs.db"
+	db := migrateTestDatabaseTo(t, dbPath, 40)
+
+	oidcResult, err := db.Exec(`INSERT INTO users(
+		email,role,external_id,display_name,active,oidc_issuer,oidc_subject,preferred_username
+	) VALUES(?,?,?,?,?,?,?,?)`,
+		"old-address@example.test", "admin", "stable-subject", "Old Profile", 1,
+		"https://auth.example.test/application/o/hogs/", "stable-subject", "old-name")
+	if err != nil {
+		t.Fatal(err)
+	}
+	oidcID, _ := oidcResult.LastInsertId()
+	scimResult, err := db.Exec(`INSERT INTO users(email,role,external_id,display_name,active)
+		VALUES(?,?,?,?,?)`, "authentik-name", "user", "stable-subject", "Authentik Profile", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scimID, _ := scimResult.LastInsertId()
+	if _, err := db.Exec(`INSERT INTO game_identities(user_email,game_type,username,source)
+		VALUES('old-address@example.test','minecraft','PlayerName','self')`); err != nil {
+		t.Fatal(err)
+	}
+	groupResult, err := db.Exec("INSERT INTO scim_groups(display_name) VALUES('Mage')")
+	if err != nil {
+		t.Fatal(err)
+	}
+	groupID, _ := groupResult.LastInsertId()
+	if _, err := db.Exec("INSERT INTO scim_group_members(group_id,user_id) VALUES(?,?)", groupID, scimID); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := runMigrations(sqliteDSNWithForeignKeys(dbPath)); err != nil {
+		t.Fatal(err)
+	}
+	store, err := NewStore(dbPath)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer store.DB.Close()
-
-	if _, err := store.DB.Exec("DROP INDEX idx_users_external_id_unique"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := store.DB.Exec("DROP INDEX idx_users_username_nocase"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := store.DB.Exec("DROP INDEX idx_scim_groups_external_id_unique"); err != nil {
-		t.Fatal(err)
-	}
-
-	oidcUser, err := store.CreateUser("old-address@example.test", "admin")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := store.UpdateUserOIDCIdentity(oidcUser.ID, "https://auth.example.test/application/o/hogs/", "stable-subject", "old-name"); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.UpdateUserSCIM(oidcUser.ID, "stable-subject", "Old Profile", true); err != nil {
-		t.Fatal(err)
-	}
-	scimUser, err := store.CreateUser("authentik-name", "user")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := store.UpdateUserSCIM(scimUser.ID, "stable-subject", "Authentik Profile", true); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := store.DB.Exec(`INSERT INTO game_identities(user_email,game_type,username,source)
-		VALUES('old-address@example.test','minecraft','PlayerName','self')`); err != nil {
-		t.Fatal(err)
-	}
-	group := &SCIMGroup{DisplayName: "Mage"}
-	if err := store.CreateSCIMGroup(group); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.AddSCIMGroupMember(group.ID, scimUser.ID); err != nil {
-		t.Fatal(err)
-	}
-
-	migration, err := migrationsFS.ReadFile("migrations/000041_authentik_scim_identity.up.sql")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := store.DB.Exec(string(migration)); err != nil {
-		t.Fatal(err)
-	}
 
 	users, err := store.ListUsers()
 	if err != nil {
@@ -287,7 +315,7 @@ func TestAuthentikIdentityMigrationConsolidatesSCIMDuplicate(t *testing.T) {
 		t.Fatalf("users=%#v, want one consolidated identity", users)
 	}
 	user := users[0]
-	if user.ID != oidcUser.ID || user.Email != "authentik-name" ||
+	if user.ID != int(oidcID) || user.Username != "authentik-name" ||
 		user.OIDCSubject != "stable-subject" || user.ExternalID != "stable-subject" ||
 		user.PreferredUsername != "authentik-name" || user.Role != "admin" {
 		t.Fatalf("consolidated user=%#v", user)
@@ -296,16 +324,16 @@ func TestAuthentikIdentityMigrationConsolidatesSCIMDuplicate(t *testing.T) {
 	if err != nil || identity == nil || identity.Username != "PlayerName" {
 		t.Fatalf("migrated game identity=%#v err=%v", identity, err)
 	}
-	members, err := store.GetSCIMGroupMembers(group.ID)
-	if err != nil || len(members) != 1 || members[0].ID != oidcUser.ID {
+	members, err := store.GetSCIMGroupMembers(int(groupID))
+	if err != nil || len(members) != 1 || members[0].ID != int(oidcID) {
 		t.Fatalf("migrated group members=%#v err=%v", members, err)
 	}
 }
 
-func TestGetUserByEmailNotFound(t *testing.T) {
+func TestGetUserByUsernameNotFound(t *testing.T) {
 	store := testStore(t)
 
-	got, err := store.GetUserByEmail("nonexistent@example.com")
+	got, err := store.GetUserByUsername("nonexistent@example.com")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -322,7 +350,7 @@ func TestUpdateUserRole(t *testing.T) {
 		t.Fatalf("UpdateUserRole failed: %v", err)
 	}
 
-	got, _ := store.GetUserByEmail("charlie@example.com")
+	got, _ := store.GetUserByUsername("charlie@example.com")
 	if got.Role != "admin" {
 		t.Errorf("Role = %q, want %q after update", got.Role, "admin")
 	}
@@ -351,7 +379,7 @@ func TestTouchUserLastLogin(t *testing.T) {
 		t.Fatalf("TouchUserLastLogin failed: %v", err)
 	}
 
-	got, _ := store.GetUserByEmail("login@example.com")
+	got, _ := store.GetUserByUsername("login@example.com")
 	if got == nil {
 		t.Fatal("expected user, got nil")
 	}
@@ -475,13 +503,13 @@ func TestGameIdentityAndServerCascade(t *testing.T) {
 		t.Fatal("CreateServer did not populate ID")
 	}
 	identity := &GameIdentity{
-		UserEmail: "player@example.test", GameType: "minecraft", Username: "PlayerOne",
+		UserUsername: "player@example.test", GameType: "minecraft", Username: "PlayerOne",
 		ExternalID: "123456781234123412341234567890ab", Source: "self",
 	}
 	if err := store.SetGameIdentity(identity); err != nil {
 		t.Fatal(err)
 	}
-	got, err := store.GetGameIdentity(identity.UserEmail, identity.GameType)
+	got, err := store.GetGameIdentity(identity.UserUsername, identity.GameType)
 	if err != nil || got == nil || got.Username != identity.Username || got.ExternalID != identity.ExternalID {
 		t.Fatalf("identity=%#v err=%v", got, err)
 	}
@@ -658,16 +686,16 @@ func TestAgentPendingOpCleanup(t *testing.T) {
 func TestListAuditLogScansJSONText(t *testing.T) {
 	store := testStore(t)
 	entry := &AuditLogEntry{
-		Timestamp:   "2026-01-02T03:04:05Z",
-		UserEmail:   "operator@example.test",
-		ServerName:  "synthetic-server",
-		Action:      "start",
-		Params:      json.RawMessage(`{"reason":"test"}`),
-		Result:      "allowed",
-		Reason:      "test entry",
-		Source:      "test",
-		ClientIP:    "198.51.100.42",
-		CountryCode: "DE",
+		Timestamp:    "2026-01-02T03:04:05Z",
+		UserUsername: "operator@example.test",
+		ServerName:   "synthetic-server",
+		Action:       "start",
+		Params:       json.RawMessage(`{"reason":"test"}`),
+		Result:       "allowed",
+		Reason:       "test entry",
+		Source:       "test",
+		ClientIP:     "198.51.100.42",
+		CountryCode:  "DE",
 	}
 	if err := store.CreateAuditLog(entry); err != nil {
 		t.Fatalf("CreateAuditLog failed: %v", err)
@@ -704,7 +732,7 @@ func TestUserWhitelistLinksAreUniquePerServerUsername(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 1 || entries[0].UserEmail != "second@example.test" {
+	if len(entries) != 1 || entries[0].UserUsername != "second@example.test" {
 		t.Fatalf("links=%#v, want the replacement panel user", entries)
 	}
 	if err := store.DeleteUserWhitelistsByUsername(server.ID, "TESTPLAYER"); err != nil {
