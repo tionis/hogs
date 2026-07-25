@@ -255,6 +255,17 @@ func (g *minecraftGateway) start() {
 
 func (g *minecraftGateway) handleConnection(client net.Conn) {
 	defer client.Close()
+	// A live backend owns the complete port, not only the Minecraft protocol.
+	// Mods such as AutoModpack multiplex an AMMH preface and TLS downloads on
+	// the game listener. Dial before reading so those and future side protocols
+	// remain byte-for-byte transparent.
+	if backend, err := g.dialTimeout("tcp", g.config.Backend, g.connectTimeout); err == nil {
+		g.markReadyWithoutBoot()
+		g.proxy(client, backend, nil)
+		return
+	}
+	g.markBackendUnavailable()
+
 	_ = client.SetDeadline(time.Now().Add(8 * time.Second))
 	handshakeBody, handshakeRaw, err := readMinecraftPacket(client)
 	if err != nil {
@@ -266,13 +277,6 @@ func (g *minecraftGateway) handleConnection(client net.Conn) {
 		g.rejected.Add(1)
 		return
 	}
-
-	if backend, err := g.dialTimeout("tcp", g.config.Backend, g.connectTimeout); err == nil {
-		g.markReadyWithoutBoot()
-		g.proxy(client, backend, handshakeRaw)
-		return
-	}
-	g.markBackendUnavailable()
 
 	if handshake.NextState == 1 {
 		_ = writeMinecraftStatus(client, handshake.Protocol, g.statusDescription())

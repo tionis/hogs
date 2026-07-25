@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"errors"
+	"io"
 	"net"
 	"path/filepath"
 	"strings"
@@ -111,6 +112,52 @@ func TestMinecraftStatusPingDoesNotWakeServer(t *testing.T) {
 	if gateway.wakeAttempts.Load() != 0 || gateway.wakeTriggered.Load() != 0 {
 		t.Fatal("server-list ping triggered a wake")
 	}
+}
+
+func TestReadyGatewayTransparentlyProxiesAutoModpackProtocol(t *testing.T) {
+	gateway := offlineTestGateway(t)
+	backendReady := make(chan net.Conn, 1)
+	gateway.dialTimeout = func(string, string, time.Duration) (net.Conn, error) {
+		gatewaySide, peer := net.Pipe()
+		backendReady <- peer
+		return gatewaySide, nil
+	}
+
+	client, agent := net.Pipe()
+	defer client.Close()
+	go gateway.handleConnection(agent)
+
+	// AutoModpack's shared-port handshake is the AMMH magic, a big-endian
+	// hostname length, and the hostname. It is deliberately not a Minecraft
+	// VarInt-framed packet.
+	request := append([]byte{'A', 'M', 'M', 'H', 0, 17}, []byte("play.example.test")...)
+	writeResult := make(chan error, 1)
+	go func() {
+		_, err := client.Write(request)
+		writeResult <- err
+	}()
+	backendPeer := <-backendReady
+	received := make([]byte, len(request))
+	if _, err := io.ReadFull(backendPeer, received); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-writeResult; err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(received, request) {
+		t.Fatalf("backend received %x, want %x", received, request)
+	}
+
+	response := []byte{'A', 'M', 'O', 'K'}
+	go backendPeer.Write(response)
+	got := make([]byte, len(response))
+	if _, err := io.ReadFull(client, got); err != nil || !bytes.Equal(got, response) {
+		t.Fatalf("client response=%x err=%v", got, err)
+	}
+	if gateway.proxied.Load() != 1 {
+		t.Fatalf("proxied=%d, want 1", gateway.proxied.Load())
+	}
+	_ = backendPeer.Close()
 }
 
 func TestMinecraftLoginTriggersOneWakeAndReturnsEstimate(t *testing.T) {
