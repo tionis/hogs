@@ -7,34 +7,30 @@
 </div>
 
 <div class="alert alert-info">
-  Roles are resolved at login from the configured OIDC groups: membership in the admin
-  group grants <code>admin</code>, membership in the user group grants <code>user</code>.
-  The result is stored in the login session. HOGS stores game-account identities locally
-  for game-specific allowlist operations.
+  Users and groups are synchronized from Authentik through SCIM. Membership in the configured
+  admin group grants <code>admin</code>, while membership in the user group grants
+  <code>user</code>. HOGS stores game-account identities locally for game-specific allowlist
+  operations.
 </div>
 
 <div class="table-responsive">
   <table class="table table-striped table-sm align-middle">
     <thead>
       <tr>
-        <th>#</th>
-        <th>OIDC Username</th>
-        <th>Authentik username</th>
+        <th style="min-width: 3.5rem">ID</th>
+        <th>Username</th>
         <th>Role</th>
         <th>Groups</th>
         <th>SCIM External ID</th>
         <th>Display Name</th>
         <th>Game Identities</th>
-        <th>First Seen</th>
-        <th>Last Login</th>
       </tr>
     </thead>
     <tbody>
       {{range .Users}}
       <tr>
-        <td>{{.ID}}</td>
-        <td>{{if .PreferredUsername}}<strong>{{.PreferredUsername}}</strong>{{else}}<em class="text-muted">not supplied</em>{{end}}</td>
-        <td>{{.Username}}{{if .OIDCSubject}} <span class="badge bg-success" title="Bound to a stable OIDC issuer and subject">OIDC bound</span>{{end}}</td>
+        <td class="text-nowrap">{{.ID}}</td>
+        <td><strong>{{.Username}}</strong></td>
         <td><span class="badge {{if eq .Role "admin"}}bg-danger{{else}}bg-secondary{{end}}">{{.Role}}</span></td>
         <td>
           {{if .Groups}}
@@ -45,7 +41,16 @@
             <em class="text-muted">none</em>
           {{end}}
         </td>
-        <td class="small">{{if .ExternalID}}{{.ExternalID}}{{else}}<em class="text-muted">none</em>{{end}}</td>
+        <td class="small">
+          {{if .ExternalID}}
+            <code class="d-inline-block text-truncate align-middle"
+                  style="max-width: 9rem"
+                  title="{{.ExternalID}}"
+                  aria-label="{{.ExternalID}}">{{.ExternalID}}</code>
+          {{else}}
+            <em class="text-muted">none</em>
+          {{end}}
+        </td>
         <td>{{if .DisplayName}}{{.DisplayName}}{{else}}<em class="text-muted">none</em>{{end}}</td>
         <td style="min-width: 22rem">
           {{range .Identities}}
@@ -67,8 +72,6 @@
             <div class="col-3"><button class="btn btn-sm btn-outline-primary w-100" type="submit">Link</button></div>
           </form>
         </td>
-        <td class="small text-muted">{{.FirstSeen}}</td>
-        <td class="small text-muted">{{.LastLogin}}</td>
       </tr>
       {{end}}
     </tbody>
