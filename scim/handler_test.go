@@ -88,7 +88,7 @@ func TestSCIMGameIdentitiesReplaceOnlyProviderManagedRecords(t *testing.T) {
 		GameIdentityExtensionURN: map[string]interface{}{
 			"gameIdentities": map[string]interface{}{
 				"minecraft": map[string]interface{}{
-					"provider": "minecraft", "subject": "minecraft-uuid",
+					"provider": "microsoft", "subject": "minecraft-uuid",
 					"username": "Builder_42", "verified": true,
 				},
 				"unverified": map[string]interface{}{
@@ -107,6 +107,9 @@ func TestSCIMGameIdentitiesReplaceOnlyProviderManagedRecords(t *testing.T) {
 	}
 	if identity.Username != "Builder_42" || identity.ExternalID != "minecraft-uuid" || identity.Source != "scim" {
 		t.Fatalf("identity=%#v", identity)
+	}
+	if misclassified, _ := store.GetGameIdentity("player", "microsoft"); misclassified != nil {
+		t.Fatalf("map key was overridden by authority metadata: %#v", misclassified)
 	}
 	if ignored, _ := store.GetGameIdentity("player", "steam"); ignored != nil {
 		t.Fatalf("unverified identity was stored: %#v", ignored)

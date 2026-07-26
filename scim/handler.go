@@ -1236,20 +1236,20 @@ func decodeGameIdentityMap(value interface{}) map[string]scimGameIdentity {
 func (h *Handler) syncGameIdentities(username string, incoming map[string]scimGameIdentity) error {
 	identities := make([]database.GameIdentity, 0, len(incoming))
 	for key, item := range incoming {
-		provider := strings.ToLower(strings.TrimSpace(item.Provider))
-		if provider == "" {
-			provider = strings.ToLower(strings.TrimSpace(key))
+		gameType := strings.ToLower(strings.TrimSpace(key))
+		if gameType == "" {
+			gameType = strings.ToLower(strings.TrimSpace(item.Provider))
 		}
 		gameUsername := strings.TrimSpace(item.Username)
 		subject := strings.TrimSpace(item.Subject)
 		if !item.Verified || gameUsername == "" || subject == "" {
 			continue
 		}
-		if !gameIdentityKeyPattern.MatchString(provider) {
-			return fmt.Errorf("invalid game identity provider %q", provider)
+		if !gameIdentityKeyPattern.MatchString(gameType) {
+			return fmt.Errorf("invalid game identity type %q", gameType)
 		}
 		identities = append(identities, database.GameIdentity{
-			UserUsername: username, GameType: provider, Username: gameUsername,
+			UserUsername: username, GameType: gameType, Username: gameUsername,
 			ExternalID: subject, Source: "scim",
 		})
 	}
