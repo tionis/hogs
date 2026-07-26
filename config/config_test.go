@@ -93,6 +93,22 @@ func TestOIDCGroupConfigFromEnv(t *testing.T) {
 	}
 }
 
+func TestGameIdentityLinkURLsFromEnv(t *testing.T) {
+	t.Setenv("HOGS_GAME_IDENTITY_LINK_URLS", `{"Factorio":" https://auth.example.test/if/flow/link-factorio/ ","empty":""}`)
+	cfg := LoadConfig()
+	if len(cfg.GameIdentityLinkURLs) != 1 ||
+		cfg.GameIdentityLinkURLs["factorio"] != "https://auth.example.test/if/flow/link-factorio/" {
+		t.Fatalf("GameIdentityLinkURLs = %#v", cfg.GameIdentityLinkURLs)
+	}
+}
+
+func TestInvalidGameIdentityLinkURLsAreIgnored(t *testing.T) {
+	t.Setenv("HOGS_GAME_IDENTITY_LINK_URLS", `{invalid`)
+	if got := LoadConfig().GameIdentityLinkURLs; len(got) != 0 {
+		t.Fatalf("GameIdentityLinkURLs = %#v, want empty", got)
+	}
+}
+
 func TestPterodactylConfigDefaults(t *testing.T) {
 	os.Unsetenv("PTERODACTYL_URL")
 	os.Unsetenv("PTERODACTYL_APP_KEY")

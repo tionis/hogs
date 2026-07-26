@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"os"
 	"strconv"
 	"strings"
@@ -40,6 +41,7 @@ type Config struct {
 	OIDCUserGroup           string
 	OIDCGroupsClaim         string
 	GameIdentitySettingsURL string
+	GameIdentityLinkURLs    map[string]string
 
 	// OIDC Back-Channel Logout
 	OIDCBackChannelLogoutEnabled bool
@@ -120,6 +122,7 @@ func LoadConfig() *Config {
 		OIDCUserGroup:           getEnv("OIDC_USER_GROUP", ""),
 		OIDCGroupsClaim:         getEnv("OIDC_GROUPS_CLAIM", "groups"),
 		GameIdentitySettingsURL: getEnv("HOGS_GAME_IDENTITY_SETTINGS_URL", ""),
+		GameIdentityLinkURLs:    parseStringMap(getEnv("HOGS_GAME_IDENTITY_LINK_URLS", "")),
 
 		OIDCBackChannelLogoutEnabled: getEnv("OIDC_BACKCHANNEL_LOGOUT", "true") == "true",
 
@@ -152,6 +155,25 @@ func LoadConfig() *Config {
 
 		TrustProxyHeaders: getEnv("TRUST_PROXY_HEADERS", "") == "true",
 	}
+}
+
+func parseStringMap(value string) map[string]string {
+	result := map[string]string{}
+	if strings.TrimSpace(value) == "" {
+		return result
+	}
+	if err := json.Unmarshal([]byte(value), &result); err != nil {
+		return map[string]string{}
+	}
+	for key, item := range result {
+		normalized := strings.ToLower(strings.TrimSpace(key))
+		item = strings.TrimSpace(item)
+		delete(result, key)
+		if normalized != "" && item != "" {
+			result[normalized] = item
+		}
+	}
+	return result
 }
 
 func splitList(value string) []string {

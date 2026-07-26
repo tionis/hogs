@@ -17,11 +17,15 @@ import (
 )
 
 type WhitelistReconcileResult struct {
-	Server  string `json:"server"`
-	Desired int    `json:"desired"`
-	Added   int    `json:"added"`
-	Removed int    `json:"removed"`
-	Manual  int    `json:"manual"`
+	Server             string `json:"server"`
+	Eligible           int    `json:"eligible"`
+	Desired            int    `json:"desired"`
+	MissingIdentity    int    `json:"missingIdentity"`
+	UnverifiedIdentity int    `json:"unverifiedIdentity"`
+	InvalidIdentity    int    `json:"invalidIdentity"`
+	Added              int    `json:"added"`
+	Removed            int    `json:"removed"`
+	Manual             int    `json:"manual"`
 }
 
 // WhitelistReconciler serializes and debounces event-driven updates. It also
@@ -194,15 +198,22 @@ func (r *WhitelistReconciler) ReconcileServer(ctx context.Context, serverID int)
 		if user.Role != "admin" && user.Role != "system" && !decision.Allowed {
 			continue
 		}
+		result.Eligible++
 		identity, identityErr := r.handler.Store.GetGameIdentity(user.Username, driver.IdentityProvider)
 		if identityErr != nil {
 			return result, identityErr
 		}
-		if identity == nil || identity.Source != "scim" {
+		if identity == nil {
+			result.MissingIdentity++
+			continue
+		}
+		if identity.Source != "scim" {
+			result.UnverifiedIdentity++
 			continue
 		}
 		resolved, valid := driver.AuthentikIdentity(identity.Username, identity.ExternalID)
 		if !valid {
+			result.InvalidIdentity++
 			continue
 		}
 		key := identityKey(driver, resolved.Username)
@@ -304,7 +315,10 @@ func (r *WhitelistReconciler) ReconcileServer(ctx context.Context, serverID int)
 			server.Name, "whitelist.reconcile", "system", "success",
 			"automatic whitelist matched current identity and access state", "system",
 			map[string]string{
-				"desired": fmt.Sprint(result.Desired), "added": fmt.Sprint(result.Added),
+				"eligible": fmt.Sprint(result.Eligible), "desired": fmt.Sprint(result.Desired),
+				"missingIdentity":    fmt.Sprint(result.MissingIdentity),
+				"unverifiedIdentity": fmt.Sprint(result.UnverifiedIdentity),
+				"invalidIdentity":    fmt.Sprint(result.InvalidIdentity), "added": fmt.Sprint(result.Added),
 				"removed": fmt.Sprint(result.Removed), "manualPreserved": fmt.Sprint(result.Manual),
 			},
 		)

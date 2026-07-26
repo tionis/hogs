@@ -93,7 +93,7 @@ func TestWhitelistReconciliationPreservesExternalEntriesAndRemovesOwnedRevocatio
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first.Added != 1 || first.Manual != 1 {
+	if first.Eligible != 1 || first.Desired != 1 || first.Added != 1 || first.Manual != 1 {
 		t.Fatalf("first result=%#v", first)
 	}
 	owned, _ := store.GetUserWhitelist("player", server.ID)

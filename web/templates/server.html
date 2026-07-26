@@ -1095,7 +1095,14 @@ document.addEventListener("DOMContentLoaded", function() {
         const result = contentType.includes('application/json') ? await response.json() : {message: (await response.text()).trim()};
         if (!response.ok) throw new Error(result.message || `HTTP ${response.status}`);
         managedWhitelistFeedback.className = 'small mt-2 text-success';
-        managedWhitelistFeedback.textContent = `Reconciled: ${result.added} added, ${result.removed} removed, ${result.manual} manual entries preserved.`;
+        const skipped = (result.missingIdentity || 0) + (result.unverifiedIdentity || 0) + (result.invalidIdentity || 0);
+        const skippedDetails = [];
+        if (result.missingIdentity) skippedDetails.push(`${result.missingIdentity} missing`);
+        if (result.unverifiedIdentity) skippedDetails.push(`${result.unverifiedIdentity} not verified by Authentik`);
+        if (result.invalidIdentity) skippedDetails.push(`${result.invalidIdentity} invalid`);
+        managedWhitelistFeedback.textContent =
+          `Reconciled: ${result.added} added, ${result.removed} removed, ${result.manual} manual entries preserved.` +
+          (skipped ? ` ${skipped} eligible user account${skipped === 1 ? '' : 's'} skipped (${skippedDetails.join(', ')} game identities).` : '');
         await loadManagedWhitelist();
       } catch (error) {
         managedWhitelistFeedback.className = 'small mt-2 text-danger';

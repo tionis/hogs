@@ -65,6 +65,16 @@ type EffectiveAccessEntry struct {
 	Reason  string
 }
 
+func gameIdentityLinkURL(cfg *config.Config, provider string) string {
+	if cfg != nil {
+		if link := cfg.GameIdentityLinkURLs[strings.ToLower(strings.TrimSpace(provider))]; link != "" {
+			return link
+		}
+		return cfg.GameIdentitySettingsURL
+	}
+	return ""
+}
+
 func AvailableBackgroundTags(gameTypes []string) []BackgroundTagOption {
 	options := []BackgroundTagOption{
 		{Value: "dark", DisplayName: "Dark", Group: "Theme"},
@@ -564,7 +574,7 @@ func (h *WebHandler) renderServerPage(w http.ResponseWriter, r *http.Request, pa
 		IdentityCaseSensitive:       driver.IdentityCaseSensitive,
 		IdentityLabel:               driver.IdentityFieldLabel(),
 		JoinAccountType:             driver.IdentityAccountType(),
-		GameIdentitySettingsURL:     h.Config.GameIdentitySettingsURL,
+		GameIdentitySettingsURL:     gameIdentityLinkURL(h.Config, driver.IdentityProvider),
 	}
 	if isAuthenticated {
 		for _, capability := range access.Capabilities {
