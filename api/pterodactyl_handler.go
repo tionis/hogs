@@ -491,8 +491,13 @@ func (h *PterodactylHandler) WhitelistSet(w http.ResponseWriter, r *http.Request
 		return
 	}
 	driver := h.Store.ResolveGameDriver(server.GameType)
-	if !driver.SupportsWhitelist() {
-		http.Error(w, "Whitelist management is not available for this game type", http.StatusBadRequest)
+	joinMode, modeErr := h.Store.GetServerJoinEnforcementMode(server.ID)
+	if modeErr != nil {
+		http.Error(w, "Could not load server join settings", http.StatusInternalServerError)
+		return
+	}
+	if !database.JoinWhitelistEnabled(joinMode, driver.SupportsWhitelist()) {
+		http.Error(w, "Managed whitelisting is disabled for this server", http.StatusBadRequest)
 		return
 	}
 
@@ -668,8 +673,13 @@ func (h *PterodactylHandler) AdminWhitelist(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	driver := h.Store.ResolveGameDriver(server.GameType)
-	if !driver.SupportsWhitelist() {
-		http.Error(w, "Direct whitelist management is not available for this game type", http.StatusBadRequest)
+	joinMode, modeErr := h.Store.GetServerJoinEnforcementMode(server.ID)
+	if modeErr != nil {
+		http.Error(w, "Could not load server join settings", http.StatusInternalServerError)
+		return
+	}
+	if !database.JoinWhitelistEnabled(joinMode, driver.SupportsWhitelist()) {
+		http.Error(w, "Managed whitelisting is disabled for this server", http.StatusBadRequest)
 		return
 	}
 	gameBackend, err := h.resolveBackend(server, link)

@@ -458,7 +458,20 @@ func (h *WebHandler) renderServerPage(w http.ResponseWriter, r *http.Request, pa
 	hasAgent := false
 	link, _ := h.Store.GetPterodactylLink(server.ID)
 	driver := h.Store.ResolveGameDriver(server.GameType)
-	whitelistManaged := link != nil && driver.SupportsWhitelist() && driver.IdentityProvider != ""
+	joinEnforcement, joinErr := h.Store.GetServerJoinEnforcementMode(server.ID)
+	if joinErr != nil {
+		http.Error(w, "Could not load server join settings", http.StatusInternalServerError)
+		return
+	}
+	whitelistEnabled := database.JoinWhitelistEnabled(joinEnforcement, driver.SupportsWhitelist())
+	whitelistManaged := link != nil && whitelistEnabled && driver.IdentityProvider != ""
+	hasJoinPassword := false
+	for _, field := range server.Fields {
+		if field.Key == "join_password" && field.Disclosure == database.FieldDisclosureReveal {
+			hasJoinPassword = true
+			break
+		}
+	}
 	if link != nil && link.Node != "" {
 		agent, _ := h.Store.GetAgentByNodeName(link.Node)
 		if agent != nil {
@@ -496,6 +509,9 @@ func (h *WebHandler) renderServerPage(w http.ResponseWriter, r *http.Request, pa
 		ServerJoin                  bool
 		WhitelistManaged            bool
 		WhitelistManage             bool
+		JoinEnforcement             string
+		DriverSupportsWhitelist     bool
+		HasJoinPassword             bool
 		JoinAccountType             string
 		JoinAccountUsername         string
 		HasJoinAccount              bool
@@ -509,6 +525,7 @@ func (h *WebHandler) renderServerPage(w http.ResponseWriter, r *http.Request, pa
 		AutomationJobs              []database.CronJob
 		AutomationLogs              map[int][]database.CronJobLog
 		CanRevealSecrets            bool
+		CanRevealJoinPassword       bool
 		Page                        string
 		FilesPage                   bool
 	}{
@@ -526,6 +543,9 @@ func (h *WebHandler) renderServerPage(w http.ResponseWriter, r *http.Request, pa
 		Agents:                      []database.Agent{},
 		AllowedActions:              nil,
 		WhitelistManaged:            whitelistManaged,
+		JoinEnforcement:             joinEnforcement,
+		DriverSupportsWhitelist:     driver.SupportsWhitelist(),
+		HasJoinPassword:             hasJoinPassword,
 		HasAgent:                    hasAgent,
 		ShowConsole:                 false,
 		ConsoleWrite:                false,
@@ -605,9 +625,7 @@ func (h *WebHandler) renderServerPage(w http.ResponseWriter, r *http.Request, pa
 		data.BackupCreate = backupCreateDecision.Allowed
 		data.BackupRestore = backupRestoreDecision.Allowed
 		data.CanRevealSecrets = secretReadDecision.Allowed
-		if !driver.SupportsWhitelist() {
-			data.CanRevealSecrets = data.CanRevealSecrets || data.ServerJoin
-		}
+		data.CanRevealJoinPassword = data.ServerJoin && !whitelistEnabled
 		data.AutomationManage = automationDecision.Allowed
 		if !whitelistManaged {
 			data.WhitelistManage = false
@@ -774,6 +792,12 @@ func (h *WebHandler) RevealServerField(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	user := h.getUserEnv(r)
+	field, err := h.Store.GetServerField(server.ID, fieldID)
+	if err != nil || field == nil || field.Disclosure != database.FieldDisclosureReveal {
+		h.auditServerFieldReveal(server, user, fieldID, "", access.SecretRead, "error", "field is not revealable")
+		http.Error(w, "Field not found", http.StatusNotFound)
+		return
+	}
 	allowed := user.Role == "admin"
 	reason := "instance administrator"
 	revealCapability := access.SecretRead
@@ -785,14 +809,22 @@ func (h *WebHandler) RevealServerField(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		allowed, reason = view.Allowed && decision.Allowed, decision.Reason
-		if !decision.Allowed && !h.Store.ResolveGameDriver(server.GameType).SupportsWhitelist() {
+		driver := h.Store.ResolveGameDriver(server.GameType)
+		joinMode, modeErr := h.Store.GetServerJoinEnforcementMode(server.ID)
+		if modeErr != nil {
+			http.Error(w, "Could not evaluate server access", http.StatusInternalServerError)
+			return
+		}
+		whitelistEnabled := database.JoinWhitelistEnabled(joinMode, driver.SupportsWhitelist())
+		if !decision.Allowed && field.Key == "join_password" && !whitelistEnabled {
+			revealCapability = access.ServerJoin
 			join, joinErr := h.Store.EvaluateServerAccess(server.ID, user.Username, user.Groups, access.ServerJoin)
 			if joinErr != nil {
 				http.Error(w, "Could not evaluate server access", http.StatusInternalServerError)
 				return
 			}
 			if join.Allowed {
-				allowed, reason, revealCapability = view.Allowed, join.Reason, access.ServerJoin
+				allowed, reason = view.Allowed, join.Reason
 			}
 		}
 		if !view.Allowed {
@@ -802,7 +834,7 @@ func (h *WebHandler) RevealServerField(w http.ResponseWriter, r *http.Request) {
 	if allowed {
 		constraint, constraintErr := h.Engine.EvaluateConstraints(server, revealCapability, user)
 		if constraintErr != nil {
-			h.auditServerFieldReveal(server, user, fieldID, "", "error", "could not evaluate operational constraints")
+			h.auditServerFieldReveal(server, user, fieldID, "", revealCapability, "error", "could not evaluate operational constraints")
 			http.Error(w, "Could not evaluate server access", http.StatusInternalServerError)
 			return
 		}
@@ -811,32 +843,26 @@ func (h *WebHandler) RevealServerField(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if !allowed {
-		h.auditServerFieldReveal(server, user, fieldID, "", "denied", reason)
+		h.auditServerFieldReveal(server, user, fieldID, "", revealCapability, "denied", reason)
 		http.Error(w, "Secret access denied", http.StatusForbidden)
-		return
-	}
-	field, err := h.Store.GetServerField(server.ID, fieldID)
-	if err != nil || field == nil || field.Disclosure != database.FieldDisclosureReveal {
-		h.auditServerFieldReveal(server, user, fieldID, "", "error", "field is not revealable")
-		http.Error(w, "Field not found", http.StatusNotFound)
 		return
 	}
 	value, err := h.Store.GetServerFieldValue(server.ID, field.ID)
 	if err != nil {
-		h.auditServerFieldReveal(server, user, fieldID, field.Key, "error", "stored secret could not be opened")
+		h.auditServerFieldReveal(server, user, fieldID, field.Key, revealCapability, "error", "stored secret could not be opened")
 		http.Error(w, "Could not reveal server secret", http.StatusInternalServerError)
 		return
 	}
-	h.auditServerFieldReveal(server, user, fieldID, field.Key, "success", "secret revealed after explicit request")
+	h.auditServerFieldReveal(server, user, fieldID, field.Key, revealCapability, "success", "secret revealed after explicit request")
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]string{"value": value})
 }
 
-func (h *WebHandler) auditServerFieldReveal(server *database.Server, user *engine.UserEnv, fieldID int, fieldKey, result, reason string) {
+func (h *WebHandler) auditServerFieldReveal(server *database.Server, user *engine.UserEnv, fieldID int, fieldKey, capability, result, reason string) {
 	params, _ := json.Marshal(map[string]interface{}{"fieldId": fieldID, "fieldKey": fieldKey})
 	entry := &database.AuditLogEntry{
 		Timestamp: time.Now().UTC().Format(time.RFC3339), UserUsername: user.Username,
-		ServerName: server.Name, Action: access.SecretRead, Params: params,
+		ServerName: server.Name, Action: capability, Params: params,
 		Result: result, Reason: reason, Source: "web", ClientIP: user.ClientIP,
 		CountryCode: user.CountryCode,
 	}
@@ -1035,6 +1061,21 @@ func (h *WebHandler) HandleServerUpdate(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	fields, err = mergeJoinPasswordField(r, current.Fields, fields)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	joinEnforcement, err := database.NormalizeJoinEnforcementMode(r.FormValue("join_enforcement"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if joinEnforcement == database.JoinEnforcementWhitelist &&
+		!h.Store.ResolveGameDriver(gameType).SupportsWhitelist() {
+		http.Error(w, "This game type does not support managed whitelisting", http.StatusBadRequest)
+		return
+	}
 
 	if err := h.Store.UpdateServer(server); err != nil {
 		http.Error(w, "Failed to update server: "+err.Error(), http.StatusInternalServerError)
@@ -1043,6 +1084,13 @@ func (h *WebHandler) HandleServerUpdate(w http.ResponseWriter, r *http.Request) 
 	if err := h.Store.ReplaceServerFields(server.ID, fields); err != nil {
 		http.Error(w, "Failed to save server fields: "+err.Error(), http.StatusBadRequest)
 		return
+	}
+	if err := h.Store.SetServerJoinEnforcementMode(server.ID, joinEnforcement); err != nil {
+		http.Error(w, "Failed to save join access settings: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if h.AfterAccessChange != nil {
+		h.AfterAccessChange(server.ID)
 	}
 
 	tagsInput := strings.TrimSpace(r.FormValue("tags"))
@@ -1170,6 +1218,41 @@ func (h *WebHandler) parseServerFields(r *http.Request) ([]database.ServerField,
 		})
 	}
 	return fields, nil
+}
+
+func mergeJoinPasswordField(
+	r *http.Request,
+	existing []database.ServerField,
+	fields []database.ServerField,
+) ([]database.ServerField, error) {
+	for _, field := range fields {
+		if field.Key == "join_password" {
+			return nil, fmt.Errorf("join_password is managed in the Join access section")
+		}
+	}
+	var current *database.ServerField
+	for i := range existing {
+		if existing[i].Key == "join_password" {
+			copy := existing[i]
+			current = &copy
+			break
+		}
+	}
+	if r.FormValue("clear_join_password") == "on" {
+		return fields, nil
+	}
+	value := r.FormValue("join_password")
+	if current == nil && value == "" {
+		return fields, nil
+	}
+	field := database.ServerField{
+		Key: "join_password", Label: "Server password", Value: value,
+		Placement: database.FieldPlacementDetails, Disclosure: database.FieldDisclosureReveal,
+	}
+	if current != nil {
+		field.ID = current.ID
+	}
+	return append(fields, field), nil
 }
 
 // HandleServerDelete handles deleting a server.

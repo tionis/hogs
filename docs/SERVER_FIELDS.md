@@ -20,8 +20,13 @@ An instance administrator manages fields from a server's **Settings** tab.
 
 Reveal fields must use `details`; write-only fields must use `internal`. These
 constraints prevent a secret from accidentally becoming dashboard metadata.
-Join passwords are reveal fields. RCON passwords, API bearer tokens, and other
-management credentials are write-only fields.
+Join passwords are reveal fields with the reserved key `join_password`. Set or
+replace one under **Server → Settings → Join access**; it is intentionally not
+configured through the generic field editor. In shared-password admission mode,
+`server.join` can reveal only this field. RCON passwords, API bearer tokens,
+other reveal fields, and management credentials remain separate:
+operator-facing reveal fields require `secret.read`, while backend credentials
+are write-only fields.
 
 Secret field values use authenticated AES-GCM encryption at rest, bound to the
 server ID and field key. Ordinary reads return no secret value. Reveal responses

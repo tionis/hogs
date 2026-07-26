@@ -96,10 +96,43 @@
             render();
           })();
           </script>
+          <div class="card card-body mb-3">
+            <h2 class="h6">Join access</h2>
+            <div class="mb-3">
+              <label for="editJoinEnforcement" class="form-label">Admission method</label>
+              <select class="form-select" id="editJoinEnforcement" name="join_enforcement">
+                <option value="auto" {{if eq .JoinEnforcement "auto"}}selected{{end}}>
+                  Automatic — {{if .DriverSupportsWhitelist}}managed whitelist{{else}}shared password{{end}}
+                </option>
+                {{if .DriverSupportsWhitelist}}
+                <option value="whitelist" {{if eq .JoinEnforcement "whitelist"}}selected{{end}}>Managed whitelist</option>
+                {{end}}
+                <option value="password" {{if eq .JoinEnforcement "password"}}selected{{end}}>Shared password</option>
+              </select>
+              <div class="form-text">
+                Choose the method enabled in the game server itself. HOGS reconciles linked accounts only in managed-whitelist mode.
+                In shared-password mode, <code>server.join</code> allows a player to reveal the password below.
+              </div>
+            </div>
+            <div class="mb-2">
+              <label for="editJoinPassword" class="form-label">Server password</label>
+              <input type="password" class="form-control" id="editJoinPassword" name="join_password"
+                     autocomplete="new-password"
+                     placeholder="{{if .HasJoinPassword}}Password configured — leave blank to keep it{{else}}Enter the password players use to join{{end}}">
+              <div class="form-text">Enter the same password configured in the game server. HOGS stores it encrypted and discloses it after an audited reveal request; it does not rewrite the game’s native configuration.</div>
+            </div>
+            {{if .HasJoinPassword}}
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" id="clearJoinPassword" name="clear_join_password">
+              <label class="form-check-label" for="clearJoinPassword">Remove the configured server password</label>
+            </div>
+            {{end}}
+          </div>
           <div class="mb-3">
-            <label class="form-label">Server fields</label>
+            <label class="form-label">Additional server fields</label>
             <div id="editServerFieldsContainer">
               {{range .Server.Fields}}
+              {{if ne .Key "join_password"}}
               <div class="card card-body mb-2 server-field-row">
                 <input type="hidden" name="field_id" value="{{.ID}}">
                 <div class="row g-2">
@@ -122,9 +155,10 @@
                 </div>
               </div>
               {{end}}
+              {{end}}
             </div>
             <button type="button" class="btn btn-sm btn-secondary mt-2" onclick="addServerFieldRow()">+ Add Field</button>
-            <div class="form-text">Dashboard fields are public wherever the server is visible. Reveal fields require the <code>secret.read</code> capability. Internal write-only fields are for backend credentials.</div>
+            <div class="form-text">Dashboard fields are public wherever the server is visible. Other reveal fields require <code>secret.read</code>; <code>server.join</code> applies only to the dedicated server password above. Internal write-only fields are for backend credentials.</div>
           </div>
           <div class="mb-3">
             <label class="form-label">Advanced backend metadata</label>

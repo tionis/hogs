@@ -103,7 +103,12 @@ func (r *WhitelistReconciler) TriggerAll() {
 	}
 	for i := range servers {
 		driver := r.handler.Store.ResolveGameDriver(servers[i].GameType)
-		if driver.SupportsWhitelist() && driver.IdentityProvider != "" {
+		mode, modeErr := r.handler.Store.GetServerJoinEnforcementMode(servers[i].ID)
+		if modeErr != nil {
+			log.Printf("load join enforcement for server %d: %v", servers[i].ID, modeErr)
+			continue
+		}
+		if database.JoinWhitelistEnabled(mode, driver.SupportsWhitelist()) && driver.IdentityProvider != "" {
 			r.Trigger(servers[i].ID)
 		}
 	}
@@ -135,7 +140,11 @@ func (r *WhitelistReconciler) ReconcileServer(ctx context.Context, serverID int)
 	}
 	result := WhitelistReconcileResult{Server: server.Name}
 	driver := r.handler.Store.ResolveGameDriver(server.GameType)
-	if !driver.SupportsWhitelist() || driver.IdentityProvider == "" {
+	mode, err := r.handler.Store.GetServerJoinEnforcementMode(server.ID)
+	if err != nil {
+		return result, fmt.Errorf("load join enforcement: %w", err)
+	}
+	if !database.JoinWhitelistEnabled(mode, driver.SupportsWhitelist()) || driver.IdentityProvider == "" {
 		return result, nil
 	}
 	link, err := r.handler.Store.GetPterodactylLink(server.ID)

@@ -466,6 +466,7 @@ func TestStructuredServerFieldsRenderByPlacementAndRevealOnDemand(t *testing.T) 
 		{Key: "region", Label: "Region", Value: "Europe", Placement: database.FieldPlacementSummary, Disclosure: database.FieldDisclosurePlain},
 		{Key: "rules", Label: "Rules", Value: "Be kind", Placement: database.FieldPlacementDetails, Disclosure: database.FieldDisclosurePlain},
 		{Key: "join_password", Label: "Join password", Value: "extremely-secret-value", Placement: database.FieldPlacementDetails, Disclosure: database.FieldDisclosureReveal},
+		{Key: "operator_secret", Label: "Operator secret", Value: "not-a-player-secret", Placement: database.FieldPlacementDetails, Disclosure: database.FieldDisclosureReveal},
 		{Key: "api_token", Label: "API token", Value: "never-for-users", Placement: database.FieldPlacementInternal, Disclosure: database.FieldDisclosureWriteOnly},
 	}); err != nil {
 		t.Fatal(err)
@@ -505,7 +506,8 @@ func TestStructuredServerFieldsRenderByPlacementAndRevealOnDemand(t *testing.T) 
 			t.Errorf("detail page missing %q", expected)
 		}
 	}
-	if contains(detailBody, "extremely-secret-value") || contains(detailBody, "never-for-users") || contains(detailBody, "API token") {
+	if contains(detailBody, "extremely-secret-value") || contains(detailBody, "never-for-users") ||
+		contains(detailBody, "API token") || contains(detailBody, "Operator secret") {
 		t.Fatal("secret value or internal field leaked into the detail HTML")
 	}
 
@@ -513,10 +515,13 @@ func TestStructuredServerFieldsRenderByPlacementAndRevealOnDemand(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	var revealID int
+	var revealID, operatorSecretID int
 	for _, field := range fields {
 		if field.Key == "join_password" {
 			revealID = field.ID
+		}
+		if field.Key == "operator_secret" {
+			operatorSecretID = field.ID
 		}
 	}
 	revealReq := httptest.NewRequest(http.MethodPost, "/servers/Secret%20Server/fields/"+strconv.Itoa(revealID)+"/reveal", nil)
@@ -530,10 +535,27 @@ func TestStructuredServerFieldsRenderByPlacementAndRevealOnDemand(t *testing.T) 
 	if !strings.Contains(reveal.Header().Get("Cache-Control"), "no-store") {
 		t.Fatalf("reveal cache policy = %q", reveal.Header().Get("Cache-Control"))
 	}
+	operatorReq := httptest.NewRequest(http.MethodPost, "/servers/Secret%20Server/fields/"+strconv.Itoa(operatorSecretID)+"/reveal", nil)
+	operatorReq = mux.SetURLVars(operatorReq, map[string]string{"serverName": "Secret Server", "fieldID": strconv.Itoa(operatorSecretID)})
+	operatorReq.AddCookie(cookie)
+	operatorReveal := httptest.NewRecorder()
+	handler.RevealServerField(operatorReveal, operatorReq)
+	if operatorReveal.Code != http.StatusForbidden || contains(operatorReveal.Body.String(), "not-a-player-secret") {
+		t.Fatalf("server.join revealed an operator secret: status=%d body=%s", operatorReveal.Code, operatorReveal.Body.String())
+	}
 	entries, err := store.ListAuditLog(10, 0)
 	if err != nil || len(entries) == 0 || entries[0].Action != access.SecretRead ||
 		contains(string(entries[0].Params), "extremely-secret-value") {
 		t.Fatalf("reveal audit=%#v err=%v", entries, err)
+	}
+	foundJoinReveal := false
+	for _, entry := range entries {
+		if entry.Action == access.ServerJoin && entry.Result == "success" {
+			foundJoinReveal = true
+		}
+	}
+	if !foundJoinReveal {
+		t.Fatalf("successful join-password reveal was not audited as server.join: %#v", entries)
 	}
 
 	adminCookie := createTestSession(t, store, authenticator, "admin@example.test", "admin")
@@ -547,6 +569,14 @@ func TestStructuredServerFieldsRenderByPlacementAndRevealOnDemand(t *testing.T) 
 	}
 	if contains(settings.Body.String(), "extremely-secret-value") || contains(settings.Body.String(), "never-for-users") {
 		t.Fatal("server settings preloaded a reveal or write-only value")
+	}
+	for _, expected := range []string{
+		"Join access", "Admission method", "Server password",
+		"Password configured — leave blank to keep it",
+	} {
+		if !contains(settings.Body.String(), expected) {
+			t.Errorf("server settings missing %q", expected)
+		}
 	}
 }
 
@@ -676,6 +706,78 @@ func TestServerSettingsArePartOfServerView(t *testing.T) {
 	}
 	if contains(body, "Your Server Access") || contains(body, "Manage Server Access") {
 		t.Error("settings page duplicates the dedicated access section")
+	}
+}
+
+func TestFactorioCanUsePasswordAdmissionInsteadOfManagedWhitelist(t *testing.T) {
+	handler, store, authenticator := testWebHandler(t)
+	if err := store.CreateServer(&database.Server{
+		Name: "Password Factorio", GameType: "factorio", State: "online",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	server, _ := store.GetServerByName("Password Factorio")
+
+	form := url.Values{
+		"id":               {strconv.Itoa(server.ID)},
+		"name":             {server.Name},
+		"game_type":        {"factorio"},
+		"state":            {"online"},
+		"join_enforcement": {database.JoinEnforcementPassword},
+		"join_password":    {"factory-secret"},
+	}
+	updateReq := httptest.NewRequest(http.MethodPost, "/admin/servers/update", strings.NewReader(form.Encode()))
+	updateReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	update := httptest.NewRecorder()
+	handler.HandleServerUpdate(update, updateReq)
+	if update.Code != http.StatusFound {
+		t.Fatalf("update status=%d body=%s", update.Code, update.Body.String())
+	}
+	mode, err := store.GetServerJoinEnforcementMode(server.ID)
+	if err != nil || mode != database.JoinEnforcementPassword {
+		t.Fatalf("join mode=%q err=%v", mode, err)
+	}
+	fields, err := store.ListServerFields(server.ID)
+	if err != nil || len(fields) != 1 || fields[0].Key != "join_password" {
+		t.Fatalf("join password fields=%#v err=%v", fields, err)
+	}
+
+	if err := store.CreatePterodactylLink(&database.PterodactylLink{
+		ServerID: server.ID, PteroServerID: "agent:password-factorio",
+		AllowedActions: `[]`, Node: "factorio-node",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetServerAccessGrant(&database.ServerAccessGrant{
+		ServerID: server.ID, SubjectType: "user", Subject: "engineer", Effect: "allow",
+		Capabilities: []string{access.View, access.ServerJoin},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/Password%20Factorio", nil)
+	req = mux.SetURLVars(req, map[string]string{"serverName": server.Name})
+	engineerCookie := createTestSession(t, store, authenticator, "engineer", "user")
+	req.AddCookie(engineerCookie)
+	recorder := httptest.NewRecorder()
+	handler.ServerDetail(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("detail status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	body := recorder.Body.String()
+	if contains(body, `/servers/Password%20Factorio/whitelist`) ||
+		contains(body, "is whitelisted") || !contains(body, "Server password") {
+		t.Fatalf("password admission rendered incorrectly: %s", body)
+	}
+
+	revealReq := httptest.NewRequest(http.MethodPost, "/servers/Password%20Factorio/fields/"+strconv.Itoa(fields[0].ID)+"/reveal", nil)
+	revealReq = mux.SetURLVars(revealReq, map[string]string{
+		"serverName": server.Name, "fieldID": strconv.Itoa(fields[0].ID),
+	})
+	revealReq.AddCookie(engineerCookie)
+	reveal := httptest.NewRecorder()
+	handler.RevealServerField(reveal, revealReq)
+	if reveal.Code != http.StatusOK || !contains(reveal.Body.String(), "factory-secret") {
+		t.Fatalf("join password reveal status=%d body=%s", reveal.Code, reveal.Body.String())
 	}
 }
 

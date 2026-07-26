@@ -40,6 +40,13 @@ file codecs. The worker uses RCON while those servers run and their files while
 they are stopped. Minecraft uses object entries in `whitelist.json`; Factorio
 uses a string array in `server-whitelist.json`.
 
+Whitelist support is a driver capability, not a claim that every instance has
+enabled it. Each server selects automatic, managed-whitelist, or shared-password
+admission in its Settings tab. Automatic uses the whitelist when the driver
+supports one and otherwise uses the shared password. Selecting shared password
+stops HOGS reconciliation even for Minecraft or Factorio, matching deployments
+where the native whitelist has been disabled.
+
 Valheim has no dedicated-server command for editing or reloading its allowlist.
 Its embedded driver safely reads and atomically updates `permittedlist.txt`
 while the server is either running or stopped. Changes saved while it runs are

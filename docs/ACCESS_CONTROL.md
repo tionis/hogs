@@ -40,11 +40,14 @@ audited request; write-only backend credentials are never revealable. `command`
 covers only commands separately approved for the server. Arbitrary console
 input requires `console.write`; read-only console users cannot send it.
 `server.join` expresses the ability to join the game. For embedded game types
-with whitelist support, HOGS derives the desired whitelist from this capability
-and verified identities synchronized from Authentik. For games without a
-per-player whitelist, the same capability permits an explicit reveal of the
-shared join secret; `secret.read` remains the broader explicit secret
-capability. The server dashboard tells authenticated users whether their
+with whitelist support, a server can select managed-whitelist admission and
+HOGS derives the desired whitelist from this capability and verified identities
+synchronized from Authentik. A whitelist-capable game can instead select
+shared-password admission when its native whitelist is disabled. For games
+without a per-player whitelist, shared-password admission is the automatic
+default. In password mode, `server.join` permits an explicit reveal of only the
+reserved `join_password` field; other reveal fields still require
+`secret.read`. The server dashboard tells authenticated users whether their
 verified game account is whitelisted, whether they still need to link one, or
 whether they lack join access. `whitelist.manage` lets server administrators
 inspect reconciliation and maintain additional manual entries; the Whitelist
@@ -96,12 +99,14 @@ A verified game identity is synchronized from Authentik's `game_identities`
 user attribute through the HOGS SCIM extension. Users manage source links in
 the configured identity-provider page; HOGS presents them read-only.
 
-For each whitelist-capable server, HOGS combines active SCIM users, their
-current groups, `server.join` grants, and the embedded game driver's identity
-mapping into a desired roster. Reconciliation runs after SCIM and ACL changes,
-at startup, on a timer, and on administrator request. An entry is recorded as
-owned only when HOGS adds it. Revocation removes owned entries, while entries
-that predated reconciliation or were added directly remain untouched.
+For each server using managed-whitelist admission, HOGS combines active SCIM
+users, their current groups, `server.join` grants, and the embedded game
+driver's identity mapping into a desired roster. Reconciliation runs after SCIM
+and ACL changes, at startup, on a timer, and on administrator request. An entry
+is recorded as owned only when HOGS adds it. Revocation removes owned entries,
+while entries that predated reconciliation or were added directly remain
+untouched. Switching a server to password admission pauses reconciliation
+without deleting its native whitelist file or HOGS ownership records.
 
 Whitelist commands are game-type adapters, not administrator-provided command
 templates. Minecraft Java and Factorio use their native whitelist commands and

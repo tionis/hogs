@@ -438,7 +438,7 @@
             <span class="metadata-value">{{$field.Value}}</span>
          </li>
          {{end}}
-         {{if and $.CanRevealSecrets (eq $field.Placement "details") (eq $field.Disclosure "reveal")}}
+         {{if and (or $.CanRevealSecrets (and $.CanRevealJoinPassword (eq $field.Key "join_password"))) (eq $field.Placement "details") (eq $field.Disclosure "reveal")}}
          <li class="list-group-item metadata-list-item">
            <strong class="metadata-value">{{$field.Label}}</strong>
            <span class="metadata-value-with-action">

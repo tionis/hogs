@@ -101,7 +101,17 @@ func TestWhitelistReconciliationPreservesExternalEntriesAndRemovesOwnedRevocatio
 		t.Fatalf("managed ownership=%#v", owned)
 	}
 
+	if err := store.SetServerJoinEnforcementMode(server.ID, database.JoinEnforcementPassword); err != nil {
+		t.Fatal(err)
+	}
 	if err := store.DeleteServerAccessGrant(grant.ID, server.ID); err != nil {
+		t.Fatal(err)
+	}
+	disabled, err := reconciler.ReconcileServer(context.Background(), server.ID)
+	if err != nil || disabled.Removed != 0 || len(memory.entries) != 2 {
+		t.Fatalf("disabled reconciliation=%#v entries=%#v err=%v", disabled, memory.entries, err)
+	}
+	if err := store.SetServerJoinEnforcementMode(server.ID, database.JoinEnforcementAuto); err != nil {
 		t.Fatal(err)
 	}
 	second, err := reconciler.ReconcileServer(context.Background(), server.ID)
