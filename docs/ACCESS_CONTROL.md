@@ -44,10 +44,13 @@ with whitelist support, HOGS derives the desired whitelist from this capability
 and verified identities synchronized from Authentik. For games without a
 per-player whitelist, the same capability permits an explicit reveal of the
 shared join secret; `secret.read` remains the broader explicit secret
-capability. `whitelist.manage` lets
-server administrators inspect reconciliation and maintain additional manual
-entries. HOGS records ownership only when it adds an entry itself and therefore
-never removes pre-existing or externally managed entries.
+capability. The server dashboard tells authenticated users whether their
+verified game account is whitelisted, whether they still need to link one, or
+whether they lack join access. `whitelist.manage` lets server administrators
+inspect reconciliation and maintain additional manual entries; the Whitelist
+tab is hidden from ordinary users and from games whose driver has no real
+per-player whitelist. HOGS records ownership only when it adds an entry itself
+and therefore never removes pre-existing or externally managed entries.
 
 Structured field placement and secret handling are documented in
 [server fields and secrets](SERVER_FIELDS.md).

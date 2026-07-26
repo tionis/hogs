@@ -894,8 +894,11 @@ func TestServerTabsAndAccessPage(t *testing.T) {
 			t.Fatalf("missing server tab %q", tab)
 		}
 	}
-	if contains(body, "Your Server Access") || contains(body, "Manage Server Access") {
+	if contains(body, "Manage Server Access") {
 		t.Fatal("access management must not render on the dashboard")
+	}
+	if contains(body, "Server Actions") {
+		t.Fatal("server actions card rendered without a visible action")
 	}
 
 	whitelistReq := httptest.NewRequest(http.MethodGet, "/servers/OrderedSrv/whitelist", nil)
@@ -908,7 +911,7 @@ func TestServerTabsAndAccessPage(t *testing.T) {
 	}
 	whitelistBody := whitelistRecorder.Body.String()
 	for _, expected := range []string{
-		"Automatic server access", "Manage server whitelist", "Reconcile now",
+		"Manage server whitelist", "Reconcile now",
 		"Minecraft username", "Ownership", "Add manual entry",
 	} {
 		if !contains(whitelistBody, expected) {
@@ -917,6 +920,9 @@ func TestServerTabsAndAccessPage(t *testing.T) {
 	}
 	if contains(whitelistBody, `id="whitelist-username"`) {
 		t.Fatal("whitelist page contains a second self-service identity editor")
+	}
+	if contains(whitelistBody, "Automatic server access") {
+		t.Fatal("whitelist page still contains the retired self-service access card")
 	}
 
 	accessReq := httptest.NewRequest(http.MethodGet, "/servers/OrderedSrv/access", nil)
@@ -939,6 +945,87 @@ func TestServerTabsAndAccessPage(t *testing.T) {
 			t.Fatalf("access-page heading %q is out of order", heading)
 		}
 		previous = position
+	}
+}
+
+func TestServerDashboardShowsManagedWhitelistAccessState(t *testing.T) {
+	tests := []struct {
+		name         string
+		capabilities []string
+		identity     *database.GameIdentity
+		expected     string
+		expectLink   bool
+	}{
+		{
+			name:         "linked account",
+			capabilities: []string{access.View, access.ServerJoin},
+			identity: &database.GameIdentity{
+				GameType: "minecraft", Username: "TestPlayer", ExternalID: "test-player-uuid",
+			},
+			expected:   `Your Minecraft Account "<strong>TestPlayer</strong>" is whitelisted`,
+			expectLink: false,
+		},
+		{
+			name:         "missing account",
+			capabilities: []string{access.View, access.ServerJoin},
+			expected:     "You are allowed to join but have not yet linked your Minecraft Account",
+			expectLink:   true,
+		},
+		{
+			name:         "join denied",
+			capabilities: []string{access.View},
+			expected:     "You are not allowed to join the server",
+			expectLink:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler, store, authenticator := testWebHandler(t)
+			handler.Config.GameIdentitySettingsURL = "https://identity.example.test/settings"
+			if err := store.CreateServer(&database.Server{
+				Name: "JoinStateSrv", GameType: "minecraft", State: "online",
+			}); err != nil {
+				t.Fatal(err)
+			}
+			server, _ := store.GetServerByName("JoinStateSrv")
+			if err := store.CreatePterodactylLink(&database.PterodactylLink{
+				ServerID: server.ID, PteroServerID: "agent:join-state",
+				AllowedActions: `[]`, Node: "join-state-node",
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.SetServerAccessGrant(&database.ServerAccessGrant{
+				ServerID: server.ID, SubjectType: "user", Subject: "player", Effect: "allow",
+				Capabilities: tt.capabilities,
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if tt.identity != nil {
+				if err := store.ReplaceSCIMGameIdentities("player", []database.GameIdentity{*tt.identity}); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			req := httptest.NewRequest(http.MethodGet, "/JoinStateSrv", nil)
+			req = mux.SetURLVars(req, map[string]string{"serverName": "JoinStateSrv"})
+			req.AddCookie(createTestSession(t, store, authenticator, "player", "user"))
+			recorder := httptest.NewRecorder()
+			handler.ServerDetail(recorder, req)
+			if recorder.Code != http.StatusOK {
+				t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+			}
+			body := recorder.Body.String()
+			if !contains(body, tt.expected) {
+				t.Fatalf("dashboard missing %q: %s", tt.expected, body)
+			}
+			if got := contains(body, `href="https://identity.example.test/settings"`); got != tt.expectLink {
+				t.Fatalf("identity link present=%t, want %t", got, tt.expectLink)
+			}
+			if contains(body, `/servers/JoinStateSrv/whitelist`) {
+				t.Fatal("ordinary user can see the administrative whitelist tab")
+			}
+		})
 	}
 }
 

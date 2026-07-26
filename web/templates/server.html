@@ -24,7 +24,7 @@
       <a class="nav-link {{if eq .Page "dashboard"}}active{{end}}" href="/{{.Server.Name}}">Dashboard</a>
       {{if .ShowConsole}}<a class="nav-link {{if eq .Page "console"}}active{{end}}" href="/servers/{{.Server.Name}}/console">Console</a>{{end}}
       {{if .ShowFiles}}<a class="nav-link {{if eq .Page "files"}}active{{end}}" href="/servers/{{.Server.Name}}/files">Files</a>{{end}}
-      {{if or .ServerJoin .WhitelistManage}}<a class="nav-link {{if eq .Page "whitelist"}}active{{end}}" href="/servers/{{.Server.Name}}/whitelist">Whitelist</a>{{end}}
+      {{if .WhitelistManage}}<a class="nav-link {{if eq .Page "whitelist"}}active{{end}}" href="/servers/{{.Server.Name}}/whitelist">Whitelist</a>{{end}}
       {{if .Authenticated}}<a class="nav-link {{if eq .Page "access"}}active{{end}}" href="/servers/{{.Server.Name}}/access">Access</a>{{end}}
       {{if or .BackupList .BackupCreate .BackupRestore}}<a class="nav-link {{if eq .Page "backups"}}active{{end}}" href="/servers/{{.Server.Name}}/backups">Backups</a>{{end}}
       {{if .AutomationManage}}<a class="nav-link {{if eq .Page "automation"}}active{{end}}" href="/servers/{{.Server.Name}}/automation">Automation</a>{{end}}
@@ -68,15 +68,6 @@
   </div>
 </div>
 {{else if eq .Page "whitelist"}}
-{{if .ServerJoin}}
-<div class="card mb-4">
-  <div class="card-header">Automatic server access</div>
-  <div class="card-body">
-    <p class="mb-3">Your <code>server.join</code> access is enforced automatically using the verified {{.Server.GameType}} identity synchronized from the identity provider.</p>
-    {{if .GameIdentitySettingsURL}}<a class="btn btn-outline-secondary" href="{{.GameIdentitySettingsURL}}" rel="noopener">Manage linked game accounts</a>{{end}}
-  </div>
-</div>
-{{end}}
 {{if .WhitelistManage}}
 <div class="card mb-4">
   <div class="card-header d-flex justify-content-between align-items-center">
@@ -476,11 +467,10 @@
        </ul>
      </div>
 
-     {{if .PteroLink}}
+     {{if .ShowServerActions}}
      <div class="card mb-4">
        <div class="card-header">Server Actions</div>
        <div class="card-body">
-         {{if .Authenticated}}
          <div class="d-flex flex-wrap gap-2 mb-3">
            {{if inList "start" .AllowedActions}}<button type="button" class="btn btn-success btn-sm" onclick="runServerAction('start', this)">Start</button>{{end}}
            {{if inList "stop" .AllowedActions}}<button type="button" class="btn btn-danger btn-sm" onclick="runServerAction('stop', this)">Stop</button>{{end}}
@@ -498,8 +488,23 @@
          {{end}}
          {{end}}
          {{end}}
+       </div>
+     </div>
+     {{end}}
+
+     {{if and .Authenticated .WhitelistManaged}}
+     <div class="card mb-4">
+       <div class="card-header">Your Server Access</div>
+       <div class="card-body">
+         {{if .ServerJoin}}
+           {{if .HasJoinAccount}}
+           <p class="mb-0">Your {{.JoinAccountType}} Account "<strong>{{.JoinAccountUsername}}</strong>" is whitelisted</p>
+           {{else}}
+           <p>You are allowed to join but have not yet linked your {{.JoinAccountType}} Account</p>
+           {{if .GameIdentitySettingsURL}}<a class="btn btn-sm btn-outline-primary" href="{{.GameIdentitySettingsURL}}" rel="noopener">Link {{.JoinAccountType}} Account</a>{{end}}
+           {{end}}
          {{else}}
-         <p class="text-muted small mb-0">Log in to access server actions.</p>
+         <p class="mb-0">You are not allowed to join the server</p>
          {{end}}
        </div>
      </div>

@@ -79,6 +79,15 @@ func AvailableBackgroundTags(gameTypes []string) []BackgroundTagOption {
 	return options
 }
 
+func stringSliceContains(values []string, candidate string) bool {
+	for _, value := range values {
+		if value == candidate {
+			return true
+		}
+	}
+	return false
+}
+
 func adminGameTypes(servers []database.Server) []string {
 	seen := make(map[string]struct{})
 	for _, info := range query.AllGameInfo() {
@@ -448,6 +457,8 @@ func (h *WebHandler) renderServerPage(w http.ResponseWriter, r *http.Request, pa
 	// Check if agent is configured for this server
 	hasAgent := false
 	link, _ := h.Store.GetPterodactylLink(server.ID)
+	driver := h.Store.ResolveGameDriver(server.GameType)
+	whitelistManaged := link != nil && driver.SupportsWhitelist() && driver.IdentityProvider != ""
 	if link != nil && link.Node != "" {
 		agent, _ := h.Store.GetAgentByNodeName(link.Node)
 		if agent != nil {
@@ -469,6 +480,7 @@ func (h *WebHandler) renderServerPage(w http.ResponseWriter, r *http.Request, pa
 		ServerTags                  []string
 		Agents                      []database.Agent
 		AllowedActions              []string
+		ShowServerActions           bool
 		HasAgent                    bool
 		ShowConsole                 bool
 		ConsoleWrite                bool
@@ -482,7 +494,11 @@ func (h *WebHandler) renderServerPage(w http.ResponseWriter, r *http.Request, pa
 		ServerConstraintMaxPriority int
 		AccessCatalog               []access.Capability
 		ServerJoin                  bool
+		WhitelistManaged            bool
 		WhitelistManage             bool
+		JoinAccountType             string
+		JoinAccountUsername         string
+		HasJoinAccount              bool
 		IdentityCaseSensitive       bool
 		IdentityLabel               string
 		GameIdentitySettingsURL     string
@@ -509,6 +525,7 @@ func (h *WebHandler) renderServerPage(w http.ResponseWriter, r *http.Request, pa
 		ServerTags:                  []string{},
 		Agents:                      []database.Agent{},
 		AllowedActions:              nil,
+		WhitelistManaged:            whitelistManaged,
 		HasAgent:                    hasAgent,
 		ShowConsole:                 false,
 		ConsoleWrite:                false,
@@ -524,8 +541,9 @@ func (h *WebHandler) renderServerPage(w http.ResponseWriter, r *http.Request, pa
 		AutomationLogs:              map[int][]database.CronJobLog{},
 		Page:                        page,
 		FilesPage:                   page == "files",
-		IdentityCaseSensitive:       h.Store.ResolveGameDriver(server.GameType).IdentityCaseSensitive,
-		IdentityLabel:               h.Store.ResolveGameDriver(server.GameType).IdentityFieldLabel(),
+		IdentityCaseSensitive:       driver.IdentityCaseSensitive,
+		IdentityLabel:               driver.IdentityFieldLabel(),
+		JoinAccountType:             driver.IdentityAccountType(),
 		GameIdentitySettingsURL:     h.Config.GameIdentitySettingsURL,
 	}
 	if isAuthenticated {
@@ -574,16 +592,24 @@ func (h *WebHandler) renderServerPage(w http.ResponseWriter, r *http.Request, pa
 			automationDecision, _ = h.Store.EvaluateServerAccess(server.ID, userEnv.Username, userEnv.Groups, access.AutomationManage)
 		}
 		data.ServerJoin = serverJoinDecision.Allowed
+		if whitelistManaged {
+			identity, _ := h.Store.GetGameIdentity(userEnv.Username, driver.IdentityProvider)
+			if identity != nil && identity.Source == "scim" {
+				if _, valid := driver.AuthentikIdentity(identity.Username, identity.ExternalID); valid {
+					data.HasJoinAccount = true
+					data.JoinAccountUsername = identity.Username
+				}
+			}
+		}
 		data.BackupList = backupListDecision.Allowed
 		data.BackupCreate = backupCreateDecision.Allowed
 		data.BackupRestore = backupRestoreDecision.Allowed
 		data.CanRevealSecrets = secretReadDecision.Allowed
-		if !h.Store.ResolveGameDriver(server.GameType).SupportsWhitelist() {
+		if !driver.SupportsWhitelist() {
 			data.CanRevealSecrets = data.CanRevealSecrets || data.ServerJoin
 		}
 		data.AutomationManage = automationDecision.Allowed
-		if !h.Store.ResolveGameDriver(server.GameType).SupportsWhitelist() {
-			data.ServerJoin = false
+		if !whitelistManaged {
 			data.WhitelistManage = false
 		}
 		management, _ := h.Store.GetServerManagement(server.ID)
@@ -643,6 +669,20 @@ func (h *WebHandler) renderServerPage(w http.ResponseWriter, r *http.Request, pa
 		}
 	}
 	data.AllowedActions = allowedActions
+	for _, action := range allowedActions {
+		if action == "start" || action == "stop" || action == "restart" {
+			data.ShowServerActions = true
+			break
+		}
+	}
+	if !data.ShowServerActions {
+		for _, command := range data.PteroCommands {
+			if stringSliceContains(allowedActions, "command:"+command.Command) {
+				data.ShowServerActions = true
+				break
+			}
+		}
+	}
 
 	switch page {
 	case "dashboard":
@@ -653,7 +693,7 @@ func (h *WebHandler) renderServerPage(w http.ResponseWriter, r *http.Request, pa
 		}
 	case "files":
 	case "whitelist":
-		if !data.ServerJoin && !data.WhitelistManage {
+		if !data.WhitelistManaged || !data.WhitelistManage {
 			http.Error(w, "Whitelist access denied", http.StatusForbidden)
 			return
 		}

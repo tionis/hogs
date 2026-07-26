@@ -208,10 +208,11 @@ func init() {
 			maxPlayers, err := strconv.Atoi(matches[2])
 			return players, maxPlayers, err == nil
 		},
-		ValidateIdentity: minecraftUsername.MatchString,
-		ResolveIdentity:  resolveMinecraftIdentity,
-		IdentityLabel:    "Minecraft username",
-		IdentityProvider: "minecraft",
+		ValidateIdentity:     minecraftUsername.MatchString,
+		ResolveIdentity:      resolveMinecraftIdentity,
+		IdentityLabel:        "Minecraft username",
+		IdentityAccountLabel: "Minecraft",
+		IdentityProvider:     "minecraft",
 		Whitelist: &WhitelistDriver{
 			Commands: &CommandWhitelistDriver{
 				ListCommand:   "whitelist list",
@@ -257,9 +258,10 @@ func init() {
 			}
 			return players, 0, true
 		},
-		ValidateIdentity: validFactorioUsername,
-		IdentityLabel:    "Factorio username",
-		IdentityProvider: "factorio",
+		ValidateIdentity:     validFactorioUsername,
+		IdentityLabel:        "Factorio username",
+		IdentityAccountLabel: "Factorio",
+		IdentityProvider:     "factorio",
 		Whitelist: &WhitelistDriver{
 			Commands: &CommandWhitelistDriver{
 				ListCommand:   "/whitelist get",
@@ -311,6 +313,7 @@ func init() {
 		ValidateIdentity:      validValheimPlatformID,
 		IdentityCaseSensitive: true,
 		IdentityLabel:         "Platform User ID",
+		IdentityAccountLabel:  "Steam",
 		IdentityProvider:      "steam",
 		IdentityFromProvider: func(_ string, subject string) ResolvedIdentity {
 			return ResolvedIdentity{Username: "Steam_" + subject, ExternalID: subject}

@@ -78,6 +78,7 @@ type Driver struct {
 	ResolveIdentity       IdentityResolver
 	IdentityCaseSensitive bool
 	IdentityLabel         string
+	IdentityAccountLabel  string
 	// IdentityProvider is the key in Authentik's game_identities user
 	// attribute. IdentityFromProvider converts that provider record into the
 	// identifier expected by the game.
@@ -181,4 +182,14 @@ func (d Driver) IdentityFieldLabel() string {
 		return d.IdentityLabel
 	}
 	return "In-game username"
+}
+
+func (d Driver) IdentityAccountType() string {
+	if d.IdentityAccountLabel != "" {
+		return d.IdentityAccountLabel
+	}
+	if d.DisplayName != "" {
+		return d.DisplayName
+	}
+	return "Game"
 }
