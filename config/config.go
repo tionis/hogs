@@ -36,9 +36,10 @@ type Config struct {
 	BootstrapAdminAPIKeyName string
 
 	// OIDC Role Configuration
-	OIDCAdminGroup  string
-	OIDCUserGroup   string
-	OIDCGroupsClaim string
+	OIDCAdminGroup          string
+	OIDCUserGroup           string
+	OIDCGroupsClaim         string
+	GameIdentitySettingsURL string
 
 	// OIDC Back-Channel Logout
 	OIDCBackChannelLogoutEnabled bool
@@ -115,9 +116,10 @@ func LoadConfig() *Config {
 		BootstrapAdminAPIKey:     getEnv("BOOTSTRAP_ADMIN_API_KEY", ""),
 		BootstrapAdminAPIKeyName: getEnv("BOOTSTRAP_ADMIN_API_KEY_NAME", "gandalf"),
 
-		OIDCAdminGroup:  getEnv("OIDC_ADMIN_GROUP", "admins"),
-		OIDCUserGroup:   getEnv("OIDC_USER_GROUP", ""),
-		OIDCGroupsClaim: getEnv("OIDC_GROUPS_CLAIM", "groups"),
+		OIDCAdminGroup:          getEnv("OIDC_ADMIN_GROUP", "admins"),
+		OIDCUserGroup:           getEnv("OIDC_USER_GROUP", ""),
+		OIDCGroupsClaim:         getEnv("OIDC_GROUPS_CLAIM", "groups"),
+		GameIdentitySettingsURL: getEnv("HOGS_GAME_IDENTITY_SETTINGS_URL", ""),
 
 		OIDCBackChannelLogoutEnabled: getEnv("OIDC_BACKCHANNEL_LOGOUT", "true") == "true",
 

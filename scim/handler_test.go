@@ -78,6 +78,65 @@ func TestCreateUserAdoptsOIDCIdentityAndAuthentikUsername(t *testing.T) {
 	}
 }
 
+func TestSCIMGameIdentitiesReplaceOnlyProviderManagedRecords(t *testing.T) {
+	handler, store := testHandler(t)
+	recorder := httptest.NewRecorder()
+	handler.CreateUser(recorder, scimRequest(t, http.MethodPost, "/scim/v2/Users", map[string]interface{}{
+		"userName":   "player",
+		"externalId": "stable-player",
+		"active":     true,
+		GameIdentityExtensionURN: map[string]interface{}{
+			"gameIdentities": map[string]interface{}{
+				"minecraft": map[string]interface{}{
+					"provider": "minecraft", "subject": "minecraft-uuid",
+					"username": "Builder_42", "verified": true,
+				},
+				"unverified": map[string]interface{}{
+					"provider": "steam", "subject": "123",
+					"username": "Ignored", "verified": false,
+				},
+			},
+		},
+	}))
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	identity, err := store.GetGameIdentity("player", "minecraft")
+	if err != nil || identity == nil {
+		t.Fatalf("minecraft identity=%#v err=%v", identity, err)
+	}
+	if identity.Username != "Builder_42" || identity.ExternalID != "minecraft-uuid" || identity.Source != "scim" {
+		t.Fatalf("identity=%#v", identity)
+	}
+	if ignored, _ := store.GetGameIdentity("player", "steam"); ignored != nil {
+		t.Fatalf("unverified identity was stored: %#v", ignored)
+	}
+
+	if err := store.SetGameIdentity(&database.GameIdentity{
+		UserUsername: "player", GameType: "factorio", Username: "Manual",
+		Source: "admin",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	user, _ := store.GetUserByUsername("player")
+	replace := httptest.NewRecorder()
+	request := scimRequest(t, http.MethodPut, "/scim/v2/Users/1", map[string]interface{}{
+		"userName": "player", "externalId": "stable-player", "active": true,
+		GameIdentityExtensionURN: map[string]interface{}{"gameIdentities": map[string]interface{}{}},
+	})
+	request = mux.SetURLVars(request, map[string]string{"id": fmt.Sprint(user.ID)})
+	handler.ReplaceUser(replace, request)
+	if replace.Code != http.StatusOK {
+		t.Fatalf("replace status=%d body=%s", replace.Code, replace.Body.String())
+	}
+	if removed, _ := store.GetGameIdentity("player", "minecraft"); removed != nil {
+		t.Fatalf("stale SCIM identity remains: %#v", removed)
+	}
+	if manual, _ := store.GetGameIdentity("player", "factorio"); manual == nil || manual.Source != "admin" {
+		t.Fatalf("manual identity was removed: %#v", manual)
+	}
+}
+
 func TestAuthentikGroupFilterAdoptionAndMembershipReplacement(t *testing.T) {
 	handler, store := testHandler(t)
 	user, err := store.CreateUser("player", "user")

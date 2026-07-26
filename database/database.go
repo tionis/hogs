@@ -423,6 +423,32 @@ func (s *Store) DeleteGameIdentity(username, gameType string) error {
 	return err
 }
 
+// ReplaceSCIMGameIdentities atomically replaces only identities supplied by the
+// identity provider. Locally created legacy records are deliberately left
+// untouched, but automatic whitelist reconciliation ignores them.
+func (s *Store) ReplaceSCIMGameIdentities(username string, identities []GameIdentity) error {
+	tx, err := s.DB.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec("DELETE FROM game_identities WHERE user_username=? AND source='scim'", username); err != nil {
+		return err
+	}
+	for _, identity := range identities {
+		if _, err := tx.Exec(`INSERT INTO game_identities
+			(user_username,game_type,username,external_id,source,updated_at)
+			VALUES(?,?,?,?, 'scim', CURRENT_TIMESTAMP)
+			ON CONFLICT(user_username,game_type) DO UPDATE SET
+			  username=excluded.username,external_id=excluded.external_id,
+			  source='scim',updated_at=CURRENT_TIMESTAMP`,
+			username, identity.GameType, identity.Username, identity.ExternalID); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
 func (s *Store) GetUserWhitelist(username string, serverID int) (*UserWhitelist, error) {
 	row := s.DB.QueryRow("SELECT id, user_username, server_id, username FROM user_whitelists WHERE user_username = ? AND server_id = ?", username, serverID)
 	var uw UserWhitelist

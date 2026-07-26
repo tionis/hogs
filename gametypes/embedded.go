@@ -211,6 +211,7 @@ func init() {
 		ValidateIdentity: minecraftUsername.MatchString,
 		ResolveIdentity:  resolveMinecraftIdentity,
 		IdentityLabel:    "Minecraft username",
+		IdentityProvider: "minecraft",
 		Whitelist: &WhitelistDriver{
 			Commands: &CommandWhitelistDriver{
 				ListCommand:   "whitelist list",
@@ -258,6 +259,7 @@ func init() {
 		},
 		ValidateIdentity: validFactorioUsername,
 		IdentityLabel:    "Factorio username",
+		IdentityProvider: "factorio",
 		Whitelist: &WhitelistDriver{
 			Commands: &CommandWhitelistDriver{
 				ListCommand:   "/whitelist get",
@@ -309,6 +311,10 @@ func init() {
 		ValidateIdentity:      validValheimPlatformID,
 		IdentityCaseSensitive: true,
 		IdentityLabel:         "Platform User ID",
+		IdentityProvider:      "steam",
+		IdentityFromProvider: func(_ string, subject string) ResolvedIdentity {
+			return ResolvedIdentity{Username: "Steam_" + subject, ExternalID: subject}
+		},
 		Whitelist: &WhitelistDriver{
 			File: &FileWhitelistDriver{
 				Path:                   "permittedlist.txt",

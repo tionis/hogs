@@ -17,13 +17,39 @@ import (
 )
 
 type Handler struct {
-	Store *database.Store
-	Cfg   *config.Config
-	Auth  *auth.Authenticator
+	Store       *database.Store
+	Cfg         *config.Config
+	Auth        *auth.Authenticator
+	AfterChange func()
 }
+
+const GameIdentityExtensionURN = "urn:tionis:hogs:params:scim:schemas:extension:game-identities:2.0:User"
 
 func NewHandler(store *database.Store, cfg *config.Config, authenticator *auth.Authenticator) *Handler {
 	return &Handler{Store: store, Cfg: cfg, Auth: authenticator}
+}
+
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (w *statusRecorder) WriteHeader(status int) {
+	w.status = status
+	w.ResponseWriter.WriteHeader(status)
+}
+
+// ChangeNotifications schedules reconciliation outside the SCIM request path:
+// Authentik receives its response immediately while the reconciler coalesces
+// and applies affected game-server updates asynchronously.
+func (h *Handler) ChangeNotifications(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		recorder := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(recorder, r)
+		if r.Method != http.MethodGet && recorder.status >= 200 && recorder.status < 300 && h.AfterChange != nil {
+			h.AfterChange()
+		}
+	})
 }
 
 func (h *Handler) BearerAuth(next http.Handler) http.Handler {
@@ -61,6 +87,7 @@ func (h *Handler) Schemas(w http.ResponseWriter, r *http.Request) {
 	scimJSON(w, 200, []map[string]interface{}{
 		userSchema(),
 		groupSchema(),
+		gameIdentitySchema(),
 	})
 }
 
@@ -70,6 +97,10 @@ func (h *Handler) SchemaUser(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) SchemaGroup(w http.ResponseWriter, r *http.Request) {
 	scimJSON(w, 200, groupSchema())
+}
+
+func (h *Handler) SchemaGameIdentities(w http.ResponseWriter, r *http.Request) {
+	scimJSON(w, 200, gameIdentitySchema())
 }
 
 func (h *Handler) ListUsers(w http.ResponseWriter, r *http.Request) {
@@ -192,6 +223,10 @@ func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
 		scimError(w, 409, "uniqueness", err.Error())
 		return
 	}
+	if err := h.syncGameIdentities(userName, req.GameIdentities.Identities); err != nil {
+		scimError(w, 400, "invalidValue", err.Error())
+		return
+	}
 
 	user.Username = userName
 	user.ExternalID = externalID
@@ -259,6 +294,10 @@ func (h *Handler) ReplaceUser(w http.ResponseWriter, r *http.Request) {
 		scimError(w, 409, "uniqueness", err.Error())
 		return
 	}
+	if err := h.syncGameIdentities(req.UserName, req.GameIdentities.Identities); err != nil {
+		scimError(w, 400, "invalidValue", err.Error())
+		return
+	}
 
 	user.Username = req.UserName
 	user.ExternalID = req.ExternalID
@@ -308,6 +347,7 @@ func (h *Handler) PatchUser(w http.ResponseWriter, r *http.Request) {
 	externalID := user.ExternalID
 	displayName := user.DisplayName
 	active := user.Active
+	gameIdentities := map[string]scimGameIdentity(nil)
 
 	for _, op := range req.Operations {
 		switch strings.ToLower(op.Op) {
@@ -335,6 +375,12 @@ func (h *Handler) PatchUser(w http.ResponseWriter, r *http.Request) {
 					username = name
 				}
 			default:
+				if strings.EqualFold(op.Path, GameIdentityExtensionURN) {
+					if raw, ok := op.Value.(map[string]interface{}); ok {
+						gameIdentities = decodeGameIdentityMap(raw["gameIdentities"])
+					}
+					continue
+				}
 				if op.Path == "" && op.Value != nil {
 					if m, ok := op.Value.(map[string]interface{}); ok {
 						if value, ok := m["active"].(bool); ok {
@@ -353,6 +399,9 @@ func (h *Handler) PatchUser(w http.ResponseWriter, r *http.Request) {
 								return
 							}
 							externalID = eid
+						}
+						if raw, ok := m[GameIdentityExtensionURN].(map[string]interface{}); ok {
+							gameIdentities = decodeGameIdentityMap(raw["gameIdentities"])
 						}
 					}
 				}
@@ -397,6 +446,12 @@ func (h *Handler) PatchUser(w http.ResponseWriter, r *http.Request) {
 	user.DisplayName = displayName
 	user.PreferredUsername = username
 	user.Active = active
+	if gameIdentities != nil {
+		if err := h.syncGameIdentities(username, gameIdentities); err != nil {
+			scimError(w, 400, "invalidValue", err.Error())
+			return
+		}
+	}
 
 	if needsSessionInvalidate {
 		h.recalcUserRole(user)
@@ -827,6 +882,21 @@ func (h *Handler) userToSCIM(u database.User) map[string]interface{} {
 	if len(groupRefs) > 0 {
 		result["groups"] = groupRefs
 	}
+	identities, _ := h.Store.ListGameIdentities(u.Username)
+	gameIdentities := map[string]map[string]interface{}{}
+	for _, identity := range identities {
+		if identity.Source != "scim" {
+			continue
+		}
+		gameIdentities[identity.GameType] = map[string]interface{}{
+			"provider": identity.GameType, "username": identity.Username,
+			"subject": identity.ExternalID, "verified": true,
+		}
+	}
+	if len(gameIdentities) > 0 {
+		result["schemas"] = []string{"urn:ietf:params:scim:schemas:core:2.0:User", GameIdentityExtensionURN}
+		result[GameIdentityExtensionURN] = map[string]interface{}{"gameIdentities": gameIdentities}
+	}
 
 	return result
 }
@@ -1121,13 +1191,69 @@ func scimError(w http.ResponseWriter, status int, scimType, detail string) {
 }
 
 type scimUserRequest struct {
-	Schemas     []string       `json:"schemas"`
-	ExternalID  string         `json:"externalId"`
-	UserName    string         `json:"userName"`
-	DisplayName string         `json:"displayName"`
-	Name        scimName       `json:"name"`
-	Active      *bool          `json:"active"`
-	Groups      []scimGroupRef `json:"groups"`
+	Schemas        []string                  `json:"schemas"`
+	ExternalID     string                    `json:"externalId"`
+	UserName       string                    `json:"userName"`
+	DisplayName    string                    `json:"displayName"`
+	Name           scimName                  `json:"name"`
+	Active         *bool                     `json:"active"`
+	Groups         []scimGroupRef            `json:"groups"`
+	GameIdentities scimGameIdentityExtension `json:"urn:tionis:hogs:params:scim:schemas:extension:game-identities:2.0:User"`
+}
+
+type scimGameIdentityExtension struct {
+	Identities map[string]scimGameIdentity `json:"gameIdentities"`
+}
+
+type scimGameIdentity struct {
+	Provider string `json:"provider"`
+	Subject  string `json:"subject"`
+	Username string `json:"username"`
+	Verified bool   `json:"verified"`
+}
+
+var gameIdentityKeyPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,31}$`)
+
+func decodeGameIdentityMap(value interface{}) map[string]scimGameIdentity {
+	raw, ok := value.(map[string]interface{})
+	if !ok {
+		return map[string]scimGameIdentity{}
+	}
+	result := make(map[string]scimGameIdentity, len(raw))
+	for key, item := range raw {
+		encoded, err := json.Marshal(item)
+		if err != nil {
+			continue
+		}
+		var identity scimGameIdentity
+		if json.Unmarshal(encoded, &identity) == nil {
+			result[key] = identity
+		}
+	}
+	return result
+}
+
+func (h *Handler) syncGameIdentities(username string, incoming map[string]scimGameIdentity) error {
+	identities := make([]database.GameIdentity, 0, len(incoming))
+	for key, item := range incoming {
+		provider := strings.ToLower(strings.TrimSpace(item.Provider))
+		if provider == "" {
+			provider = strings.ToLower(strings.TrimSpace(key))
+		}
+		gameUsername := strings.TrimSpace(item.Username)
+		subject := strings.TrimSpace(item.Subject)
+		if !item.Verified || gameUsername == "" || subject == "" {
+			continue
+		}
+		if !gameIdentityKeyPattern.MatchString(provider) {
+			return fmt.Errorf("invalid game identity provider %q", provider)
+		}
+		identities = append(identities, database.GameIdentity{
+			UserUsername: username, GameType: provider, Username: gameUsername,
+			ExternalID: subject, Source: "scim",
+		})
+	}
+	return h.Store.ReplaceSCIMGameIdentities(username, identities)
 }
 
 type scimName struct {
@@ -1178,6 +1304,17 @@ func userSchema() map[string]interface{} {
 			{"name": "active", "type": "boolean", "required": false, "mutability": "readWrite", "returned": "default"},
 			{"name": "name", "type": "complex", "required": false, "mutability": "readWrite", "returned": "default"},
 			{"name": "groups", "type": "complex", "multiValued": true, "required": false, "mutability": "readOnly", "returned": "default"},
+		},
+	}
+}
+
+func gameIdentitySchema() map[string]interface{} {
+	return map[string]interface{}{
+		"id":          GameIdentityExtensionURN,
+		"name":        "HOGS game identities",
+		"description": "Verified game identities synchronized from the identity provider.",
+		"attributes": []map[string]interface{}{
+			{"name": "gameIdentities", "type": "complex", "multiValued": false, "required": false, "mutability": "readWrite", "returned": "default"},
 		},
 	}
 }

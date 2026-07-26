@@ -14,8 +14,9 @@ import (
 )
 
 type AccessHandler struct {
-	Store *database.Store
-	Auth  *auth.Authenticator
+	Store             *database.Store
+	Auth              *auth.Authenticator
+	AfterAccessChange func(int)
 }
 
 func NewAccessHandler(store *database.Store, authenticator ...*auth.Authenticator) *AccessHandler {
@@ -92,6 +93,9 @@ func (h *AccessHandler) SetGrant(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to save access grant", http.StatusInternalServerError)
 		return
 	}
+	if h.AfterAccessChange != nil {
+		h.AfterAccessChange(server.ID)
+	}
 	writeJSON(w, http.StatusOK, grant)
 }
 
@@ -136,6 +140,9 @@ func (h *AccessHandler) DeleteGrant(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to delete access grant", http.StatusInternalServerError)
 		return
 	}
+	if h.AfterAccessChange != nil {
+		h.AfterAccessChange(server.ID)
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -161,7 +168,13 @@ func (h *AccessHandler) ListGameIdentities(w http.ResponseWriter, r *http.Reques
 	if identities == nil {
 		identities = []database.GameIdentity{}
 	}
-	writeJSON(w, http.StatusOK, identities)
+	scimIdentities := make([]database.GameIdentity, 0, len(identities))
+	for _, identity := range identities {
+		if identity.Source == "scim" {
+			scimIdentities = append(scimIdentities, identity)
+		}
+	}
+	writeJSON(w, http.StatusOK, scimIdentities)
 }
 
 var apiGameTypePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,31}$`)

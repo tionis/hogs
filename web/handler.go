@@ -32,13 +32,14 @@ var templateFS embed.FS
 
 // WebHandler handles frontend requests.
 type WebHandler struct {
-	Store           *database.Store
-	Config          *config.Config
-	Auth            *auth.Authenticator
-	Engine          *engine.Engine
-	AgentConnected  func(int) bool
-	AgentNodeInfo   func(string) (agent.NodeSummary, bool)
-	AgentNodeUpdate func(string, string, string, string) error
+	Store             *database.Store
+	Config            *config.Config
+	Auth              *auth.Authenticator
+	Engine            *engine.Engine
+	AgentConnected    func(int) bool
+	AgentNodeInfo     func(string) (agent.NodeSummary, bool)
+	AgentNodeUpdate   func(string, string, string, string) error
+	AfterAccessChange func(int)
 }
 
 // NewWebHandler creates a new WebHandler.
@@ -480,10 +481,11 @@ func (h *WebHandler) renderServerPage(w http.ResponseWriter, r *http.Request, pa
 		ServerConstraints           []database.Constraint
 		ServerConstraintMaxPriority int
 		AccessCatalog               []access.Capability
-		WhitelistSelf               bool
+		ServerJoin                  bool
 		WhitelistManage             bool
 		IdentityCaseSensitive       bool
 		IdentityLabel               string
+		GameIdentitySettingsURL     string
 		BackupList                  bool
 		BackupCreate                bool
 		BackupRestore               bool
@@ -524,6 +526,7 @@ func (h *WebHandler) renderServerPage(w http.ResponseWriter, r *http.Request, pa
 		FilesPage:                   page == "files",
 		IdentityCaseSensitive:       h.Store.ResolveGameDriver(server.GameType).IdentityCaseSensitive,
 		IdentityLabel:               h.Store.ResolveGameDriver(server.GameType).IdentityFieldLabel(),
+		GameIdentitySettingsURL:     h.Config.GameIdentitySettingsURL,
 	}
 	if isAuthenticated {
 		for _, capability := range access.Capabilities {
@@ -556,28 +559,31 @@ func (h *WebHandler) renderServerPage(w http.ResponseWriter, r *http.Request, pa
 		}
 		data.WhitelistManage = whitelistDecision.Allowed
 
-		selfWhitelistDecision := database.ServerAccessDecision{Allowed: userRole == "admin"}
+		serverJoinDecision := database.ServerAccessDecision{Allowed: userRole == "admin"}
 		backupListDecision := database.ServerAccessDecision{Allowed: userRole == "admin"}
 		backupCreateDecision := database.ServerAccessDecision{Allowed: userRole == "admin"}
 		backupRestoreDecision := database.ServerAccessDecision{Allowed: userRole == "admin"}
 		secretReadDecision := database.ServerAccessDecision{Allowed: userRole == "admin"}
 		automationDecision := database.ServerAccessDecision{Allowed: userRole == "admin"}
 		if userRole != "admin" {
-			selfWhitelistDecision, _ = h.Store.EvaluateServerAccess(server.ID, userEnv.Username, userEnv.Groups, access.WhitelistSelf)
+			serverJoinDecision, _ = h.Store.EvaluateServerAccess(server.ID, userEnv.Username, userEnv.Groups, access.ServerJoin)
 			backupListDecision, _ = h.Store.EvaluateServerAccess(server.ID, userEnv.Username, userEnv.Groups, access.BackupList)
 			backupCreateDecision, _ = h.Store.EvaluateServerAccess(server.ID, userEnv.Username, userEnv.Groups, access.BackupCreate)
 			backupRestoreDecision, _ = h.Store.EvaluateServerAccess(server.ID, userEnv.Username, userEnv.Groups, access.BackupRestore)
 			secretReadDecision, _ = h.Store.EvaluateServerAccess(server.ID, userEnv.Username, userEnv.Groups, access.SecretRead)
 			automationDecision, _ = h.Store.EvaluateServerAccess(server.ID, userEnv.Username, userEnv.Groups, access.AutomationManage)
 		}
-		data.WhitelistSelf = selfWhitelistDecision.Allowed
+		data.ServerJoin = serverJoinDecision.Allowed
 		data.BackupList = backupListDecision.Allowed
 		data.BackupCreate = backupCreateDecision.Allowed
 		data.BackupRestore = backupRestoreDecision.Allowed
 		data.CanRevealSecrets = secretReadDecision.Allowed
+		if !h.Store.ResolveGameDriver(server.GameType).SupportsWhitelist() {
+			data.CanRevealSecrets = data.CanRevealSecrets || data.ServerJoin
+		}
 		data.AutomationManage = automationDecision.Allowed
 		if !h.Store.ResolveGameDriver(server.GameType).SupportsWhitelist() {
-			data.WhitelistSelf = false
+			data.ServerJoin = false
 			data.WhitelistManage = false
 		}
 		management, _ := h.Store.GetServerManagement(server.ID)
@@ -647,7 +653,7 @@ func (h *WebHandler) renderServerPage(w http.ResponseWriter, r *http.Request, pa
 		}
 	case "files":
 	case "whitelist":
-		if !data.WhitelistSelf && !data.WhitelistManage {
+		if !data.ServerJoin && !data.WhitelistManage {
 			http.Error(w, "Whitelist access denied", http.StatusForbidden)
 			return
 		}
@@ -730,6 +736,7 @@ func (h *WebHandler) RevealServerField(w http.ResponseWriter, r *http.Request) {
 	user := h.getUserEnv(r)
 	allowed := user.Role == "admin"
 	reason := "instance administrator"
+	revealCapability := access.SecretRead
 	if !allowed {
 		view, viewErr := h.Store.EvaluateServerAccess(server.ID, user.Username, user.Groups, access.View)
 		decision, decisionErr := h.Store.EvaluateServerAccess(server.ID, user.Username, user.Groups, access.SecretRead)
@@ -738,12 +745,22 @@ func (h *WebHandler) RevealServerField(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		allowed, reason = view.Allowed && decision.Allowed, decision.Reason
+		if !decision.Allowed && !h.Store.ResolveGameDriver(server.GameType).SupportsWhitelist() {
+			join, joinErr := h.Store.EvaluateServerAccess(server.ID, user.Username, user.Groups, access.ServerJoin)
+			if joinErr != nil {
+				http.Error(w, "Could not evaluate server access", http.StatusInternalServerError)
+				return
+			}
+			if join.Allowed {
+				allowed, reason, revealCapability = view.Allowed, join.Reason, access.ServerJoin
+			}
+		}
 		if !view.Allowed {
 			reason = view.Reason
 		}
 	}
 	if allowed {
-		constraint, constraintErr := h.Engine.EvaluateConstraints(server, access.SecretRead, user)
+		constraint, constraintErr := h.Engine.EvaluateConstraints(server, revealCapability, user)
 		if constraintErr != nil {
 			h.auditServerFieldReveal(server, user, fieldID, "", "error", "could not evaluate operational constraints")
 			http.Error(w, "Could not evaluate server access", http.StatusInternalServerError)
@@ -1267,10 +1284,16 @@ func (h *WebHandler) Users(w http.ResponseWriter, r *http.Request) {
 	for _, u := range users {
 		groups, _ := h.Store.GetSCIMGroupsForUser(u.ID)
 		identities, _ := h.Store.ListGameIdentities(u.Username)
+		scimIdentities := make([]database.GameIdentity, 0, len(identities))
+		for _, identity := range identities {
+			if identity.Source == "scim" {
+				scimIdentities = append(scimIdentities, identity)
+			}
+		}
 		usersWithGroups = append(usersWithGroups, UserWithGroups{
 			User:       u,
 			Groups:     groups,
-			Identities: identities,
+			Identities: scimIdentities,
 		})
 	}
 
@@ -1440,6 +1463,9 @@ func (h *WebHandler) HandleAccessGrantSet(w http.ResponseWriter, r *http.Request
 		http.Error(w, "Failed to save access grant", http.StatusInternalServerError)
 		return
 	}
+	if h.AfterAccessChange != nil {
+		h.AfterAccessChange(serverID)
+	}
 	http.Redirect(w, r, "/servers/"+server.Name+"/access#access-control", http.StatusFound)
 }
 
@@ -1466,6 +1492,9 @@ func (h *WebHandler) HandleAccessGrantDelete(w http.ResponseWriter, r *http.Requ
 	if err := h.Store.DeleteServerAccessGrant(grantID, serverID); err != nil {
 		http.Error(w, "Failed to delete access grant", http.StatusInternalServerError)
 		return
+	}
+	if h.AfterAccessChange != nil {
+		h.AfterAccessChange(serverID)
 	}
 	http.Redirect(w, r, "/servers/"+server.Name+"/access#access-control", http.StatusFound)
 }
@@ -1654,34 +1683,31 @@ func (h *WebHandler) MyServers(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *WebHandler) UserSettings(w http.ResponseWriter, r *http.Request) {
-	servers, err := h.Store.ListServers()
-	if err != nil {
-		http.Error(w, "Failed to load servers", http.StatusInternalServerError)
-		return
-	}
-
 	user := h.getUserEnv(r)
 	identities, _ := h.Store.ListGameIdentities(user.Username)
-	if identities == nil {
-		identities = []database.GameIdentity{}
+	scimIdentities := make([]database.GameIdentity, 0, len(identities))
+	for _, identity := range identities {
+		if identity.Source == "scim" {
+			scimIdentities = append(scimIdentities, identity)
+		}
 	}
 
 	data := struct {
-		Identities     []database.GameIdentity
-		GameTypes      []string
-		Authenticated  bool
-		UserRole       string
-		UserUsername   string
-		SiteName       string
-		BackgroundURLs BackgroundURLs
+		Identities              []database.GameIdentity
+		GameIdentitySettingsURL string
+		Authenticated           bool
+		UserRole                string
+		UserUsername            string
+		SiteName                string
+		BackgroundURLs          BackgroundURLs
 	}{
-		Identities:     identities,
-		GameTypes:      configuredGameTypes(servers),
-		Authenticated:  true,
-		UserRole:       h.userRole(r),
-		UserUsername:   user.Username,
-		SiteName:       h.siteName(),
-		BackgroundURLs: h.pickBackgrounds([]string{"home"}),
+		Identities:              scimIdentities,
+		GameIdentitySettingsURL: h.Config.GameIdentitySettingsURL,
+		Authenticated:           true,
+		UserRole:                h.userRole(r),
+		UserUsername:            user.Username,
+		SiteName:                h.siteName(),
+		BackgroundURLs:          h.pickBackgrounds([]string{"home"}),
 	}
 
 	tmpl, err := template.New("base.html").Funcs(sharedFuncMap(h.Store)).ParseFS(templateFS, "templates/base.html", "templates/user_settings.html")

@@ -27,43 +27,27 @@
 </div>
 
 <div class="card mb-4" id="linked-game-accounts">
-  <div class="card-header">Linked Game Accounts</div>
+  <div class="card-header">Game Accounts</div>
   <div class="card-body">
-    <p class="text-muted">A linked identity is reused when you add yourself to a compatible server whitelist.</p>
+    <p class="text-muted">Game accounts are linked in the identity provider and synchronized to HOGS. Server whitelists update automatically from server access rules.</p>
     {{if .Identities}}
     <div class="list-group mb-4">
       {{range .Identities}}
       <div class="list-group-item d-flex align-items-center gap-3">
         <span class="game-badge" style="{{gameBadgeCSS .GameType}}">{{.GameType | gameIcon}}{{.GameType | gameDisplayName}}</span>
         <code>{{.Username}}</code>
-        <form action="/account/game-identities/delete" method="POST" class="ms-auto">
-          <input type="hidden" name="game_type" value="{{.GameType}}">
-          <button class="btn btn-sm btn-outline-danger" type="submit">Unlink</button>
-        </form>
+        <span class="badge bg-secondary ms-auto">managed by identity provider</span>
       </div>
       {{end}}
     </div>
     {{else}}
-    <div class="alert alert-info">You have not linked any game accounts yet.</div>
+    <div class="alert alert-info">No verified game accounts have been synchronized yet.</div>
     {{end}}
-
-    <h6>Link or replace an account</h6>
-    <form action="/account/game-identities/set" method="POST" class="row g-2">
-      <div class="col-md-4">
-        <label class="form-label" for="identity-game-type">Game</label>
-        <select class="form-select" id="identity-game-type" name="game_type" required>
-          <option value="">Choose a game…</option>
-          {{range .GameTypes}}<option value="{{.}}">{{. | gameDisplayName}}</option>{{end}}
-        </select>
-      </div>
-      <div class="col-md-5">
-        <label class="form-label" for="identity-username">In-game username or platform ID</label>
-        <input class="form-control" id="identity-username" name="username" required>
-      </div>
-      <div class="col-md-3 d-flex align-items-end">
-        <button class="btn btn-primary w-100" type="submit">Save linked account</button>
-      </div>
-    </form>
+    {{if .GameIdentitySettingsURL}}
+    <a class="btn btn-primary" href="{{.GameIdentitySettingsURL}}" rel="noopener">Manage linked game accounts</a>
+    {{else}}
+    <p class="small text-muted mb-0">Ask the instance administrator where game accounts are linked.</p>
+    {{end}}
   </div>
 </div>
 {{end}}

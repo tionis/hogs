@@ -259,7 +259,7 @@ func (e *Engine) EvaluateACL(link *database.PterodactylLink, server *database.Se
 	}
 	capability := action
 	if action == "whitelist" {
-		capability = "whitelist.self"
+		capability = "server.join"
 	}
 	decision, err := e.Store.EvaluateServerAccess(server.ID, user.Username, user.Groups, capability)
 	if err != nil {
@@ -500,7 +500,7 @@ func (e *Engine) Evaluate(server *database.Server, action string, params map[str
 		auditEntry.Result = "denied"
 		capability := action
 		if action == "whitelist" {
-			capability = "whitelist.self"
+			capability = "server.join"
 		}
 		auditEntry.Reason = fmt.Sprintf("access denied for capability %s", capability)
 		if user != nil && user.Role != "admin" && user.Role != "system" {

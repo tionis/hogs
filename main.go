@@ -187,6 +187,9 @@ func main() {
 	}
 
 	pteroHandler := api.NewPterodactylHandler(store, cfg, eng, agentManager, authenticator)
+	whitelistReconciler := api.NewWhitelistReconciler(pteroHandler)
+	whitelistReconciler.Start()
+	defer whitelistReconciler.Close()
 	automationHandler := api.NewAutomationHandler(store, cfg, eng)
 	automationHandler.SetAuthenticator(authenticator)
 	dashboardHandler := api.NewDashboardHandler(store, cfg, eng, agentManager)
@@ -197,10 +200,13 @@ func main() {
 	notificationHandler := api.NewNotificationHandler(store, notifyService)
 	inventoryHandler := api.NewInventoryHandler(store)
 	accessHandler := api.NewAccessHandler(store, authenticator)
+	accessHandler.AfterAccessChange = whitelistReconciler.Trigger
+	webHandler.AfterAccessChange = whitelistReconciler.Trigger
 
 	var scimHandler *scim.Handler
 	if cfg.SCIMEnabled && cfg.SCIMBearerToken != "" {
 		scimHandler = scim.NewHandler(store, cfg, authenticator)
+		scimHandler.AfterChange = whitelistReconciler.TriggerAll
 		log.Println("SCIM 2.0 endpoint enabled at /scim/v2/")
 	}
 
@@ -225,6 +231,7 @@ func main() {
 				return err
 			}
 		}
+		whitelistReconciler.TriggerAll()
 		return nil
 	})
 
@@ -337,14 +344,10 @@ func main() {
 	router.Handle("/api/v1/servers/{serverName}/access-grants/{grantID}", inventoryAdmin(http.HandlerFunc(accessHandler.DeleteGrant))).Methods("DELETE")
 	router.Handle("/api/servers/{serverName}/effective-access", authenticator.RequireRole("admin", "user")(http.HandlerFunc(accessHandler.EffectiveAccess))).Methods("GET")
 	router.Handle("/api/v1/game-identities", inventoryAdmin(http.HandlerFunc(accessHandler.ListGameIdentities))).Methods("GET")
-	router.Handle("/api/v1/game-identities", inventoryAdmin(http.HandlerFunc(accessHandler.SetGameIdentity))).Methods("PUT")
-	router.Handle("/api/v1/game-identities", inventoryAdmin(http.HandlerFunc(accessHandler.DeleteGameIdentity))).Methods("DELETE")
 
 	if authenticator != nil {
 		router.Handle("/servers/{serverName}/action", authenticator.RequireRole("admin", "user")(http.HandlerFunc(pteroHandler.ServerAction))).Methods("POST")
 		router.Handle("/servers/{serverName}/command", authenticator.RequireRole("admin", "user")(http.HandlerFunc(pteroHandler.SendCommand))).Methods("POST")
-		router.Handle("/api/servers/{serverName}/whitelist", authenticator.RequireRole("admin", "user")(http.HandlerFunc(pteroHandler.WhitelistSet))).Methods("POST")
-		router.Handle("/api/servers/{serverName}/whitelist", authenticator.RequireRole("admin", "user")(http.HandlerFunc(pteroHandler.WhitelistStatus))).Methods("GET")
 	}
 
 	if authenticator != nil {
@@ -369,14 +372,13 @@ func main() {
 		router.Handle("/admin/pterodactyl/commands/add", authenticator.RequireRole("admin")(http.HandlerFunc(pteroHandler.AddCommand))).Methods("POST")
 		router.Handle("/admin/pterodactyl/commands/delete", authenticator.RequireRole("admin")(http.HandlerFunc(pteroHandler.DeleteCommand))).Methods("POST")
 		router.Handle("/admin/servers/{serverName}/whitelist", authenticator.RequireRole("admin", "user")(http.HandlerFunc(pteroHandler.AdminWhitelist))).Methods("GET", "POST")
+		router.Handle("/admin/servers/{serverName}/whitelist/reconcile", authenticator.RequireRole("admin", "user")(http.HandlerFunc(whitelistReconciler.HandleReconcile))).Methods("POST")
 
 		router.Handle("/api/pterodactyl/servers", authenticator.RequireRole("admin")(http.HandlerFunc(pteroHandler.ListPteroServers))).Methods("GET")
 
 		router.Handle("/my-servers", authenticator.RequireRole("admin", "user")(http.HandlerFunc(webHandler.MyServers))).Methods("GET")
 		router.Handle("/account/settings", authenticator.RequireRole("admin", "user")(http.HandlerFunc(webHandler.UserSettings))).Methods("GET")
 		router.Handle("/account/game-identities", authenticator.RequireRole("admin", "user")(http.HandlerFunc(webHandler.UserSettings))).Methods("GET")
-		router.Handle("/account/game-identities/set", authenticator.RequireRole("admin", "user")(http.HandlerFunc(webHandler.HandleGameIdentitySet))).Methods("POST")
-		router.Handle("/account/game-identities/delete", authenticator.RequireRole("admin", "user")(http.HandlerFunc(webHandler.HandleGameIdentityDelete))).Methods("POST")
 
 		router.Handle("/admin/commands/{serverId}", authenticator.RequireRole("admin")(http.HandlerFunc(webHandler.CommandManager))).Methods("GET")
 		router.Handle("/admin/commands/add", authenticator.RequireRole("admin")(http.HandlerFunc(automationHandler.AddCommandSchema))).Methods("POST")
@@ -449,6 +451,7 @@ func main() {
 	if scimHandler != nil {
 		scimRouter := router.PathPrefix("/scim/v2").Subrouter()
 		scimRouter.Use(scimHandler.BearerAuth)
+		scimRouter.Use(scimHandler.ChangeNotifications)
 		scimRouter.Use(func(next http.Handler) http.Handler {
 			return scimLimiter.Middleware(next)
 		})
@@ -457,6 +460,7 @@ func main() {
 		scimRouter.HandleFunc("/Schemas", scimHandler.Schemas).Methods("GET")
 		scimRouter.HandleFunc("/Schemas/urn:ietf:params:scim:schemas:core:2.0:User", scimHandler.SchemaUser).Methods("GET")
 		scimRouter.HandleFunc("/Schemas/urn:ietf:params:scim:schemas:core:2.0:Group", scimHandler.SchemaGroup).Methods("GET")
+		scimRouter.HandleFunc("/Schemas/"+scim.GameIdentityExtensionURN, scimHandler.SchemaGameIdentities).Methods("GET")
 
 		scimRouter.HandleFunc("/Users", scimHandler.ListUsers).Methods("GET")
 		scimRouter.HandleFunc("/Users", scimHandler.CreateUser).Methods("POST")

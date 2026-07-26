@@ -12,7 +12,7 @@ OIDC-protected operator UI.
 *   **Node-Scoped Agent:** One agent manages an explicit local allowlist of units and data roots through a capability-authenticated HTTP API. Direct agents use public HTTPS so browsers can stream large files without relaying them through HOGS; tunneled agents can use the same API over a private transport. See [the agent contract](docs/AGENT.md).
 *   **Real-time Server Status:** Live player counts, version info, and online status using efficient caching (60s TTL).
 *   **Structured Server Access:** OIDC users and groups receive explicit per-server capabilities, deployment policy limits what can be granted, and operational constraints remain a separate decision layer. See [server access control](docs/ACCESS_CONTROL.md).
-*   **Linked Game Identities:** Users or administrators link one in-game identity per game type for safe, game-specific whitelist management.
+*   **Automatic Whitelists:** Verified game identities arrive from Authentik through SCIM; HOGS derives memberships from `server.join` access and preserves every external/manual whitelist entry.
 *   **Modular Game Types:** Common management works for every generic game type, while optional embedded drivers provide game-specific status, identity, whitelist, and console behavior. Embedded drivers can be disabled. See [game type drivers](docs/GAME_TYPES.md).
 *   **Pterodactyl Integration:** Link servers to a Pterodactyl panel for start/stop/restart and approved command execution — all configurable per-server via `allowed_actions`.
 *   **Admin Dashboard:** Complete web-based management interface for adding, editing, and deleting servers without touching the database.
@@ -139,7 +139,8 @@ The repository includes helper scripts for development/testing:
 | `OIDC_ADMIN_GROUP`     | `admins`                        | OIDC group claim value that grants the admin role.                           |
 | `OIDC_USER_GROUP`      | *(Empty)*                       | OIDC group claim value that grants the user role. Empty = any authenticated user is a user. |
 | `OIDC_GROUPS_CLAIM`    | `groups`                        | The OIDC claim path to extract group memberships from.                     |
-| `SCIM_ENABLED`         | `false`                         | Enable the Authentik-oriented SCIM 2.0 user and group endpoint.             |
+| `HOGS_GAME_IDENTITY_SETTINGS_URL` | *(Empty)* | External identity-provider page where users manage linked game accounts. |
+| `SCIM_ENABLED`         | `false`                         | Enable the Authentik-oriented SCIM 2.0 user, group, and game-identity endpoint. |
 | `SCIM_BEARER_TOKEN`    | *(Empty)*                       | Bearer token shared with the Authentik SCIM provider.                       |
 | `PTERODACTYL_URL`      | *(Empty)*                       | Pterodactyl panel URL (e.g. `https://panel.example.com`). **Both this and `PTERODACTYL_APP_KEY` must be set to enable Pterodactyl features.** |
 | `PTERODACTYL_APP_KEY`  | *(Empty)*                       | Pterodactyl **Application** API key (starts with `ptla_`). Get it from your panel's Admin > API section. |

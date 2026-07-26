@@ -78,8 +78,24 @@ type Driver struct {
 	ResolveIdentity       IdentityResolver
 	IdentityCaseSensitive bool
 	IdentityLabel         string
-	Whitelist             *WhitelistDriver
-	IsRoutineConsoleLine  ConsoleLineFilter
+	// IdentityProvider is the key in Authentik's game_identities user
+	// attribute. IdentityFromProvider converts that provider record into the
+	// identifier expected by the game.
+	IdentityProvider     string
+	IdentityFromProvider func(username, subject string) ResolvedIdentity
+	Whitelist            *WhitelistDriver
+	IsRoutineConsoleLine ConsoleLineFilter
+}
+
+func (d Driver) AuthentikIdentity(username, subject string) (ResolvedIdentity, bool) {
+	if d.IdentityProvider == "" {
+		return ResolvedIdentity{}, false
+	}
+	resolved := ResolvedIdentity{Username: username, ExternalID: subject}
+	if d.IdentityFromProvider != nil {
+		resolved = d.IdentityFromProvider(username, subject)
+	}
+	return resolved, d.IdentityValid(resolved.Username)
 }
 
 var embedded = map[string]Driver{}

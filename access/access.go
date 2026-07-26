@@ -20,7 +20,7 @@ const (
 	ConsoleWrite     = "console.write"
 	FileRead         = "file.read"
 	FileWrite        = "file.write"
-	WhitelistSelf    = "whitelist.self"
+	ServerJoin       = "server.join"
 	WhitelistManage  = "whitelist.manage"
 	BackupList       = "backup.list"
 	BackupCreate     = "backup.create"
@@ -41,13 +41,13 @@ var Capabilities = []Capability{
 	{Name: ConsoleWrite, Label: "Write console", Description: "Send arbitrary game-console input.", Category: "Console"},
 	{Name: FileRead, Label: "Read files", Description: "Browse and download files inside managed path roots.", Category: "Files"},
 	{Name: FileWrite, Label: "Modify files", Description: "Upload, edit, create, and delete files inside managed path roots.", Category: "Files"},
-	{Name: WhitelistSelf, Label: "Whitelist own identity", Description: "Add or remove only the user's linked in-game identity.", Category: "Players"},
-	{Name: WhitelistManage, Label: "Manage whitelist", Description: "Add or remove other players and link them to panel users.", Category: "Players"},
+	{Name: ServerJoin, Label: "Join server", Description: "Join the game server. HOGS automatically enforces this through a game whitelist when supported.", Category: "Players"},
+	{Name: WhitelistManage, Label: "Manage whitelist", Description: "Inspect, reconcile, and manage manual whitelist entries.", Category: "Players"},
 	{Name: BackupList, Label: "List backups", Description: "View available snapshots.", Category: "Backups"},
 	{Name: BackupCreate, Label: "Create backups", Description: "Create a new server snapshot.", Category: "Backups"},
 	{Name: BackupRestore, Label: "Restore backups", Description: "Restore a snapshot when deployment policy enables restores.", Category: "Backups"},
 	{Name: AutomationManage, Label: "Manage automation", Description: "Create, edit, enable, and delete lifecycle automation rules for this server.", Category: "Automation"},
-	{Name: SecretRead, Label: "Reveal server secrets", Description: "Reveal user-facing shared secrets such as a game join password.", Category: "Secrets"},
+	{Name: SecretRead, Label: "Reveal server secrets", Description: "Reveal user-facing shared secrets independently of join access.", Category: "Secrets"},
 	{Name: AccessManage, Label: "Manage server access", Description: "Create and remove grants for this server only.", Category: "Administration"},
 }
 

@@ -295,9 +295,9 @@ func TestAuditLogUsesJSONFieldNamesAndRequestContext(t *testing.T) {
 func TestUserSettingsContainsLinkedGameAccounts(t *testing.T) {
 	handler, store, authenticator := testWebHandler(t)
 	store.CreateServer(&database.Server{Name: "IdentitySrv", GameType: "minecraft", State: "online"})
-	if err := store.SetGameIdentity(&database.GameIdentity{
-		UserUsername: "player@example.test", GameType: "minecraft", Username: "TestPlayer", Source: "self",
-	}); err != nil {
+	if err := store.ReplaceSCIMGameIdentities("player@example.test", []database.GameIdentity{{
+		GameType: "minecraft", Username: "TestPlayer", ExternalID: "test-uuid",
+	}}); err != nil {
 		t.Fatal(err)
 	}
 	cookie := createTestSession(t, store, authenticator, "player@example.test", "user")
@@ -309,7 +309,7 @@ func TestUserSettingsContainsLinkedGameAccounts(t *testing.T) {
 		t.Fatalf("settings status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 	for _, expected := range []string{
-		"User Settings", "Panel Account", "Linked Game Accounts",
+		"User Settings", "Panel Account", "Game Accounts",
 		"player@example.test", "TestPlayer", `href="/account/settings"`,
 	} {
 		if !contains(recorder.Body.String(), expected) {
@@ -472,7 +472,7 @@ func TestStructuredServerFieldsRenderByPlacementAndRevealOnDemand(t *testing.T) 
 	}
 	if err := store.SetServerAccessGrant(&database.ServerAccessGrant{
 		ServerID: server.ID, SubjectType: "user", Subject: "player@example.test", Effect: "allow",
-		Capabilities: []string{access.View, access.SecretRead},
+		Capabilities: []string{access.View, access.ServerJoin},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -908,8 +908,8 @@ func TestServerTabsAndAccessPage(t *testing.T) {
 	}
 	whitelistBody := whitelistRecorder.Body.String()
 	for _, expected := range []string{
-		"Your whitelist entry", "Edit linked game account", "Manage server whitelist",
-		"Minecraft username", "Panel user (optional)", "Save link", "Add entry",
+		"Automatic server access", "Manage server whitelist", "Reconcile now",
+		"Minecraft username", "Ownership", "Add manual entry",
 	} {
 		if !contains(whitelistBody, expected) {
 			t.Fatalf("whitelist page missing %q", expected)

@@ -24,7 +24,7 @@
       <a class="nav-link {{if eq .Page "dashboard"}}active{{end}}" href="/{{.Server.Name}}">Dashboard</a>
       {{if .ShowConsole}}<a class="nav-link {{if eq .Page "console"}}active{{end}}" href="/servers/{{.Server.Name}}/console">Console</a>{{end}}
       {{if .ShowFiles}}<a class="nav-link {{if eq .Page "files"}}active{{end}}" href="/servers/{{.Server.Name}}/files">Files</a>{{end}}
-      {{if or .WhitelistSelf .WhitelistManage}}<a class="nav-link {{if eq .Page "whitelist"}}active{{end}}" href="/servers/{{.Server.Name}}/whitelist">Whitelist</a>{{end}}
+      {{if or .ServerJoin .WhitelistManage}}<a class="nav-link {{if eq .Page "whitelist"}}active{{end}}" href="/servers/{{.Server.Name}}/whitelist">Whitelist</a>{{end}}
       {{if .Authenticated}}<a class="nav-link {{if eq .Page "access"}}active{{end}}" href="/servers/{{.Server.Name}}/access">Access</a>{{end}}
       {{if or .BackupList .BackupCreate .BackupRestore}}<a class="nav-link {{if eq .Page "backups"}}active{{end}}" href="/servers/{{.Server.Name}}/backups">Backups</a>{{end}}
       {{if .AutomationManage}}<a class="nav-link {{if eq .Page "automation"}}active{{end}}" href="/servers/{{.Server.Name}}/automation">Automation</a>{{end}}
@@ -68,31 +68,28 @@
   </div>
 </div>
 {{else if eq .Page "whitelist"}}
-{{if .WhitelistSelf}}
+{{if .ServerJoin}}
 <div class="card mb-4">
-  <div class="card-header">Your whitelist entry</div>
+  <div class="card-header">Automatic server access</div>
   <div class="card-body">
-    <p class="small text-muted">HOGS uses the {{.Server.GameType}} identity from your account settings. This permission only lets you add or remove yourself.</p>
-    <div id="whitelist-status" class="mb-3 text-muted">Loading your linked identity…</div>
-    <div class="d-flex flex-wrap gap-2">
-      <button type="button" class="btn btn-success" id="self-whitelist-add" disabled>Add me to this server</button>
-      <button type="button" class="btn btn-outline-danger" id="self-whitelist-remove" disabled>Remove me from this server</button>
-      <a class="btn btn-outline-secondary" href="/account/settings#linked-game-accounts">Edit linked game account</a>
-    </div>
-    <div id="self-whitelist-feedback" class="small mt-2" role="status"></div>
+    <p class="mb-3">Your <code>server.join</code> access is enforced automatically using the verified {{.Server.GameType}} identity synchronized from the identity provider.</p>
+    {{if .GameIdentitySettingsURL}}<a class="btn btn-outline-secondary" href="{{.GameIdentitySettingsURL}}" rel="noopener">Manage linked game accounts</a>{{end}}
   </div>
 </div>
 {{end}}
 {{if .WhitelistManage}}
 <div class="card mb-4">
-  <div class="card-header">Manage server whitelist</div>
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span>Manage server whitelist</span>
+    <button class="btn btn-sm btn-outline-primary" type="button" id="managed-whitelist-reconcile">Reconcile now</button>
+  </div>
   <div class="card-body">
+    <p class="small text-muted">HOGS-managed entries follow <code>server.join</code> grants. Entries added outside automatic reconciliation remain manual and are never removed automatically.</p>
     <div id="managed-whitelist-current" class="mb-4" aria-live="polite">Loading current whitelist…</div>
     <h3 class="h6">Add an entry</h3>
     <form id="managed-whitelist-form" class="row g-2">
-      <div class="col-md-5"><input class="form-control" name="username" placeholder="{{.IdentityLabel}}" aria-label="{{.IdentityLabel}}" required></div>
-      <div class="col-md-5"><input class="form-control" name="user_username" type="text" placeholder="Optional linked Authentik username"></div>
-      <div class="col-md-2"><button class="btn btn-success w-100" type="submit">Add entry</button></div>
+      <div class="col-md-10"><input class="form-control" name="username" placeholder="{{.IdentityLabel}}" aria-label="{{.IdentityLabel}}" required></div>
+      <div class="col-md-2"><button class="btn btn-success w-100" type="submit">Add manual entry</button></div>
     </form>
     <div id="managed-whitelist-feedback" class="small mt-2" role="status"></div>
   </div>
@@ -957,9 +954,6 @@ document.addEventListener("DOMContentLoaded", function() {
     {{end}}
 
     {{if and (eq .Page "whitelist") .Authenticated .PteroLink}}
-    const selfWhitelistAdd = document.getElementById('self-whitelist-add');
-    const selfWhitelistRemove = document.getElementById('self-whitelist-remove');
-    const selfWhitelistFeedback = document.getElementById('self-whitelist-feedback');
     const whitelistIdentityKey = value => {{if .IdentityCaseSensitive}}String(value || ''){{else}}String(value || '').toLowerCase(){{end}};
     const whitelistElement = (tag, className, text) => {
       const element = document.createElement(tag);
@@ -967,32 +961,12 @@ document.addEventListener("DOMContentLoaded", function() {
       if (text !== undefined) element.textContent = text;
       return element;
     };
-    async function submitSelfWhitelist(op) {
-        if (!selfWhitelistFeedback) return;
-        const body = new URLSearchParams({op});
-        try {
-            const response = await fetch(`/api/servers/${encodeURIComponent(serverName)}/whitelist`, {
-                method: 'POST',
-                headers: {'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': getCsrfToken(), 'Accept': 'application/json'},
-                body
-            });
-            const contentType = response.headers.get('content-type') || '';
-            const result = contentType.includes('application/json') ? await response.json() : {message: (await response.text()).trim()};
-            if (!response.ok) throw new Error(result.message || response.statusText);
-            selfWhitelistFeedback.className = 'small mt-2 text-success';
-            selfWhitelistFeedback.textContent = result.message || 'Whitelist updated.';
-            loadWhitelistStatus();
-        } catch (error) {
-            selfWhitelistFeedback.className = 'small mt-2 text-danger';
-            selfWhitelistFeedback.textContent = error.message;
-        }
-    }
-
     {{if .WhitelistManage}}
     const managedWhitelistEndpoint = `/admin/servers/${encodeURIComponent(serverName)}/whitelist`;
     const managedWhitelistCurrent = document.getElementById('managed-whitelist-current');
     const managedWhitelistFeedback = document.getElementById('managed-whitelist-feedback');
     const managedWhitelistForm = document.getElementById('managed-whitelist-form');
+    const managedWhitelistReconcile = document.getElementById('managed-whitelist-reconcile');
     const managedWhitelistRequest = async body => {
       const response = await fetch(managedWhitelistEndpoint, {
         method: 'POST',
@@ -1024,7 +998,7 @@ document.addEventListener("DOMContentLoaded", function() {
       const table = whitelistElement('table', 'table table-sm align-middle mb-0');
       const head = document.createElement('thead');
       const headRow = document.createElement('tr');
-      ['{{.IdentityLabel}}', 'Panel user (optional)', 'Actions'].forEach(label => {
+      ['{{.IdentityLabel}}', 'Ownership', 'Actions'].forEach(label => {
         headRow.append(whitelistElement('th', '', label));
       });
       head.append(headRow);
@@ -1038,37 +1012,16 @@ document.addEventListener("DOMContentLoaded", function() {
         row.append(usernameCell);
 
         const link = linkedByUsername.get(whitelistIdentityKey(username));
-        const panelCell = document.createElement('td');
-        const panelUserInput = document.createElement('input');
-        panelUserInput.type = 'text';
-        panelUserInput.className = 'form-control form-control-sm';
-        panelUserInput.placeholder = 'No Authentik user linked';
-        panelUserInput.value = link ? link.userUsername : '';
-        panelUserInput.setAttribute('aria-label', `Panel user linked to ${username}`);
-        panelCell.append(panelUserInput);
-        row.append(panelCell);
+        const ownershipCell = document.createElement('td');
+        ownershipCell.append(whitelistElement(
+          'span',
+          `badge ${link ? 'bg-primary' : 'bg-secondary'}`,
+          link ? `Managed for ${link.userUsername}` : 'Manual / external'
+        ));
+        row.append(ownershipCell);
 
         const actions = document.createElement('td');
         actions.className = 'text-nowrap';
-        const save = whitelistElement('button', 'btn btn-sm btn-outline-primary me-1', 'Save link');
-        save.type = 'button';
-        save.addEventListener('click', async () => {
-          if (!panelUserInput.reportValidity()) return;
-          save.disabled = true;
-          try {
-            const result = await managedWhitelistRequest(new URLSearchParams({
-              op: 'link', username, user_username: panelUserInput.value.trim()
-            }));
-            managedWhitelistFeedback.className = 'small mt-2 text-success';
-            managedWhitelistFeedback.textContent = result.message;
-            await loadManagedWhitelist();
-          } catch (error) {
-            managedWhitelistFeedback.className = 'small mt-2 text-danger';
-            managedWhitelistFeedback.textContent = error.message;
-          } finally {
-            save.disabled = false;
-          }
-        });
         const remove = whitelistElement('button', 'btn btn-sm btn-outline-danger', 'Remove');
         remove.type = 'button';
         remove.addEventListener('click', async () => {
@@ -1079,7 +1032,6 @@ document.addEventListener("DOMContentLoaded", function() {
             managedWhitelistFeedback.className = 'small mt-2 text-success';
             managedWhitelistFeedback.textContent = result.message;
             await loadManagedWhitelist();
-            loadWhitelistStatus();
           } catch (error) {
             managedWhitelistFeedback.className = 'small mt-2 text-danger';
             managedWhitelistFeedback.textContent = error.message;
@@ -1087,7 +1039,7 @@ document.addEventListener("DOMContentLoaded", function() {
             remove.disabled = false;
           }
         });
-        actions.append(save, remove);
+        actions.append(remove);
         row.append(actions);
         body.append(row);
       });
@@ -1127,58 +1079,28 @@ document.addEventListener("DOMContentLoaded", function() {
         submit.disabled = false;
       }
     });
+    managedWhitelistReconcile.addEventListener('click', async () => {
+      managedWhitelistReconcile.disabled = true;
+      try {
+        const response = await fetch(`${managedWhitelistEndpoint}/reconcile`, {
+          method: 'POST',
+          headers: {'X-CSRF-Token': getCsrfToken(), 'Accept': 'application/json'}
+        });
+        const contentType = response.headers.get('content-type') || '';
+        const result = contentType.includes('application/json') ? await response.json() : {message: (await response.text()).trim()};
+        if (!response.ok) throw new Error(result.message || `HTTP ${response.status}`);
+        managedWhitelistFeedback.className = 'small mt-2 text-success';
+        managedWhitelistFeedback.textContent = `Reconciled: ${result.added} added, ${result.removed} removed, ${result.manual} manual entries preserved.`;
+        await loadManagedWhitelist();
+      } catch (error) {
+        managedWhitelistFeedback.className = 'small mt-2 text-danger';
+        managedWhitelistFeedback.textContent = error.message;
+      } finally {
+        managedWhitelistReconcile.disabled = false;
+      }
+    });
     loadManagedWhitelist();
     {{end}}
-    if (selfWhitelistAdd) selfWhitelistAdd.addEventListener('click', () => submitSelfWhitelist('add'));
-    if (selfWhitelistRemove) {
-        selfWhitelistRemove.addEventListener('click', () => submitSelfWhitelist('remove'));
-    }
-    {{end}}
-
-    {{if eq .Page "whitelist"}}
-    function loadWhitelistStatus() {
-      if (!userUsername) return;
-      fetch(`/api/servers/${encodeURIComponent(serverName)}/whitelist`)
-      .then(async response => {
-        if (!response.ok) throw new Error((await response.text()).trim() || `HTTP ${response.status}`);
-        return response.json();
-      })
-      .then(data => {
-        const statusEl = document.getElementById('whitelist-status');
-        if (statusEl) statusEl.className = 'mb-3 text-muted';
-        if (selfWhitelistAdd) {
-          selfWhitelistAdd.disabled = !data.linkedUsername || Boolean(data.username);
-          selfWhitelistAdd.hidden = Boolean(data.username);
-        }
-        if (selfWhitelistRemove) {
-          selfWhitelistRemove.disabled = !data.username;
-          selfWhitelistRemove.hidden = !data.username;
-        }
-        if (data.username) {
-          if (statusEl) {
-            statusEl.replaceChildren();
-            statusEl.append('You are whitelisted as ', whitelistElement('strong', '', data.username), '.');
-            if (data.linkedUsername && whitelistIdentityKey(data.linkedUsername) !== whitelistIdentityKey(data.username)) {
-              statusEl.append(` Your linked account is now ${data.linkedUsername}; remove the old entry before adding the new one.`);
-            }
-          }
-        } else {
-          if (statusEl) statusEl.textContent = data.linkedUsername
-            ? `Your linked identity is ${data.linkedUsername}. It is not yet on this server's whitelist.`
-            : 'No game identity is linked. Add one in User Settings before whitelisting yourself.';
-        }
-      })
-      .catch(error => {
-        const statusEl = document.getElementById('whitelist-status');
-        if (statusEl) {
-          statusEl.className = 'mb-3 text-danger';
-          statusEl.textContent = `Could not load your whitelist status: ${error.message}`;
-        }
-        if (selfWhitelistAdd) selfWhitelistAdd.disabled = true;
-        if (selfWhitelistRemove) selfWhitelistRemove.disabled = true;
-      });
-    }
-    loadWhitelistStatus();
     {{end}}
 });
 

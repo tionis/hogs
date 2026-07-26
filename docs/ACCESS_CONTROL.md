@@ -32,15 +32,22 @@ grant cannot enable an action disabled by deployment policy.
 
 Capabilities are explicit and independently grantable: `view`, `status`,
 `start`, `stop`, `restart`, `command`, `console.read`, `console.write`,
-`file.read`, `file.write`, `whitelist.self`, `whitelist.manage`, `backup.list`,
+`file.read`, `file.write`, `server.join`, `whitelist.manage`, `backup.list`,
 `backup.create`, `backup.restore`, `automation.manage`, `secret.read`, and
 `access.manage`.
 `secret.read` reveals user-facing shared game secrets only after an explicit,
 audited request; write-only backend credentials are never revealable. `command`
 covers only commands separately approved for the server. Arbitrary console
 input requires `console.write`; read-only console users cannot send it.
-`whitelist.self` can only manage the caller's linked identity, while
-`whitelist.manage` is intended for server administrators.
+`server.join` expresses the ability to join the game. For embedded game types
+with whitelist support, HOGS derives the desired whitelist from this capability
+and verified identities synchronized from Authentik. For games without a
+per-player whitelist, the same capability permits an explicit reveal of the
+shared join secret; `secret.read` remains the broader explicit secret
+capability. `whitelist.manage` lets
+server administrators inspect reconciliation and maintain additional manual
+entries. HOGS records ownership only when it adds an entry itself and therefore
+never removes pre-existing or externally managed entries.
 
 Structured field placement and secret handling are documented in
 [server fields and secrets](SERVER_FIELDS.md).
@@ -82,11 +89,16 @@ immediately recalculate roles.
 
 ## Game identities and whitelists
 
-A game identity links an authenticated HOGS user to one in-game username per
-game type. Users can manage their own links from **Account Settings**; administrators
-can assign or correct links from **Users and Game Identities**. Server
-whitelisting reuses the linked identity and records the server-specific
-membership separately.
+A verified game identity is synchronized from Authentik's `game_identities`
+user attribute through the HOGS SCIM extension. Users manage source links in
+the configured identity-provider page; HOGS presents them read-only.
+
+For each whitelist-capable server, HOGS combines active SCIM users, their
+current groups, `server.join` grants, and the embedded game driver's identity
+mapping into a desired roster. Reconciliation runs after SCIM and ACL changes,
+at startup, on a timer, and on administrator request. An entry is recorded as
+owned only when HOGS adds it. Revocation removes owned entries, while entries
+that predated reconciliation or were added directly remain untouched.
 
 Whitelist commands are game-type adapters, not administrator-provided command
 templates. Minecraft Java and Factorio use their native whitelist commands and
@@ -101,11 +113,12 @@ described in [the agent contract](AGENT.md). Server access is decided by HOGS;
 the agent independently confines the request to its local server and path
 allowlist.
 
-Machine administrators can manage the same state through:
+Machine administrators can inspect access and synchronized identity state
+through:
 
 - `GET`/`PUT /api/v1/servers/{serverName}/access-grants`
 - `DELETE /api/v1/servers/{serverName}/access-grants/{grantID}`
-- `GET`/`PUT`/`DELETE /api/v1/game-identities`
+- `GET /api/v1/game-identities`
 
 These endpoints require an admin API key. Interactive users can only change
 their own identity; interactive administrators can manage identities and grants

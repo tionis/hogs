@@ -266,12 +266,12 @@ func TestWhitelistStatusIgnoresCallerSuppliedIdentity(t *testing.T) {
 	}
 }
 
-func TestWhitelistSelfServiceRejectsCallerSuppliedUsername(t *testing.T) {
+func TestLegacyWhitelistEndpointRejectsCallerSuppliedUsername(t *testing.T) {
 	store, authenticator, eng := managedAuthorizationFixture(t, nil, `true`)
 	server, _ := store.GetServerByName("managed-test")
 	if err := store.SetServerAccessGrant(&database.ServerAccessGrant{
 		ServerID: server.ID, SubjectType: "user", Subject: "player@example.test",
-		Effect: "allow", Capabilities: []string{"whitelist.self"},
+		Effect: "allow", Capabilities: []string{"server.join"},
 	}); err != nil {
 		t.Fatal(err)
 	}

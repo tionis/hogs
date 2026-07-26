@@ -1,16 +1,16 @@
-{{define "title"}}Users and Game Identities{{end}}
+{{define "title"}}Users{{end}}
 
 {{define "content"}}
 <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
-  <h1 class="h2">Users and Game Identities</h1>
+  <h1 class="h2">Users</h1>
   <a href="/admin" class="btn btn-sm btn-outline-secondary">Back to Admin</a>
 </div>
 
 <div class="alert alert-info">
   Users and groups are synchronized from Authentik through SCIM. Membership in the configured
   admin group grants <code>admin</code>, while membership in the user group grants
-  <code>user</code>. HOGS stores game-account identities locally for game-specific allowlist
-  operations.
+  <code>user</code>. Verified game identities are synchronized from Authentik and
+  shown read-only; change them at the identity provider.
 </div>
 
 <div class="table-responsive">
@@ -57,20 +57,10 @@
           <div class="d-flex align-items-center gap-1 mb-1">
             <span class="badge bg-secondary">{{.GameType}}</span>
             <code>{{.Username}}</code>
-            <span class="text-muted small">({{.Source}})</span>
-            <form action="/account/game-identities/delete" method="POST" class="ms-auto">
-              <input type="hidden" name="user_username" value="{{.UserUsername}}">
-              <input type="hidden" name="game_type" value="{{.GameType}}">
-              <button type="submit" class="btn btn-sm btn-outline-danger py-0">Remove</button>
-            </form>
+            <span class="text-muted small">(Authentik)</span>
           </div>
           {{end}}
-          <form action="/account/game-identities/set" method="POST" class="row g-1 mt-1">
-            <input type="hidden" name="user_username" value="{{.Username}}">
-            <div class="col-4"><input name="game_type" class="form-control form-control-sm" placeholder="minecraft" required></div>
-            <div class="col-5"><input name="username" class="form-control form-control-sm" placeholder="In-game name" required></div>
-            <div class="col-3"><button class="btn btn-sm btn-outline-primary w-100" type="submit">Link</button></div>
-          </form>
+          {{if not .Identities}}<em class="text-muted">none</em>{{end}}
         </td>
       </tr>
       {{end}}
