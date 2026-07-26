@@ -294,6 +294,10 @@ func TestAuditLogUsesJSONFieldNamesAndRequestContext(t *testing.T) {
 
 func TestUserSettingsContainsLinkedGameAccounts(t *testing.T) {
 	handler, store, authenticator := testWebHandler(t)
+	handler.Config.GameIdentityLinkURLs = map[string]string{
+		"minecraft": "https://identity.example.test/if/flow/link-minecraft/",
+		"factorio":  "https://identity.example.test/if/flow/link-factorio/",
+	}
 	store.CreateServer(&database.Server{Name: "IdentitySrv", GameType: "minecraft", State: "online"})
 	if err := store.ReplaceSCIMGameIdentities("player@example.test", []database.GameIdentity{{
 		GameType: "minecraft", Username: "TestPlayer", ExternalID: "test-uuid",
@@ -309,8 +313,11 @@ func TestUserSettingsContainsLinkedGameAccounts(t *testing.T) {
 		t.Fatalf("settings status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 	for _, expected := range []string{
-		"User Settings", "Panel Account", "Game Accounts",
-		"player@example.test", "TestPlayer", `href="/account/settings"`,
+		"Game Accounts", "Panel Account", "Connected Game Accounts",
+		"player@example.test", "TestPlayer", "Connected through Authentik",
+		"https://identity.example.test/if/flow/link-minecraft/",
+		"https://identity.example.test/if/flow/link-factorio/",
+		"Not connected", `href="/account/settings"`,
 	} {
 		if !contains(recorder.Body.String(), expected) {
 			t.Errorf("user settings missing %q", expected)

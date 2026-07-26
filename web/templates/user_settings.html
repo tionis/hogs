@@ -1,16 +1,16 @@
-{{define "title"}}User Settings{{end}}
+{{define "title"}}Game Accounts{{end}}
 
 {{define "content"}}
 <nav aria-label="breadcrumb">
   <ol class="breadcrumb">
     <li class="breadcrumb-item"><a href="/">Home</a></li>
-    <li class="breadcrumb-item active" aria-current="page">User Settings</li>
+    <li class="breadcrumb-item active" aria-current="page">Game Accounts</li>
   </ol>
 </nav>
 
 <div class="pt-2 pb-2 mb-4 border-bottom">
-  <h1 class="h2">User Settings</h1>
-  <p class="text-muted mb-0">Settings associated with your panel identity.</p>
+  <h1 class="h2">Game Accounts</h1>
+  <p class="text-muted mb-0">Connect the accounts used to derive managed game-server access.</p>
 </div>
 
 <div class="card mb-4">
@@ -27,26 +27,30 @@
 </div>
 
 <div class="card mb-4" id="linked-game-accounts">
-  <div class="card-header">Game Accounts</div>
+  <div class="card-header">Connected Game Accounts</div>
   <div class="card-body">
-    <p class="text-muted">Game accounts are linked in the identity provider and synchronized to HOGS. Server whitelists update automatically from server access rules.</p>
-    {{if .Identities}}
-    <div class="list-group mb-4">
-      {{range .Identities}}
+    <p class="text-muted">Accounts are stored in Authentik and synchronized to HOGS. Managed server whitelists update automatically from server access rules.</p>
+    {{if .AccountLinks}}
+    <div class="list-group">
+      {{range .AccountLinks}}
       <div class="list-group-item d-flex align-items-center gap-3">
-        <span class="game-badge" style="{{gameBadgeCSS .GameType}}">{{.GameType | gameIcon}}{{.GameType | gameDisplayName}}</span>
-        <code>{{.Username}}</code>
-        <span class="badge bg-secondary ms-auto">managed by identity provider</span>
+        <span class="game-badge" style="{{gameBadgeCSS .Provider}}">{{.Provider | gameIcon}}{{.Provider | gameDisplayName}}</span>
+        <div class="flex-grow-1">
+          {{if .HasIdentity}}
+          <code>{{.Username}}</code>
+          <div class="small text-muted">Connected through Authentik</div>
+          {{else}}
+          <span class="text-muted">Not connected</span>
+          {{end}}
+        </div>
+        <a class="btn btn-sm {{if .HasIdentity}}btn-outline-primary{{else}}btn-primary{{end}}" href="{{.URL}}" rel="noopener">
+          {{if .HasIdentity}}Change{{else}}Connect{{end}}
+        </a>
       </div>
       {{end}}
     </div>
     {{else}}
-    <div class="alert alert-info">No verified game accounts have been synchronized yet.</div>
-    {{end}}
-    {{if .GameIdentitySettingsURL}}
-    <a class="btn btn-primary" href="{{.GameIdentitySettingsURL}}" rel="noopener">Manage linked game accounts</a>
-    {{else}}
-    <p class="small text-muted mb-0">Ask the instance administrator where game accounts are linked.</p>
+    <div class="alert alert-info mb-0">No game-account linking methods have been configured.</div>
     {{end}}
   </div>
 </div>

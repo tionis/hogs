@@ -67,9 +67,6 @@ type EffectiveAccessEntry struct {
 
 func gameIdentityLinkURL(cfg *config.Config, provider string) string {
 	if cfg != nil {
-		if link := cfg.GameIdentityLinkURLs[strings.ToLower(strings.TrimSpace(provider))]; link != "" {
-			return link
-		}
 		return cfg.GameIdentitySettingsURL
 	}
 	return ""
@@ -1818,29 +1815,46 @@ func (h *WebHandler) MyServers(w http.ResponseWriter, r *http.Request) {
 func (h *WebHandler) UserSettings(w http.ResponseWriter, r *http.Request) {
 	user := h.getUserEnv(r)
 	identities, _ := h.Store.ListGameIdentities(user.Username)
-	scimIdentities := make([]database.GameIdentity, 0, len(identities))
+	identitiesByProvider := map[string]database.GameIdentity{}
 	for _, identity := range identities {
 		if identity.Source == "scim" {
-			scimIdentities = append(scimIdentities, identity)
+			identitiesByProvider[strings.ToLower(identity.GameType)] = identity
 		}
+	}
+	providers := make([]string, 0, len(h.Config.GameIdentityLinkURLs))
+	for provider := range h.Config.GameIdentityLinkURLs {
+		providers = append(providers, provider)
+	}
+	sort.Strings(providers)
+	type accountLink struct {
+		Provider    string
+		URL         string
+		Username    string
+		HasIdentity bool
+	}
+	accountLinks := make([]accountLink, 0, len(providers))
+	for _, provider := range providers {
+		identity, linked := identitiesByProvider[provider]
+		accountLinks = append(accountLinks, accountLink{
+			Provider: provider, URL: h.Config.GameIdentityLinkURLs[provider],
+			Username: identity.Username, HasIdentity: linked,
+		})
 	}
 
 	data := struct {
-		Identities              []database.GameIdentity
-		GameIdentitySettingsURL string
-		Authenticated           bool
-		UserRole                string
-		UserUsername            string
-		SiteName                string
-		BackgroundURLs          BackgroundURLs
+		AccountLinks   []accountLink
+		Authenticated  bool
+		UserRole       string
+		UserUsername   string
+		SiteName       string
+		BackgroundURLs BackgroundURLs
 	}{
-		Identities:              scimIdentities,
-		GameIdentitySettingsURL: h.Config.GameIdentitySettingsURL,
-		Authenticated:           true,
-		UserRole:                h.userRole(r),
-		UserUsername:            user.Username,
-		SiteName:                h.siteName(),
-		BackgroundURLs:          h.pickBackgrounds([]string{"home"}),
+		AccountLinks:   accountLinks,
+		Authenticated:  true,
+		UserRole:       h.userRole(r),
+		UserUsername:   user.Username,
+		SiteName:       h.siteName(),
+		BackgroundURLs: h.pickBackgrounds([]string{"home"}),
 	}
 
 	tmpl, err := template.New("base.html").Funcs(sharedFuncMap(h.Store)).ParseFS(templateFS, "templates/base.html", "templates/user_settings.html")
