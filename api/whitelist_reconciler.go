@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -27,9 +28,10 @@ type WhitelistReconcileResult struct {
 // performs a periodic safety reconciliation so temporary worker outages do not
 // leave access state stale.
 type WhitelistReconciler struct {
-	handler *PterodactylHandler
-	queue   chan int
-	stop    chan struct{}
+	handler        *PterodactylHandler
+	queue          chan int
+	stop           chan struct{}
+	retryScheduled atomic.Bool
 }
 
 func NewWhitelistReconciler(handler *PterodactylHandler) *WhitelistReconciler {
@@ -70,7 +72,7 @@ func (r *WhitelistReconciler) Start() {
 			}
 		}
 	}()
-	r.TriggerAll()
+	r.scheduleTriggerAllRetry()
 }
 
 func (r *WhitelistReconciler) Close() {
@@ -96,6 +98,7 @@ func (r *WhitelistReconciler) TriggerAll() {
 	servers, err := r.handler.Store.ListServers()
 	if err != nil {
 		log.Printf("list servers for whitelist reconciliation: %v", err)
+		r.scheduleTriggerAllRetry()
 		return
 	}
 	for i := range servers {
@@ -104,6 +107,21 @@ func (r *WhitelistReconciler) TriggerAll() {
 			r.Trigger(servers[i].ID)
 		}
 	}
+}
+
+func (r *WhitelistReconciler) scheduleTriggerAllRetry() {
+	if !r.retryScheduled.CompareAndSwap(false, true) {
+		return
+	}
+	time.AfterFunc(5*time.Second, func() {
+		r.retryScheduled.Store(false)
+		select {
+		case <-r.stop:
+			return
+		default:
+			r.TriggerAll()
+		}
+	})
 }
 
 type desiredWhitelistIdentity struct {
