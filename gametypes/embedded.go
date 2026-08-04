@@ -337,4 +337,9 @@ func init() {
 		AccentColor: "#4a148c",
 		Icon:        `<svg class="game-icon" viewBox="0 0 16 16" fill="currentColor"><circle cx="8" cy="8" r="2"/><path d="M8 0v3M8 13v3M0 8h3M13 8h3M2.5 2.5l2 2M11.5 11.5l2 2M13.5 2.5l-2 2M4.5 11.5l-2 2"/></svg>`,
 	})
+	Register(Driver{
+		Slug: "windrose", DisplayName: "Windrose", PlayerNoun: "Pirates",
+		AccentColor: "#176b87",
+		Icon:        `<svg class="game-icon" viewBox="0 0 16 16" fill="currentColor"><path d="M7 1v9H2l5-9zm1 2v7h6L8 3zM1 11h14l-2 3H4l-3-3z"/></svg>`,
+	})
 }

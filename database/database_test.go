@@ -550,6 +550,13 @@ func TestGameTypesAndConsoleHistory(t *testing.T) {
 	if driver := store.ResolveGameDriver("minecraft"); driver.Kind != "generic" || driver.SupportsWhitelist() {
 		t.Fatalf("disabled type retained specialized behavior: %#v", driver)
 	}
+	windrose, err := store.GetGameType("windrose")
+	if err != nil || windrose == nil || windrose.Kind != "embedded" || !windrose.Enabled || !windrose.Builtin {
+		t.Fatalf("Windrose embedded game type=%#v err=%v", windrose, err)
+	}
+	if driver := store.ResolveGameDriver("windrose"); driver.Kind != "embedded" || driver.SupportsWhitelist() || driver.StatusProtocol != "" {
+		t.Fatalf("unexpected Windrose driver: %#v", driver)
+	}
 	server := &Server{Name: "history-test", GameType: custom.Slug, State: "online"}
 	if err := store.CreateServer(server); err != nil {
 		t.Fatal(err)
@@ -565,6 +572,27 @@ func TestGameTypesAndConsoleHistory(t *testing.T) {
 	}
 	if err := store.DeleteGameType(custom.Slug); err == nil {
 		t.Fatal("removed a game type still used by a server")
+	}
+}
+
+func TestWindroseGameTypeForwardMigration(t *testing.T) {
+	dbPath := t.TempDir() + "/windrose-migration.db"
+	db := migrateTestDatabaseTo(t, dbPath, 45)
+	if _, err := db.Exec("DELETE FROM game_types WHERE slug='windrose'"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	store, err := NewStore(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.DB.Close()
+	windrose, err := store.GetGameType("windrose")
+	if err != nil || windrose == nil || windrose.Kind != "embedded" || !windrose.Enabled || !windrose.Builtin {
+		t.Fatalf("migrated Windrose game type=%#v err=%v", windrose, err)
 	}
 }
 

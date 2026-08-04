@@ -166,10 +166,23 @@ func TestValheimFileBackedWhitelistDriver(t *testing.T) {
 	}
 }
 
+func TestWindroseUsesPasswordAdmissionAndAgentStatus(t *testing.T) {
+	driver, ok := Embedded("windrose")
+	if !ok {
+		t.Fatal("Windrose embedded driver is not available")
+	}
+	if driver.DisplayName != "Windrose" || driver.PlayerNoun != "Pirates" {
+		t.Fatalf("unexpected Windrose presentation: %#v", driver)
+	}
+	if driver.StatusProtocol != "" || driver.SupportsWhitelist() || driver.IdentityProvider != "" {
+		t.Fatalf("Windrose advertises an unsupported protocol or identity hook: %#v", driver)
+	}
+}
+
 func TestEmbeddedDriversHaveUniqueDefinitions(t *testing.T) {
 	drivers := AllEmbedded()
-	if len(drivers) < 5 {
-		t.Fatalf("embedded drivers=%d, want at least 5", len(drivers))
+	if len(drivers) < 6 {
+		t.Fatalf("embedded drivers=%d, want at least 6", len(drivers))
 	}
 	seen := map[string]bool{}
 	for _, driver := range drivers {

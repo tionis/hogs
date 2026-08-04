@@ -12,7 +12,8 @@ INSERT INTO game_types(slug, display_name, player_noun, icon, accent_color, buil
     ('satisfactory', 'Satisfactory', 'Engineers', '', '#e65100', 1),
     ('factorio', 'Factorio', 'Engineers', '', '#827717', 1),
     ('valheim', 'Valheim', 'Vikings', '', '#3e2723', 1),
-    ('starrupture', 'Star Rupture', 'Players', '', '#4a148c', 1);
+    ('starrupture', 'Star Rupture', 'Players', '', '#4a148c', 1),
+    ('windrose', 'Windrose', 'Pirates', '', '#176b87', 1);
 
 INSERT OR IGNORE INTO game_types(slug, display_name)
 SELECT DISTINCT game_type, game_type FROM servers WHERE game_type <> '';

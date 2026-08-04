@@ -61,6 +61,13 @@ the intended players. `secret.read` can still reveal the field independently
 for an administrator or another trusted operator. Shared passwords must not be
 represented as identity-based whitelisting.
 
+Windrose likewise uses its native shared password and invite code rather than
+a per-player allowlist. HOGS manages Windrose lifecycle, journal output, files,
+backups, resource observations, and the join password through the agent. The
+game does not document a status-query or administrative-console protocol, so
+the embedded driver intentionally does not advertise either capability. See
+[Windrose servers](WINDROSE.md) for deployment and configuration details.
+
 Verified external identity IDs are stored with linked Minecraft identities so
 future offline changes do not require another profile lookup.
 
