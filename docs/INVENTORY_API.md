@@ -35,6 +35,7 @@ deployed separately and are not part of this API.
 | `PUT` | `/api/v1/inventory` | Transactionally apply the complete desired state. |
 | `GET` | `/api/v1/inventory` | Read redacted desired state and current observations. |
 | `GET` | `/api/v1/inventory/events?after=<cursor>` | Poll immutable reconciliation events. |
+| `PUT` | `/api/v1/servers/{serverName}/secret-fields` | Set or remove managed secret fields imperatively. |
 
 The manifest is authoritative for nodes, servers and their backends and policy,
 commands, constraints, schedules, templates, webhooks, notification channels,
@@ -162,11 +163,25 @@ observed through the configured node transport and are never overwritten by the
 manifest. Endpoint addition, credential rotation, and revocation happen through
 the installation's deployment system.
 
-Ordinary readback redacts webhook secrets, notification URLs, and secret-like
-settings. It never returns API keys. Secret-like server metadata is rejected
-at validation time because the desired manifest is not a secret store. Manage
-join passwords and backend credentials as encrypted server fields in HOGS;
-those fields survive server inventory reconciliation.
+Ordinary readback redacts webhook secrets, notification URLs, secret-like
+settings, and managed secret fields. It never returns API keys. Secret-like
+server metadata is rejected at validation time; backend credentials
+(`api_token`, `rcon_password`) belong in the server's `secretFields` map
+instead:
+
+```json
+"secretFields": {"api_token": "hogs-managed-bearer-token"}
+```
+
+Secret field values are write-only: inventory state persists HMAC
+fingerprints (so rotation registers as an update and digests stay stable),
+plan output and readback mask them as `"***"`, and an empty value removes
+the field. The sealed values land in encrypted internal server fields, which
+game drivers consume at runtime and which survive inventory reconciliation.
+`PUT /api/v1/servers/{serverName}/secret-fields` with
+`{"fields": {"api_token": "..."}}` applies the same contract imperatively
+(empty value removes); every change audits field keys, never values. Manage
+join passwords as encrypted server fields in HOGS as before.
 
 ## Desired and observed state
 

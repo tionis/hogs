@@ -3,6 +3,7 @@ package database
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
@@ -88,10 +89,98 @@ func (s *Store) ConfigureServerFieldEncryption(secret string) error {
 		return fmt.Errorf("initialize server field cipher: %w", err)
 	}
 	s.serverFieldCipher = &serverFieldCipher{aead: aead}
+	fingerprintKey := sha256.Sum256([]byte("hogs/server-field-fingerprints/v1\x00" + secret))
+	s.serverFieldFingerprintKey = fingerprintKey[:]
 	if err := s.sealLegacyServerFields(); err != nil {
 		return err
 	}
 	return s.scrubLegacyInventorySecrets()
+}
+
+// managedSecretFieldKeys are the backend-credential fields that automation
+// may manage through the inventory API. The allowlist stays explicit so a
+// new game driver cannot turn an arbitrary metadata key into a secret sink
+// by accident.
+var managedSecretFieldKeys = map[string]string{
+	"api_token":     "API token",
+	"rcon_password": "RCON password",
+}
+
+// IsManagedSecretField reports whether automation may set the field key
+// through the inventory secret-fields contract.
+func IsManagedSecretField(key string) bool {
+	_, ok := managedSecretFieldKeys[strings.TrimSpace(key)]
+	return ok
+}
+
+// ManagedSecretFieldLabel returns the dashboard label for a managed secret
+// field key.
+func ManagedSecretFieldLabel(key string) string {
+	if label, ok := managedSecretFieldKeys[strings.TrimSpace(key)]; ok {
+		return label
+	}
+	return strings.TrimSpace(key)
+}
+
+// FingerprintServerSecret returns a stable, non-reversible fingerprint for a
+// secret value. Inventory state persists fingerprints instead of plaintext so
+// plan diffs and digests stay meaningful without storing secrets in the
+// desired-state record.
+func (s *Store) FingerprintServerSecret(scope, key, value string) (string, error) {
+	if s.serverFieldFingerprintKey == nil {
+		return "", errors.New("server field encryption is not configured")
+	}
+	mac := hmac.New(sha256.New, s.serverFieldFingerprintKey)
+	fmt.Fprintf(mac, "%s\x00%s\x00%s", scope, key, value)
+	return "hmac-sha256:" + hex.EncodeToString(mac.Sum(nil)), nil
+}
+
+// SetServerSecretField creates, updates, or (with an empty value) removes a
+// managed write-only secret field. Only allowlisted backend-credential keys
+// are accepted; everything else belongs in ordinary metadata or the
+// dashboard field editor.
+func (s *Store) SetServerSecretField(serverID int, key, value string) error {
+	return s.setServerSecretField(s.DB, serverID, key, value)
+}
+
+// SetServerSecretFieldTx applies a managed secret field inside the caller's
+// transaction, for transactional reconciliation flows.
+func (s *Store) SetServerSecretFieldTx(tx *sql.Tx, serverID int, key, value string) error {
+	return s.setServerSecretField(tx, serverID, key, value)
+}
+
+type serverFieldExecer interface {
+	Exec(query string, args ...interface{}) (sql.Result, error)
+}
+
+func (s *Store) setServerSecretField(db serverFieldExecer, serverID int, key, value string) error {
+	key = strings.TrimSpace(key)
+	if !IsManagedSecretField(key) {
+		return fmt.Errorf("secret field %q is not automation-managed", key)
+	}
+	if err := ValidateServerField(ServerField{
+		Key: key, Label: ManagedSecretFieldLabel(key),
+		Placement: FieldPlacementInternal, Disclosure: FieldDisclosureWriteOnly,
+	}); err != nil {
+		return err
+	}
+	if s.serverFieldCipher == nil {
+		return errors.New("server field encryption is not configured")
+	}
+	if value == "" {
+		_, err := db.Exec("DELETE FROM server_fields WHERE server_id=? AND field_key=?", serverID, key)
+		return err
+	}
+	sealed, err := s.sealServerField(serverID, key, value)
+	if err != nil {
+		return err
+	}
+	_, err = db.Exec(`INSERT INTO server_fields(server_id,field_key,label,value,placement,disclosure,sort_order)
+		VALUES(?,?,?,?,?,?,(SELECT COALESCE(MAX(sort_order),-1)+1 FROM server_fields WHERE server_id=?))
+		ON CONFLICT(server_id,field_key) DO UPDATE SET value=excluded.value,updated_at=CURRENT_TIMESTAMP`,
+		serverID, key, ManagedSecretFieldLabel(key), sealed,
+		FieldPlacementInternal, FieldDisclosureWriteOnly, serverID)
+	return err
 }
 
 func (s *Store) sealServerField(serverID int, fieldKey, value string) (string, error) {

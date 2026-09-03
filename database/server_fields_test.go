@@ -118,3 +118,50 @@ func TestConfiguringEncryptionSealsMigrationValuesAndScrubsInventoryState(t *tes
 		t.Fatalf("legacy inventory secret remained at rest: %s", storedManifest)
 	}
 }
+
+func TestSetServerSecretFieldRoundTrip(t *testing.T) {
+	store := testStore(t)
+	if err := store.ConfigureServerFieldEncryption("test-server-field-key-material-000000000000"); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{Name: "Secret Test", GameType: "generic", State: "online", Metadata: map[string]string{}}
+	if err := store.CreateServer(server); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetServerSecretField(server.ID, "api_token", "token-one"); err != nil {
+		t.Fatalf("set secret: %v", err)
+	}
+	fields, err := store.ListServerFields(server.ID)
+	if err != nil || len(fields) != 1 {
+		t.Fatalf("fields = %#v err=%v", fields, err)
+	}
+	if fields[0].Placement != FieldPlacementInternal || fields[0].Disclosure != FieldDisclosureWriteOnly {
+		t.Fatalf("secret field has wrong shape: %+v", fields[0])
+	}
+	value, err := store.GetServerFieldValue(server.ID, fields[0].ID)
+	if err != nil || value != "token-one" {
+		t.Fatalf("round trip value=%q err=%v", value, err)
+	}
+	fingerprint, err := store.FingerprintServerSecret("scope", "api_token", "token-one")
+	if err != nil {
+		t.Fatalf("fingerprint: %v", err)
+	}
+	same, err := store.FingerprintServerSecret("scope", "api_token", "token-one")
+	if err != nil || same != fingerprint || !strings.HasPrefix(fingerprint, "hmac-sha256:") {
+		t.Fatalf("fingerprint not stable: %q err=%v", same, err)
+	}
+	other, err := store.FingerprintServerSecret("scope", "api_token", "token-two")
+	if err != nil || other == fingerprint {
+		t.Fatal("fingerprint did not change with value")
+	}
+	if err := store.SetServerSecretField(server.ID, "game_password", "x"); err == nil {
+		t.Fatal("unmanaged key was accepted")
+	}
+	if err := store.SetServerSecretField(server.ID, "api_token", ""); err != nil {
+		t.Fatalf("remove secret: %v", err)
+	}
+	fields, err = store.ListServerFields(server.ID)
+	if err != nil || len(fields) != 0 {
+		t.Fatalf("removed field still present: %#v err=%v", fields, err)
+	}
+}

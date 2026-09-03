@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gorilla/mux"
 	"github.com/robfig/cron/v3"
 	"github.com/tionis/hogs/access"
 	"github.com/tionis/hogs/auth"
@@ -45,17 +46,22 @@ type InventoryNode struct {
 }
 
 type InventoryServer struct {
-	ID           string                 `json:"id"`
-	Name         string                 `json:"name"`
-	Address      string                 `json:"address"`
-	Description  string                 `json:"description"`
-	MapURL       string                 `json:"mapUrl"`
-	MapLifecycle string                 `json:"mapLifecycle"`
-	ModURL       string                 `json:"modUrl"`
-	State        string                 `json:"state"`
-	GameType     string                 `json:"gameType"`
-	ShowMOTD     bool                   `json:"showMotd"`
-	Metadata     map[string]string      `json:"metadata"`
+	ID           string            `json:"id"`
+	Name         string            `json:"name"`
+	Address      string            `json:"address"`
+	Description  string            `json:"description"`
+	MapURL       string            `json:"mapUrl"`
+	MapLifecycle string            `json:"mapLifecycle"`
+	ModURL       string            `json:"modUrl"`
+	State        string            `json:"state"`
+	GameType     string            `json:"gameType"`
+	ShowMOTD     bool              `json:"showMotd"`
+	Metadata     map[string]string `json:"metadata"`
+	// SecretFields holds write-only backend credentials (api_token,
+	// rcon_password) managed as encrypted server fields. Values never
+	// persist as plaintext: inventory state keeps HMAC fingerprints, plan
+	// output and readback mask them, and an empty value removes the field.
+	SecretFields map[string]string      `json:"secretFields,omitempty"`
 	Tags         []string               `json:"tags"`
 	Unit         string                 `json:"unit"`
 	DataPath     string                 `json:"dataPath"`
@@ -223,13 +229,18 @@ func (h *InventoryHandler) Plan(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to load inventory state", http.StatusInternalServerError)
 		return
 	}
-	digest, err := inventoryDigest(manifest)
+	storable, err := h.fingerprintManifest(manifest)
+	if err != nil {
+		http.Error(w, "Failed to fingerprint secret fields", http.StatusInternalServerError)
+		return
+	}
+	digest, err := inventoryDigest(storable)
 	if err != nil {
 		http.Error(w, "Failed to hash inventory", http.StatusInternalServerError)
 		return
 	}
-	changes := diffInventory(current, manifest)
-	legacyDeletes, err := h.firstAdoptionDeletes(currentDigest, manifest)
+	changes := diffInventory(current, storable)
+	legacyDeletes, err := h.firstAdoptionDeletes(currentDigest, storable)
 	if err != nil {
 		http.Error(w, "Failed to inspect pre-existing inventory", http.StatusInternalServerError)
 		return
@@ -259,8 +270,13 @@ func (h *InventoryHandler) Apply(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Inventory state changed; plan again", http.StatusPreconditionFailed)
 		return
 	}
-	changes := diffInventory(current, manifest)
-	legacyDeletes, err := h.firstAdoptionDeletes(currentDigest, manifest)
+	storable, err := h.fingerprintManifest(manifest)
+	if err != nil {
+		http.Error(w, "Failed to fingerprint secret fields", http.StatusInternalServerError)
+		return
+	}
+	changes := diffInventory(current, storable)
+	legacyDeletes, err := h.firstAdoptionDeletes(currentDigest, storable)
 	if err != nil {
 		http.Error(w, "Failed to inspect pre-existing inventory", http.StatusInternalServerError)
 		return
@@ -274,7 +290,7 @@ func (h *InventoryHandler) Apply(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	digest, err := inventoryDigest(manifest)
+	digest, err := inventoryDigest(storable)
 	if err != nil {
 		http.Error(w, "Failed to hash inventory", http.StatusInternalServerError)
 		return
@@ -284,7 +300,7 @@ func (h *InventoryHandler) Apply(w http.ResponseWriter, r *http.Request) {
 	if key != nil {
 		actor = "api-key:" + key.Name
 	}
-	err = h.applyManifest(manifest, current, digest, actor, changes)
+	err = h.applyManifest(storable, manifest, current, digest, actor, changes)
 	if err != nil {
 		http.Error(w, "Failed to apply inventory: "+err.Error(), http.StatusBadRequest)
 		return
@@ -345,6 +361,88 @@ func (h *InventoryHandler) Events(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{"events": events, "cursor": cursor})
 }
 
+// SetServerSecretFields sets or removes managed write-only secret fields
+// (api_token, rcon_password) for one server. It is the imperative companion
+// to the declarative secretFields manifest contract: same allowlist, same
+// sealed storage, field keys (never values) in the audit trail.
+func (h *InventoryHandler) SetServerSecretFields(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	var body struct {
+		Fields map[string]string `json:"fields"`
+	}
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&body); err != nil {
+		http.Error(w, "Invalid secret fields JSON: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if len(body.Fields) == 0 {
+		http.Error(w, "fields is required", http.StatusBadRequest)
+		return
+	}
+	for key, value := range body.Fields {
+		if !database.IsManagedSecretField(key) {
+			http.Error(w, fmt.Sprintf("secret field %q is not automation-managed (supported: api_token, rcon_password)", key), http.StatusBadRequest)
+			return
+		}
+		if strings.ContainsAny(value, "\r\n\x00") {
+			http.Error(w, fmt.Sprintf("secret field %q must be a single-line value", key), http.StatusBadRequest)
+			return
+		}
+	}
+	ref := mux.Vars(r)["serverName"]
+	server, err := h.Store.GetServerByManagementID(ref)
+	if err != nil {
+		http.Error(w, "Failed to look up server", http.StatusInternalServerError)
+		return
+	}
+	if server == nil {
+		server, err = h.Store.GetServerByName(ref)
+		if err != nil {
+			http.Error(w, "Failed to look up server", http.StatusInternalServerError)
+			return
+		}
+	}
+	if server == nil {
+		http.Error(w, "Server not found", http.StatusNotFound)
+		return
+	}
+	key := auth.GetAPIKeyFromContext(r)
+	actor := "api"
+	if key != nil {
+		actor = "api-key:" + key.Name
+	}
+	updated, removed := []string{}, []string{}
+	for fieldKey, value := range body.Fields {
+		if err := h.Store.SetServerSecretField(server.ID, fieldKey, value); err != nil {
+			http.Error(w, "Failed to store secret field: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		if value == "" {
+			removed = append(removed, fieldKey)
+		} else {
+			updated = append(updated, fieldKey)
+		}
+	}
+	sort.Strings(updated)
+	sort.Strings(removed)
+	params, _ := json.Marshal(map[string]interface{}{"updated": updated, "removed": removed})
+	_ = h.Store.CreateAuditLog(&database.AuditLogEntry{
+		Timestamp:    time.Now().UTC().Format(time.RFC3339),
+		UserUsername: actor,
+		ServerName:   server.Name,
+		Action:       "server.secret_fields",
+		Params:       params,
+		Result:       "success",
+		Source:       "inventory-api",
+	})
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"server":  server.ManagementID,
+		"updated": updated,
+		"removed": removed,
+	})
+}
+
 func decodeInventoryManifest(w http.ResponseWriter, r *http.Request) (InventoryManifest, bool) {
 	r.Body = http.MaxBytesReader(w, r.Body, 2<<20)
 	decoder := json.NewDecoder(r.Body)
@@ -401,7 +499,15 @@ func validateManifest(m *InventoryManifest) error {
 		}
 		for key := range server.Metadata {
 			if isSensitiveName(key) {
-				return fmt.Errorf("server %q metadata key %q is secret-like; manage it as an encrypted server field instead", server.Name, key)
+				return fmt.Errorf("server %q metadata key %q is secret-like; manage it through secretFields instead", server.Name, key)
+			}
+		}
+		for key, value := range server.SecretFields {
+			if !database.IsManagedSecretField(key) {
+				return fmt.Errorf("server %q secret field %q is not automation-managed (supported: api_token, rcon_password)", server.Name, key)
+			}
+			if strings.ContainsAny(value, "\r\n\x00") {
+				return fmt.Errorf("server %q secret field %q must be a single-line value", server.Name, key)
 			}
 		}
 		if server.Backend.Type == "agent" && (strings.TrimSpace(server.Unit) == "" || strings.TrimSpace(server.DataPath) == "") {
@@ -778,6 +884,17 @@ func redactManifest(m InventoryManifest) InventoryManifest {
 			}
 		}
 		m.Servers[i].Metadata = metadata
+		if len(m.Servers[i].SecretFields) > 0 {
+			masked := make(map[string]string, len(m.Servers[i].SecretFields))
+			for key, value := range m.Servers[i].SecretFields {
+				if value == "" {
+					masked[key] = ""
+				} else {
+					masked[key] = "***"
+				}
+			}
+			m.Servers[i].SecretFields = masked
+		}
 	}
 	for i := range m.Webhooks {
 		if m.Webhooks[i].Secret != "" {
@@ -847,7 +964,56 @@ func notificationNames(v []InventoryNotification) []string {
 	return out
 }
 
-func (h *InventoryHandler) applyManifest(manifest, previous InventoryManifest, digest, actor string, changes []InventoryChange) error {
+// fingerprintManifest returns a copy of the manifest with secret field
+// values replaced by HMAC fingerprints. The fingerprinted copy is what plan
+// diffs, digests, and persists, so inventory state never holds plaintext
+// secrets while rotation still registers as a change.
+func (h *InventoryHandler) fingerprintManifest(manifest InventoryManifest) (InventoryManifest, error) {
+	out := manifest
+	out.Servers = make([]InventoryServer, len(manifest.Servers))
+	for i, server := range manifest.Servers {
+		out.Servers[i] = server
+		if len(server.SecretFields) == 0 {
+			continue
+		}
+		fingerprinted := make(map[string]string, len(server.SecretFields))
+		for key, value := range server.SecretFields {
+			if value == "" {
+				fingerprinted[key] = ""
+				continue
+			}
+			fingerprint, err := h.Store.FingerprintServerSecret(server.ID, key, value)
+			if err != nil {
+				return InventoryManifest{}, fmt.Errorf("server %q: %w", server.Name, err)
+			}
+			fingerprinted[key] = fingerprint
+		}
+		out.Servers[i].SecretFields = fingerprinted
+	}
+	return out, nil
+}
+
+// applyServerSecrets writes the plaintext secret fields of the full manifest
+// as sealed write-only server fields inside the reconciliation transaction.
+func (h *InventoryHandler) applyServerSecrets(tx *sql.Tx, servers []InventoryServer) error {
+	for _, server := range servers {
+		if len(server.SecretFields) == 0 {
+			continue
+		}
+		var serverID int
+		if err := tx.QueryRow("SELECT id FROM servers WHERE management_id=?", server.ID).Scan(&serverID); err != nil {
+			return fmt.Errorf("server %q: %w", server.Name, err)
+		}
+		for key, value := range server.SecretFields {
+			if err := h.Store.SetServerSecretFieldTx(tx, serverID, key, value); err != nil {
+				return fmt.Errorf("server %q secret field %q: %w", server.Name, key, err)
+			}
+		}
+	}
+	return nil
+}
+
+func (h *InventoryHandler) applyManifest(manifest, fullManifest, previous InventoryManifest, digest, actor string, changes []InventoryChange) error {
 	tx, err := h.Store.DB.Begin()
 	if err != nil {
 		return err
@@ -857,6 +1023,9 @@ func (h *InventoryHandler) applyManifest(manifest, previous InventoryManifest, d
 		return err
 	}
 	if err := applyServers(tx, manifest.Servers); err != nil {
+		return err
+	}
+	if err := h.applyServerSecrets(tx, fullManifest.Servers); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(`DELETE FROM background_tags

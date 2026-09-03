@@ -342,6 +342,7 @@ func main() {
 	router.Handle("/api/v1/servers/{serverName}/access-grants", inventoryAdmin(http.HandlerFunc(accessHandler.ListGrants))).Methods("GET")
 	router.Handle("/api/v1/servers/{serverName}/access-grants", inventoryAdmin(http.HandlerFunc(accessHandler.SetGrant))).Methods("PUT")
 	router.Handle("/api/v1/servers/{serverName}/access-grants/{grantID}", inventoryAdmin(http.HandlerFunc(accessHandler.DeleteGrant))).Methods("DELETE")
+	router.Handle("/api/v1/servers/{serverName}/secret-fields", inventoryAdmin(http.HandlerFunc(inventoryHandler.SetServerSecretFields))).Methods("PUT")
 	router.Handle("/api/servers/{serverName}/effective-access", authenticator.RequireRole("admin", "user")(http.HandlerFunc(accessHandler.EffectiveAccess))).Methods("GET")
 	router.Handle("/api/v1/game-identities", inventoryAdmin(http.HandlerFunc(accessHandler.ListGameIdentities))).Methods("GET")
 

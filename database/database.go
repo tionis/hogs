@@ -538,8 +538,9 @@ func (s *Server) ToPublic() *PublicServer {
 }
 
 type Store struct {
-	DB                *sql.DB
-	serverFieldCipher *serverFieldCipher
+	DB                        *sql.DB
+	serverFieldCipher         *serverFieldCipher
+	serverFieldFingerprintKey []byte
 }
 
 func NewStore(dataSourceName string) (*Store, error) {

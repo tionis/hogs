@@ -41,6 +41,11 @@ re-encryption workflow.
 
 Migration 40 converts ordinary legacy metadata to summary fields and moves the
 known `api_token` and `rcon_password` metadata keys to encrypted write-only
-fields. Secret-like values are rejected from inventory metadata so they cannot
-be persisted in the reconciliation manifest. Server fields remain
-application-managed and survive inventory reconciliation.
+fields. Secret-like values are rejected from inventory metadata, but the
+reconciliation manifest accepts them under `secretFields` (and
+`PUT /api/v1/servers/{serverName}/secret-fields` applies them imperatively):
+only `api_token` and `rcon_password` are automation-managed, values persist
+as HMAC fingerprints in inventory state and sealed ciphertext in server
+fields, and an empty value removes the field. Server fields remain
+application-managed and survive inventory reconciliation; a dashboard field
+edit round-trips manifest-managed secrets untouched.

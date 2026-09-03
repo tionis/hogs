@@ -244,7 +244,7 @@ func TestInventoryRejectsSecretLikeServerMetadata(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	handler.Plan(recorder, requestInventory(t, http.MethodPost, "/api/v1/inventory/plan", manifest))
 	if recorder.Code != http.StatusBadRequest ||
-		!bytes.Contains(recorder.Body.Bytes(), []byte("encrypted server field")) ||
+		!bytes.Contains(recorder.Body.Bytes(), []byte("secretFields")) ||
 		bytes.Contains(recorder.Body.Bytes(), []byte("must-not-enter-inventory-state")) {
 		t.Fatalf("secret metadata rejection status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
