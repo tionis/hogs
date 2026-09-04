@@ -79,6 +79,27 @@ servers:
       environment_file: /etc/restic/restic.env
 ```
 
+### Satisfactory API token file
+
+Satisfactory has no RCON, so occupancy comes from the node-local Server
+Manager HTTPS API instead. Set `api_token_file` to a root-only file holding
+the bearer token (minted with `server.GenerateAPIToken` at claim time); the
+agent reads it per query against `127.0.0.1` on the game port from `address`
+and never stores the token in configuration:
+
+```yaml
+servers:
+  satisfactory:
+    unit: satisfactory.service
+    game_type: satisfactory
+    data_dir: /srv/satisfactory
+    address: satisfactory.example.test:7777
+    api_token_file: /srv/satisfactory/.api-token
+```
+
+Without the file (or when the API is unreachable) the server reports unknown
+occupancy rather than failing the whole status response.
+
 ### On-demand Minecraft gateway
 
 A server can opt into the embedded Minecraft TCP gateway shown above. The

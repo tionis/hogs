@@ -61,6 +61,9 @@ var (
 )
 
 func playerStatus(server *ServerConfig, driver gametypes.Driver) (players, maxPlayers int, known bool) {
+	if server.GameType == "satisfactory" {
+		return satisfactoryPlayerStatus(server)
+	}
 	if server.Console.Type != "rcon" || driver.PlayerStatusCommand == "" || driver.ParsePlayerStatus == nil {
 		return 0, 0, false
 	}
@@ -108,14 +111,18 @@ type AgentAPIConfig struct {
 }
 
 type ServerConfig struct {
-	Unit           string        `yaml:"unit"`
-	GameType       string        `yaml:"game_type"`
-	DataDir        string        `yaml:"data_dir"`
-	Address        string        `yaml:"address"`
-	ExclusiveGroup string        `yaml:"exclusive_group"`
-	Console        ConsoleConfig `yaml:"console"`
-	Backup         BackupConfig  `yaml:"backup"`
-	Gateway        GatewayConfig `yaml:"gateway"`
+	Unit           string `yaml:"unit"`
+	GameType       string `yaml:"game_type"`
+	DataDir        string `yaml:"data_dir"`
+	Address        string `yaml:"address"`
+	ExclusiveGroup string `yaml:"exclusive_group"`
+	// APITokenFile points at a node-local root-only file holding a bearer
+	// token for game APIs without RCON (currently Satisfactory). The agent
+	// reads it at query time so the token never enters configuration.
+	APITokenFile string        `yaml:"api_token_file"`
+	Console      ConsoleConfig `yaml:"console"`
+	Backup       BackupConfig  `yaml:"backup"`
+	Gateway      GatewayConfig `yaml:"gateway"`
 }
 
 type ConsoleConfig struct {
