@@ -1,9 +1,12 @@
 package query
 
 import (
+	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -14,18 +17,17 @@ import (
 
 type SatisfactoryQuerier struct{}
 
-type satisfactoryHealthResponse struct {
-	Health string `json:"health"`
-	Status string `json:"status"`
-}
-
-type satisfactoryServerInfoResponse struct {
+type satisfactoryAPIEnvelope struct {
 	Data struct {
-		ServerName        string `json:"serverName"`
-		NumActivePlayers  int    `json:"numActivePlayers"`
-		MaxPlayers        int    `json:"maxPlayers"`
-		ActiveSessionName string `json:"activeSessionName"`
+		Health          string `json:"health"`
+		ServerGameState struct {
+			ActiveSessionName   string `json:"activeSessionName"`
+			NumConnectedPlayers int    `json:"numConnectedPlayers"`
+			PlayerLimit         int    `json:"playerLimit"`
+			IsGameRunning       bool   `json:"isGameRunning"`
+		} `json:"serverGameState"`
 	} `json:"data"`
+	ErrorCode string `json:"errorCode"`
 }
 
 func (q *SatisfactoryQuerier) Query(server *database.Server) (*ServerStatus, error) {
@@ -37,75 +39,106 @@ func (q *SatisfactoryQuerier) Query(server *database.Server) (*ServerStatus, err
 		LastUpdated: time.Now(),
 	}
 
-	host := server.Address
-	port := 15777
-
-	if strings.Contains(host, ":") {
-		parts := strings.Split(host, ":")
-		if len(parts) == 2 {
-			host = parts[0]
-			p, err := strconv.ParseUint(parts[1], 10, 16)
-			if err == nil {
-				port = int(p)
-			}
-		}
+	host, port := satisfactoryEndpoint(server)
+	baseURL := fmt.Sprintf("https://%s:%d/api/v1/", host, port)
+	// The dedicated server negotiates TLS with a self-signed certificate by
+	// design; there is nothing to pin against, so verification is skipped
+	// the same way game clients accept it.
+	client := &http.Client{
+		Timeout: 5 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
+		},
 	}
 
-	baseURL := fmt.Sprintf("http://%s:%d", host, port)
-	client := &http.Client{Timeout: 5 * time.Second}
-
-	healthReq, err := http.NewRequestWithContext(ctx, "GET", baseURL+"/api/v1/health", nil)
-	if err != nil {
-		serverStatus.Error = err.Error()
-		return serverStatus, err
-	}
-	q.addAuthHeader(healthReq, server)
-
-	healthResp, err := client.Do(healthReq)
+	health, err := q.call(ctx, client, baseURL, "HealthCheck", map[string]string{"ClientCustomData": "hogs"}, "")
 	if err != nil {
 		serverStatus.Error = err.Error()
 		return serverStatus, fmt.Errorf("failed to query satisfactory server: %w", err)
 	}
-	defer healthResp.Body.Close()
-
-	if healthResp.StatusCode != 200 {
-		serverStatus.Error = fmt.Sprintf("health check returned status %d", healthResp.StatusCode)
-		return serverStatus, fmt.Errorf("health check returned status %d", healthResp.StatusCode)
+	if health.Data.Health != "healthy" {
+		serverStatus.Error = "health check did not report healthy"
+		return serverStatus, fmt.Errorf("health check did not report healthy")
 	}
 
 	serverStatus.Online = true
 
-	infoReq, err := http.NewRequestWithContext(ctx, "GET", baseURL+"/api/v1/server-info", nil)
+	token := strings.TrimSpace(server.Metadata["api_token"])
+	if token == "" {
+		return serverStatus, nil
+	}
+	state, err := q.call(ctx, client, baseURL, "QueryServerState", nil, token)
 	if err != nil {
 		return serverStatus, nil
 	}
-	q.addAuthHeader(infoReq, server)
-
-	infoResp, err := client.Do(infoReq)
-	if err != nil {
+	game := state.Data.ServerGameState
+	if !game.IsGameRunning {
 		return serverStatus, nil
 	}
-	defer infoResp.Body.Close()
-
-	if infoResp.StatusCode != 200 {
-		return serverStatus, nil
-	}
-
-	var info satisfactoryServerInfoResponse
-	if err := json.NewDecoder(infoResp.Body).Decode(&info); err != nil {
-		return serverStatus, nil
-	}
-
-	serverStatus.Players = info.Data.NumActivePlayers
-	serverStatus.MaxPlayers = info.Data.MaxPlayers
-	serverStatus.MapName = info.Data.ActiveSessionName
-	serverStatus.ServerMessage = info.Data.ServerName
+	serverStatus.Players = game.NumConnectedPlayers
+	serverStatus.MaxPlayers = game.PlayerLimit
+	serverStatus.PlayersKnown = true
+	serverStatus.MapName = game.ActiveSessionName
 
 	return serverStatus, nil
 }
 
-func (q *SatisfactoryQuerier) addAuthHeader(req *http.Request, server *database.Server) {
-	if token, ok := server.Metadata["api_token"]; ok && token != "" {
+func (q *SatisfactoryQuerier) call(ctx context.Context, client *http.Client, baseURL, function string, data interface{}, token string) (*satisfactoryAPIEnvelope, error) {
+	payload := map[string]interface{}{"function": function}
+	if data != nil {
+		payload["data"] = data
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		return nil, fmt.Errorf("%s returned status %d", function, resp.StatusCode)
+	}
+	var envelope satisfactoryAPIEnvelope
+	if err := json.NewDecoder(resp.Body).Decode(&envelope); err != nil {
+		return nil, err
+	}
+	if envelope.ErrorCode != "" {
+		return nil, fmt.Errorf("%s returned %s", function, envelope.ErrorCode)
+	}
+	return &envelope, nil
+}
+
+// satisfactoryEndpoint prefers the direct game address (host:port) and falls
+// back to the server address with the default 1.x game/API port.
+func satisfactoryEndpoint(server *database.Server) (string, int) {
+	for _, candidate := range []string{server.Metadata["directAddress"], server.Address} {
+		if host, port := splitSatisfactoryEndpoint(candidate); host != "" {
+			return host, port
+		}
+	}
+	return server.Address, 7777
+}
+
+func splitSatisfactoryEndpoint(candidate string) (string, int) {
+	candidate = strings.TrimSpace(candidate)
+	if candidate == "" {
+		return "", 0
+	}
+	if host, port, err := net.SplitHostPort(candidate); err == nil {
+		if p, err := strconv.Atoi(port); err == nil && p > 0 {
+			return host, p
+		}
+		return host, 7777
+	}
+	return candidate, 7777
 }
