@@ -47,7 +47,12 @@ func (q *SatisfactoryQuerier) Query(server *database.Server) (*ServerStatus, err
 	client := &http.Client{
 		Timeout: 5 * time.Second,
 		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
+			// Fresh connection per request: the server HTTP stack does not
+			// reliably serve back-to-back requests on a reused keep-alive
+			// connection the way game clients (one connection per call)
+			// exercise it.
+			DisableKeepAlives: true,
+			TLSClientConfig:   &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
 		},
 	}
 
