@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"strconv"
@@ -75,6 +76,9 @@ func (q *SatisfactoryQuerier) Query(server *database.Server) (*ServerStatus, err
 	}
 	state, err := q.call(ctx, client, baseURL, "QueryServerState", nil, token)
 	if err != nil {
+		// TEMPORARY diagnostics for the Destiny deployment; remove once the
+		// failure mode is identified. Never logs the bearer token.
+		log.Printf("satisfactory QueryServerState failed for %s: %v", host, err)
 		return serverStatus, nil
 	}
 	game := state.Data.ServerGameState
