@@ -3,6 +3,7 @@ package query
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
@@ -72,8 +73,11 @@ func (q *SatisfactoryQuerier) Query(server *database.Server) (*ServerStatus, err
 
 	token := strings.TrimSpace(server.Metadata["api_token"])
 	if token == "" {
+		log.Printf("satisfactory query for %s has no api_token in metadata", host)
 		return serverStatus, nil
 	}
+	sum := sha256.Sum256([]byte(token))
+	log.Printf("satisfactory query for %s uses token sha256:%.8x", host, sum)
 	state, err := q.call(ctx, client, baseURL, "QueryServerState", nil, token)
 	if err != nil {
 		// TEMPORARY diagnostics for the Destiny deployment; remove once the
