@@ -3,11 +3,9 @@ package query
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net"
 	"net/http"
 	"strconv"
@@ -49,10 +47,9 @@ func (q *SatisfactoryQuerier) Query(server *database.Server) (*ServerStatus, err
 	client := &http.Client{
 		Timeout: 5 * time.Second,
 		Transport: &http.Transport{
-			// Fresh uncompressed connection per request: the server HTTP
-			// stack does not reliably serve reused keep-alive connections,
-			// and its gzip handling breaks Go's transparent decompression.
-			// Game clients send plain requests, so do the same.
+			// Plain fresh connections like game clients use: no keep-alive
+			// reuse and no compression negotiation with the server HTTP
+			// stack.
 			DisableKeepAlives:  true,
 			DisableCompression: true,
 			TLSClientConfig:    &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
@@ -73,16 +70,10 @@ func (q *SatisfactoryQuerier) Query(server *database.Server) (*ServerStatus, err
 
 	token := strings.TrimSpace(server.Metadata["api_token"])
 	if token == "" {
-		log.Printf("satisfactory query for %s has no api_token in metadata", host)
 		return serverStatus, nil
 	}
-	sum := sha256.Sum256([]byte(token))
-	log.Printf("satisfactory query for %s uses token sha256:%.8x", host, sum)
 	state, err := q.call(ctx, client, baseURL, "QueryServerState", nil, token)
 	if err != nil {
-		// TEMPORARY diagnostics for the Destiny deployment; remove once the
-		// failure mode is identified. Never logs the bearer token.
-		log.Printf("satisfactory QueryServerState failed for %s: %v", host, err)
 		return serverStatus, nil
 	}
 	game := state.Data.ServerGameState
