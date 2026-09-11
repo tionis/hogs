@@ -85,6 +85,10 @@ type Driver struct {
 	IdentityProvider     string
 	IdentityFromProvider func(username, subject string) ResolvedIdentity
 	Whitelist            *WhitelistDriver
+	// AdminList manages the game's native administrator list (for example
+	// Valheim adminlist.txt) from HOGS users holding the server.admin
+	// capability. It reuses the file-list codec shape.
+	AdminList            *FileWhitelistDriver
 	IsRoutineConsoleLine ConsoleLineFilter
 }
 
@@ -161,6 +165,11 @@ func (d Driver) SupportsFileWhitelist() bool {
 		d.Whitelist.File.Path != "" &&
 		d.Whitelist.File.Decode != nil &&
 		d.Whitelist.File.Encode != nil
+}
+
+func (d Driver) SupportsAdminList() bool {
+	return d.AdminList != nil && d.AdminList.Path != "" &&
+		d.AdminList.Decode != nil && d.AdminList.Encode != nil
 }
 
 func (d Driver) IdentityValid(username string) bool {

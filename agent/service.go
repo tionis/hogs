@@ -117,6 +117,55 @@ func decodeBackendStatus(reader io.Reader) (*backend.ServerStatus, error) {
 
 func (a *AgentBackend) Name() string { return "agent" }
 
+// ErrFileNotFound reports a missing managed file so callers can treat an
+// absent list as empty instead of failing the reconciliation.
+var ErrFileNotFound = fmt.Errorf("managed file not found")
+
+// FileRead fetches a raw managed file (relative to the server data
+// directory) through the agent file endpoint.
+func (a *AgentBackend) FileRead(ctx context.Context, serverPath string) ([]byte, error) {
+	response, err := a.Manager.Stream(ctx, a.NodeName, http.MethodGet,
+		fmt.Sprintf("/v1/servers/%s/file?path=%s", url.PathEscape(a.ServerID), url.QueryEscape(serverPath)), nil)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode == http.StatusNotFound {
+		return nil, ErrFileNotFound
+	}
+	content, err := io.ReadAll(io.LimitReader(response.Body, 1<<20))
+	if err != nil {
+		return nil, fmt.Errorf("decode agent file response: %w", err)
+	}
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return nil, fmt.Errorf("agent file read failed: %s", response.Status)
+	}
+	return content, nil
+}
+
+// FileWrite replaces a managed file atomically through the agent file
+// endpoint. Missing parent directories are created by the agent.
+func (a *AgentBackend) FileWrite(ctx context.Context, serverPath string, content []byte) error {
+	response, err := a.Manager.Stream(ctx, a.NodeName, http.MethodPut,
+		fmt.Sprintf("/v1/servers/%s/file?path=%s", url.PathEscape(a.ServerID), url.QueryEscape(serverPath)),
+		bytes.NewReader(content))
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	var envelope GenericResultData
+	if err := json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&envelope); err != nil {
+		return fmt.Errorf("decode agent file response: %w", err)
+	}
+	if response.StatusCode < 200 || response.StatusCode >= 300 || !envelope.Success {
+		if envelope.Error == "" {
+			envelope.Error = response.Status
+		}
+		return fmt.Errorf("agent file write failed: %s", envelope.Error)
+	}
+	return nil
+}
+
 func ResolveBackend(serverID int, store *database.Store) (string, string) {
 	server, err := store.GetServer(serverID)
 	if err != nil || server == nil {

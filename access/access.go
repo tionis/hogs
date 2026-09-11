@@ -22,6 +22,7 @@ const (
 	FileWrite        = "file.write"
 	ServerJoin       = "server.join"
 	WhitelistManage  = "whitelist.manage"
+	ServerAdmin      = "server.admin"
 	BackupList       = "backup.list"
 	BackupCreate     = "backup.create"
 	BackupRestore    = "backup.restore"
@@ -43,6 +44,7 @@ var Capabilities = []Capability{
 	{Name: FileWrite, Label: "Modify files", Description: "Upload, edit, create, and delete files inside managed path roots.", Category: "Files"},
 	{Name: ServerJoin, Label: "Join server", Description: "Join the game server. HOGS automatically enforces this through a game whitelist when supported.", Category: "Players"},
 	{Name: WhitelistManage, Label: "Manage whitelist", Description: "Inspect, reconcile, and manage manual whitelist entries.", Category: "Players"},
+	{Name: ServerAdmin, Label: "Server admin", Description: "Grant in-game administrator rights through the game's native admin list.", Category: "Players"},
 	{Name: BackupList, Label: "List backups", Description: "View available snapshots.", Category: "Backups"},
 	{Name: BackupCreate, Label: "Create backups", Description: "Create a new server snapshot.", Category: "Backups"},
 	{Name: BackupRestore, Label: "Restore backups", Description: "Restore a snapshot when deployment policy enables restores.", Category: "Backups"},

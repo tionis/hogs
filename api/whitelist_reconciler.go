@@ -114,6 +114,10 @@ func (r *WhitelistReconciler) TriggerAll() {
 		}
 		if database.JoinWhitelistEnabled(mode, driver.SupportsWhitelist()) && driver.IdentityProvider != "" {
 			r.Trigger(servers[i].ID)
+			continue
+		}
+		if driver.SupportsAdminList() && driver.IdentityProvider != "" {
+			r.Trigger(servers[i].ID)
 		}
 	}
 }
@@ -144,6 +148,12 @@ func (r *WhitelistReconciler) ReconcileServer(ctx context.Context, serverID int)
 	}
 	result := WhitelistReconcileResult{Server: server.Name}
 	driver := r.handler.Store.ResolveGameDriver(server.GameType)
+	// Native admin rights are orthogonal to join enforcement: sync them even
+	// when the whitelist itself is disabled. Failures are logged without
+	// affecting the whitelist result below.
+	if _, adminErr := r.reconcileAdmins(ctx, server, driver); adminErr != nil {
+		log.Printf("native admin reconciliation for server %d failed: %v", serverID, adminErr)
+	}
 	mode, err := r.handler.Store.GetServerJoinEnforcementMode(server.ID)
 	if err != nil {
 		return result, fmt.Errorf("load join enforcement: %w", err)

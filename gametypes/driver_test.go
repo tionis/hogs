@@ -170,6 +170,37 @@ func TestValheimFileBackedWhitelistDriver(t *testing.T) {
 	}
 }
 
+func TestValheimAdminListDriver(t *testing.T) {
+	driver, ok := Embedded("valheim")
+	if !ok || !driver.SupportsAdminList() {
+		t.Fatalf("Valheim admin list driver missing: %#v", driver)
+	}
+	fileBackend := driver.AdminList
+	if fileBackend.Path != "adminlist.txt" || !fileBackend.AllowWriteWhileRunning ||
+		!fileBackend.ChangesRequireRestart {
+		t.Fatalf("unexpected Valheim admin list driver: %#v", fileBackend)
+	}
+	entries, err := fileBackend.Decode([]byte("// List admin players ID  ONE per line\r\nV_123\r\nX_456\r\nV_123\r\n"))
+	if err != nil || len(entries) != 2 || entries[0].Name != "V_123" || entries[1].Name != "X_456" {
+		t.Fatalf("decoded admin list=%#v err=%v", entries, err)
+	}
+	encoded, err := fileBackend.Encode(entries)
+	if err != nil || string(encoded) != "// List admin players ID  ONE per line\nV_123\nX_456\n" {
+		t.Fatalf("encoded admin list=%q err=%v", encoded, err)
+	}
+	legacy, err := fileBackend.Decode([]byte("// List admin players ID  ONE per line\nSteam_123\n"))
+	if err != nil || len(legacy) != 1 || legacy[0].Name != "Steam_123" {
+		t.Fatalf("legacy admin entry was not preserved: %#v err=%v", legacy, err)
+	}
+	if _, err := fileBackend.Decode([]byte("V_123\nnot a platform id\n")); err == nil {
+		t.Fatal("invalid Valheim admin-list entry was accepted")
+	}
+	other, _ := Embedded("minecraft")
+	if other.SupportsAdminList() {
+		t.Fatal("Minecraft driver unexpectedly supports admin lists")
+	}
+}
+
 func TestValheimSteamIdentityReconcilesAsVPrefixedID(t *testing.T) {
 	driver, ok := Embedded("valheim")
 	if !ok {

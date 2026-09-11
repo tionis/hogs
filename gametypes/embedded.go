@@ -23,6 +23,9 @@ var valheimPlatformID = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9]{0,31}_[A-Za-z0-
 
 const valheimPermittedListHeader = "// List permitted players ID ONE per line"
 
+// Valheim's own adminlist.txt header keeps a double space before ONE.
+const valheimAdminListHeader = "// List admin players ID  ONE per line"
+
 func encodeJSON(value interface{}) ([]byte, error) {
 	encoded, err := json.MarshalIndent(value, "", "  ")
 	if err != nil {
@@ -123,6 +126,22 @@ func validValheimPlatformID(value string) bool {
 }
 
 func decodeValheimPermittedList(raw []byte) ([]backend.WhitelistEntry, error) {
+	return decodeValheimIDList(raw, "permitted list")
+}
+
+func encodeValheimPermittedList(entries []backend.WhitelistEntry) ([]byte, error) {
+	return encodeValheimIDList(entries, valheimPermittedListHeader, "permitted list")
+}
+
+func decodeValheimAdminList(raw []byte) ([]backend.WhitelistEntry, error) {
+	return decodeValheimIDList(raw, "admin list")
+}
+
+func encodeValheimAdminList(entries []backend.WhitelistEntry) ([]byte, error) {
+	return encodeValheimIDList(entries, valheimAdminListHeader, "admin list")
+}
+
+func decodeValheimIDList(raw []byte, list string) ([]backend.WhitelistEntry, error) {
 	var entries []backend.WhitelistEntry
 	seen := map[string]bool{}
 	for _, line := range strings.Split(strings.ReplaceAll(string(raw), "\r\n", "\n"), "\n") {
@@ -130,7 +149,7 @@ func decodeValheimPermittedList(raw []byte) ([]backend.WhitelistEntry, error) {
 			continue
 		}
 		if !validValheimPlatformID(line) {
-			return nil, fmt.Errorf("invalid Valheim platform user ID in permitted list")
+			return nil, fmt.Errorf("invalid Valheim platform user ID in %s", list)
 		}
 		if !seen[line] {
 			entries = append(entries, backend.WhitelistEntry{Name: line})
@@ -140,15 +159,15 @@ func decodeValheimPermittedList(raw []byte) ([]backend.WhitelistEntry, error) {
 	return entries, nil
 }
 
-func encodeValheimPermittedList(entries []backend.WhitelistEntry) ([]byte, error) {
+func encodeValheimIDList(entries []backend.WhitelistEntry, header, list string) ([]byte, error) {
 	identities := make([]string, 0, len(entries))
 	for _, entry := range entries {
 		if !validValheimPlatformID(entry.Name) {
-			return nil, fmt.Errorf("invalid Valheim platform user ID in permitted list")
+			return nil, fmt.Errorf("invalid Valheim platform user ID in %s", list)
 		}
 		identities = append(identities, entry.Name)
 	}
-	lines := append([]string{valheimPermittedListHeader}, identities...)
+	lines := append([]string{header}, identities...)
 	return []byte(strings.Join(lines, "\n") + "\n"), nil
 }
 
@@ -333,6 +352,17 @@ func init() {
 				BuildEntry: func(platformID, _ string, _ func(string) ([]byte, error)) (backend.WhitelistEntry, error) {
 					return backend.WhitelistEntry{Name: platformID}, nil
 				},
+			},
+		},
+		AdminList: &FileWhitelistDriver{
+			Path:                   "adminlist.txt",
+			AllowReadWhileRunning:  true,
+			AllowWriteWhileRunning: true,
+			ChangesRequireRestart:  true,
+			Decode:                 decodeValheimAdminList,
+			Encode:                 encodeValheimAdminList,
+			BuildEntry: func(platformID, _ string, _ func(string) ([]byte, error)) (backend.WhitelistEntry, error) {
+				return backend.WhitelistEntry{Name: platformID}, nil
 			},
 		},
 	})

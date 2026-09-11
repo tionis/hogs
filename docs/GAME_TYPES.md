@@ -59,6 +59,13 @@ list (F2): `V_<SteamID64>` for Steam, `X_...` for Xbox. Bare IDs and the old
 reconcile (stale entry removed, `V_` entry added, still restart-gated);
 manual entries must be re-entered by an administrator.
 
+Valheim is also the first driver with a native admin list: users holding
+the `server.admin` capability reconcile their linked platform identity
+into `adminlist.txt` (same ID format, `// List admin players ID  ONE per
+line` header). Admin changes are restart-gated like whitelist changes.
+HOGS-owned admin entries are added and revoked automatically; manual
+entries are preserved and counted.
+
 Satisfactory and StarRupture currently provide join-password admission rather
 than a native per-player allowlist. Their embedded drivers therefore do not
 advertise whitelist support. Password management is a separate server-secret
