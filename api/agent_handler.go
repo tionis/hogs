@@ -421,6 +421,18 @@ func (h *AgentHandler) AgentFileList(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(result)
 }
 
+// writableRootRel maps an allowed absolute path to the file-browser root
+// name relative to the server data directory. The data directory itself
+// maps to "." so lists living at the data root (for example Valheim
+// permittedlist.txt) stay manageable; escapes are rejected.
+func writableRootRel(dataPath, allowedPath string) (string, bool) {
+	relative, relErr := filepath.Rel(filepath.Clean(dataPath), filepath.Clean(allowedPath))
+	if relErr != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+	return filepath.ToSlash(relative), true
+}
+
 func (h *AgentHandler) AgentFileRoots(w http.ResponseWriter, r *http.Request) {
 	serverName := mux.Vars(r)["serverName"]
 	server, _, status, err := authorizeManagedCapability(h.Store, h.Engine, h.Auth, r, serverName, managedFileRead)
@@ -436,11 +448,11 @@ func (h *AgentHandler) AgentFileRoots(w http.ResponseWriter, r *http.Request) {
 
 	roots := make([]string, 0, len(management.WritablePaths))
 	for _, allowedPath := range management.WritablePaths {
-		relative, relErr := filepath.Rel(filepath.Clean(management.DataPath), filepath.Clean(allowedPath))
-		if relErr != nil || relative == "." || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		relative, ok := writableRootRel(management.DataPath, allowedPath)
+		if !ok {
 			continue
 		}
-		roots = append(roots, filepath.ToSlash(relative))
+		roots = append(roots, relative)
 	}
 	sort.Strings(roots)
 

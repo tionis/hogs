@@ -61,7 +61,7 @@
   </div>
   <div class="card-body p-0">
     <div id="console-output" style="background:var(--bg-input);color:var(--text-primary);font-family:monospace;font-size:0.85rem;height:min(70vh,720px);overflow-y:auto;padding:0.75rem;"></div>
-    {{if .ConsoleWrite}}<div class="input-group input-group-sm p-2" style="background:var(--bg-card);border-top:1px solid var(--border-color);">
+    {{if and .ConsoleWrite .ConsoleCommandSupported}}<div class="input-group input-group-sm p-2" style="background:var(--bg-card);border-top:1px solid var(--border-color);">
       <input type="text" id="console-input" class="form-control form-control-sm" placeholder="Enter command..." autocomplete="off" disabled>
       <button class="btn btn-primary btn-sm" id="console-send" onclick="sendConsoleInput()" disabled>Send</button>
     </div>{{else}}<div class="small p-2 text-muted">Read-only console access</div>{{end}}
@@ -1323,7 +1323,7 @@ async function initManagedFiles(serverName) {
                 ? await parseResult(direct)
                 : await proxyRequest(endpoint(`?path=${encodeURIComponent(path)}`));
             currentPath = path;
-            pathLabel.textContent = '/' + currentPath;
+            pathLabel.textContent = currentPath === '.' ? '/' : '/' + currentPath;
             document.getElementById('file-up').disabled = currentPath === root;
             browser.replaceChildren();
             const entries = data.entries || [];
@@ -1546,7 +1546,7 @@ async function initManagedFiles(serverName) {
         for (const value of data.roots) {
             const option = document.createElement('option');
             option.value = value;
-            option.textContent = '/' + value;
+            option.textContent = value === '.' ? '/' : '/' + value;
             rootSelect.appendChild(option);
         }
         root = data.roots[0];

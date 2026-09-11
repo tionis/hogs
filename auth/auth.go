@@ -62,10 +62,15 @@ func NewAuthenticator(cfg *config.Config, store *database.Store) (*Authenticator
 
 	cookieStore := sessions.NewCookieStore([]byte(cfg.SessionSecret))
 	cookieStore.Options = &sessions.Options{
-		Path:     "/",
-		MaxAge:   86400 * 30,
+		Path:   "/",
+		MaxAge: 86400 * 30,
+		// Lax (not Strict): the session must survive cross-site top-level
+		// navigation from the portal and back from the identity provider,
+		// otherwise every such navigation silently drops the session and
+		// forces a fresh login. CSRF-sensitive mutations stay protected by
+		// the separate CSRF token.
+		SameSite: http.SameSiteLaxMode,
 		HttpOnly: true,
-		SameSite: http.SameSiteStrictMode,
 		Secure:   cfg.TLSCert != "",
 	}
 
@@ -257,20 +262,28 @@ func (a *Authenticator) HandleBackChannelLogout(w http.ResponseWriter, r *http.R
 }
 
 func (a *Authenticator) getSession(r *http.Request) *database.Session {
-	session, _ := a.cookieStore.Get(r, sessionCookieName)
+	session, cookieErr := a.cookieStore.Get(r, sessionCookieName)
 	sessionID, ok := session.Values["session_id"].(string)
 	if !ok || sessionID == "" {
+		// No session cookie (anonymous) or a pre-login state cookie.
+		// Only log undecryptable cookies: those indicate a secret change
+		// or corruption rather than a signed-out visitor.
+		if _, cookiePresent := r.Cookie(sessionCookieName); cookiePresent == nil && cookieErr != nil {
+			log.Printf("session cookie present but invalid; forcing fresh login")
+		}
 		return nil
 	}
 
 	dbSession, err := a.Store.GetSession(sessionID)
 	if err != nil || dbSession == nil {
+		log.Printf("unknown session id; forcing fresh login")
 		return nil
 	}
 
 	expiresAt, err := time.Parse(time.RFC3339, dbSession.ExpiresAt)
 	if err != nil || time.Now().UTC().After(expiresAt) {
 		a.Store.DeleteSession(sessionID)
+		log.Printf("expired session for user %q; forcing fresh login", dbSession.UserUsername)
 		return nil
 	}
 
@@ -278,6 +291,7 @@ func (a *Authenticator) getSession(r *http.Request) *database.Session {
 	user, err := a.Store.GetUserByUsername(dbSession.UserUsername)
 	if err != nil || user == nil || !user.Active {
 		a.Store.DeleteSession(sessionID)
+		log.Printf("session for inactive or deleted user; forcing fresh login")
 		return nil
 	}
 
@@ -450,10 +464,16 @@ func (a *Authenticator) writeForbidden(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *Authenticator) IsAuthenticated(r *http.Request) bool {
+	if a == nil {
+		return false
+	}
 	return a.getSession(r) != nil
 }
 
 func (a *Authenticator) GetUsername(r *http.Request) string {
+	if a == nil {
+		return ""
+	}
 	dbSession := a.getSession(r)
 	if dbSession == nil {
 		return ""
@@ -462,6 +482,9 @@ func (a *Authenticator) GetUsername(r *http.Request) string {
 }
 
 func (a *Authenticator) GetUserRole(r *http.Request) string {
+	if a == nil {
+		return ""
+	}
 	dbSession := a.getSession(r)
 	if dbSession == nil {
 		return ""
@@ -470,6 +493,9 @@ func (a *Authenticator) GetUserRole(r *http.Request) string {
 }
 
 func (a *Authenticator) GetSessionID(r *http.Request) string {
+	if a == nil {
+		return ""
+	}
 	dbSession := a.getSession(r)
 	if dbSession == nil {
 		return ""

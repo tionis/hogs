@@ -504,6 +504,7 @@ func (h *WebHandler) renderServerPage(w http.ResponseWriter, r *http.Request, pa
 		HasAgent                    bool
 		ShowConsole                 bool
 		ConsoleWrite                bool
+		ConsoleCommandSupported     bool
 		ShowFiles                   bool
 		FileWrite                   bool
 		ShowResources               bool
@@ -641,6 +642,10 @@ func (h *WebHandler) renderServerPage(w http.ResponseWriter, r *http.Request, pa
 		if management == nil || !management.RestoreEnabled {
 			data.BackupRestore = false
 		}
+		// Free-form console commands need a real command interface
+		// (RCON). Native units without one fail every send, so the input
+		// stays hidden instead of inviting doomed commands.
+		data.ConsoleCommandSupported = management != nil && management.RCONEnabled
 	}
 	if isAuthenticated && hasAgent {
 		if userRole == "admin" {
