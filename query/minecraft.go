@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mcstatus-io/mcutil/v4/options"
 	"github.com/mcstatus-io/mcutil/v4/status"
 	"github.com/tionis/hogs/database"
 )
@@ -17,7 +18,10 @@ import (
 type MinecraftQuerier struct{}
 
 func (q *MinecraftQuerier) Query(server *database.Server) (*ServerStatus, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// SRV is resolved below, and a slow or missing local resolver can consume
+	// several seconds before the dial even starts, so allow more than the
+	// mcutil default.
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
 	host := server.Address
@@ -46,7 +50,14 @@ func (q *MinecraftQuerier) Query(server *database.Server) (*ServerStatus, error)
 		LastUpdated: time.Now(),
 	}
 
-	res, err := status.Modern(ctx, host, port)
+	res, err := status.Modern(ctx, host, port, options.StatusModern{
+		// HOGS already resolved the SRV record above; skip mcutil's duplicate
+		// lookup so a slow resolver cannot exhaust the context.
+		EnableSRV:       false,
+		Timeout:         5 * time.Second,
+		ProtocolVersion: -1,
+		Ping:            true,
+	})
 	if err != nil {
 		serverStatus.Error = err.Error()
 		return serverStatus, fmt.Errorf("failed to query server: %w", err)
