@@ -165,3 +165,60 @@ func TestSetServerSecretFieldRoundTrip(t *testing.T) {
 		t.Fatalf("removed field still present: %#v err=%v", fields, err)
 	}
 }
+
+func TestServerFieldKeyRotation(t *testing.T) {
+	store := testStore(t)
+	const oldSecret = "old-server-field-key-material-000000000000"
+	const newSecret = "new-server-field-key-material-000000000000"
+	if err := store.ConfigureServerFieldEncryption(oldSecret); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{Name: "Rotate Test", GameType: "generic", State: "online", Metadata: map[string]string{}}
+	if err := store.CreateServer(server); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ReplaceServerFields(server.ID, []ServerField{
+		{Key: "rcon_password", Label: "RCON password", Value: "rotate-me", Placement: FieldPlacementInternal, Disclosure: FieldDisclosureWriteOnly},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	listed, err := store.ListServerFields(server.ID)
+	if err != nil || len(listed) != 1 {
+		t.Fatalf("fields=%#v err=%v", listed, err)
+	}
+	var before string
+	if err := store.DB.QueryRow("SELECT value FROM server_fields WHERE id=?", listed[0].ID).Scan(&before); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := store.ConfigureServerFieldEncryption(newSecret); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.GetServerFieldValue(server.ID, listed[0].ID); err == nil {
+		t.Fatal("value was unexpectedly readable before rotation")
+	}
+	if err := store.ReencryptServerFieldsFrom(oldSecret); err != nil {
+		t.Fatal(err)
+	}
+	value, err := store.GetServerFieldValue(server.ID, listed[0].ID)
+	if err != nil || value != "rotate-me" {
+		t.Fatalf("rotated value=%q err=%v", value, err)
+	}
+	var after string
+	if err := store.DB.QueryRow("SELECT value FROM server_fields WHERE id=?", listed[0].ID).Scan(&after); err != nil {
+		t.Fatal(err)
+	}
+	if after == before {
+		t.Fatal("ciphertext was not re-encrypted")
+	}
+	if err := store.ReencryptServerFieldsFrom(oldSecret); err != nil {
+		t.Fatal(err)
+	}
+	var second string
+	if err := store.DB.QueryRow("SELECT value FROM server_fields WHERE id=?", listed[0].ID).Scan(&second); err != nil {
+		t.Fatal(err)
+	}
+	if second != after {
+		t.Fatal("rotation was not idempotent")
+	}
+}

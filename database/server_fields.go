@@ -73,28 +73,105 @@ func (s *Server) EditableMetadata() map[string]string {
 	return metadata
 }
 
-// ConfigureServerFieldEncryption configures encryption at rest and seals any
-// plaintext values left by the one-time legacy metadata migration.
-func (s *Store) ConfigureServerFieldEncryption(secret string) error {
+func newServerFieldCipher(secret string) (*serverFieldCipher, error) {
 	if secret == "" {
-		return errors.New("server field encryption secret is required")
+		return nil, errors.New("server field encryption secret is required")
 	}
 	key := sha256.Sum256([]byte("hogs/server-fields/v1\x00" + secret))
 	block, err := aes.NewCipher(key[:])
 	if err != nil {
-		return fmt.Errorf("initialize server field cipher: %w", err)
+		return nil, fmt.Errorf("initialize server field cipher: %w", err)
 	}
 	aead, err := cipher.NewGCM(block)
 	if err != nil {
-		return fmt.Errorf("initialize server field cipher: %w", err)
+		return nil, fmt.Errorf("initialize server field cipher: %w", err)
 	}
-	s.serverFieldCipher = &serverFieldCipher{aead: aead}
+	return &serverFieldCipher{aead: aead}, nil
+}
+
+// ConfigureServerFieldEncryption configures encryption at rest and seals any
+// plaintext values left by the one-time legacy metadata migration.
+func (s *Store) ConfigureServerFieldEncryption(secret string) error {
+	cipher, err := newServerFieldCipher(secret)
+	if err != nil {
+		return err
+	}
+	s.serverFieldCipher = cipher
 	fingerprintKey := sha256.Sum256([]byte("hogs/server-field-fingerprints/v1\x00" + secret))
 	s.serverFieldFingerprintKey = fingerprintKey[:]
 	if err := s.sealLegacyServerFields(); err != nil {
 		return err
 	}
 	return s.scrubLegacyInventorySecrets()
+}
+
+// ReencryptServerFieldsFrom re-encrypts existing server fields from a previous
+// encryption key to the configured current key. It is used for a one-time key
+// rotation: run the process once with SERVER_SECRET_KEY_PREVIOUS set to the old
+// key, then unset it. Values already readable with the current key are left
+// untouched, so repeated runs are idempotent.
+func (s *Store) ReencryptServerFieldsFrom(previous string) error {
+	if strings.TrimSpace(previous) == "" {
+		return nil
+	}
+	if s.serverFieldCipher == nil {
+		return errors.New("server field encryption is not configured")
+	}
+	previousCipher, err := newServerFieldCipher(previous)
+	if err != nil {
+		return err
+	}
+	rows, err := s.DB.Query(`SELECT id,server_id,field_key,value FROM server_fields
+		WHERE disclosure IN ('reveal','write_only') AND value LIKE 'v1:%'`)
+	if err != nil {
+		return err
+	}
+	type rotatedField struct {
+		id    int
+		value string
+	}
+	var rotated []rotatedField
+	for rows.Next() {
+		var id, serverID int
+		var fieldKey, value string
+		if err := rows.Scan(&id, &serverID, &fieldKey, &value); err != nil {
+			rows.Close()
+			return err
+		}
+		if _, err := openServerFieldWith(s.serverFieldCipher, serverID, fieldKey, value); err == nil {
+			continue
+		}
+		plaintext, err := openServerFieldWith(previousCipher, serverID, fieldKey, value)
+		if err != nil {
+			rows.Close()
+			return fmt.Errorf("server field %d/%q cannot be decrypted with the current or previous key", serverID, fieldKey)
+		}
+		sealed, err := sealServerFieldWith(s.serverFieldCipher, serverID, fieldKey, plaintext)
+		if err != nil {
+			rows.Close()
+			return err
+		}
+		rotated = append(rotated, rotatedField{id: id, value: sealed})
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	if len(rotated) == 0 {
+		return nil
+	}
+	tx, err := s.DB.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, field := range rotated {
+		if _, err := tx.Exec("UPDATE server_fields SET value=?,updated_at=CURRENT_TIMESTAMP WHERE id=?", field.value, field.id); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 // managedSecretFieldKeys are the backend-credential fields that automation
@@ -187,12 +264,16 @@ func (s *Store) sealServerField(serverID int, fieldKey, value string) (string, e
 	if s.serverFieldCipher == nil {
 		return "", errors.New("server field encryption is not configured")
 	}
-	nonce := make([]byte, s.serverFieldCipher.aead.NonceSize())
+	return sealServerFieldWith(s.serverFieldCipher, serverID, fieldKey, value)
+}
+
+func sealServerFieldWith(cipher *serverFieldCipher, serverID int, fieldKey, value string) (string, error) {
+	nonce := make([]byte, cipher.aead.NonceSize())
 	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
 		return "", fmt.Errorf("generate server field nonce: %w", err)
 	}
 	aad := []byte(fmt.Sprintf("%d\x00%s", serverID, fieldKey))
-	sealed := s.serverFieldCipher.aead.Seal(nonce, nonce, []byte(value), aad)
+	sealed := cipher.aead.Seal(nonce, nonce, []byte(value), aad)
 	return "v1:" + base64.RawURLEncoding.EncodeToString(sealed), nil
 }
 
@@ -200,6 +281,10 @@ func (s *Store) openServerField(serverID int, fieldKey, value string) (string, e
 	if s.serverFieldCipher == nil {
 		return "", errors.New("server field encryption is not configured")
 	}
+	return openServerFieldWith(s.serverFieldCipher, serverID, fieldKey, value)
+}
+
+func openServerFieldWith(cipher *serverFieldCipher, serverID int, fieldKey, value string) (string, error) {
 	if !strings.HasPrefix(value, "v1:") {
 		return "", errors.New("server field value is not encrypted")
 	}
@@ -207,12 +292,12 @@ func (s *Store) openServerField(serverID int, fieldKey, value string) (string, e
 	if err != nil {
 		return "", errors.New("server field ciphertext is malformed")
 	}
-	nonceSize := s.serverFieldCipher.aead.NonceSize()
+	nonceSize := cipher.aead.NonceSize()
 	if len(raw) < nonceSize {
 		return "", errors.New("server field ciphertext is truncated")
 	}
 	aad := []byte(fmt.Sprintf("%d\x00%s", serverID, fieldKey))
-	plain, err := s.serverFieldCipher.aead.Open(nil, raw[:nonceSize], raw[nonceSize:], aad)
+	plain, err := cipher.aead.Open(nil, raw[:nonceSize], raw[nonceSize:], aad)
 	if err != nil {
 		return "", errors.New("server field ciphertext authentication failed")
 	}

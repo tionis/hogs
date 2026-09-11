@@ -108,6 +108,12 @@ func main() {
 	if err := store.ConfigureServerFieldEncryption(serverSecretKey); err != nil {
 		log.Fatalf("could not initialize server field encryption: %s\n", err)
 	}
+	if cfg.ServerSecretKeyPrevious != "" {
+		if err := store.ReencryptServerFieldsFrom(cfg.ServerSecretKeyPrevious); err != nil {
+			log.Fatalf("could not rotate server field encryption: %s\n", err)
+		}
+		log.Println("Rotated server field encryption to SERVER_SECRET_KEY; SERVER_SECRET_KEY_PREVIOUS may now be removed.")
+	}
 	if changed, err := auth.BootstrapAdminAPIKey(store, cfg.BootstrapAdminAPIKeyName, cfg.BootstrapAdminAPIKey); err != nil {
 		log.Fatalf("could not bootstrap admin API key: %s\n", err)
 	} else if changed {

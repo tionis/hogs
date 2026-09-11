@@ -33,6 +33,7 @@ type Config struct {
 	APIKeyPepper             string
 	CSRFSecret               string
 	ServerSecretKey          string
+	ServerSecretKeyPrevious  string
 	BootstrapAdminAPIKey     string
 	BootstrapAdminAPIKeyName string
 
@@ -115,6 +116,7 @@ func LoadConfig() *Config {
 		APIKeyPepper:             getEnv("API_KEY_PEPPER", ""),
 		CSRFSecret:               getEnv("CSRF_SECRET", ""),
 		ServerSecretKey:          getEnv("SERVER_SECRET_KEY", ""),
+		ServerSecretKeyPrevious:  getEnv("SERVER_SECRET_KEY_PREVIOUS", ""),
 		BootstrapAdminAPIKey:     getEnv("BOOTSTRAP_ADMIN_API_KEY", ""),
 		BootstrapAdminAPIKeyName: getEnv("BOOTSTRAP_ADMIN_API_KEY_NAME", "gandalf"),
 
