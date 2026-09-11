@@ -166,7 +166,7 @@ func main() {
 	}()
 
 	serverHandler := api.NewServerHandler(store, cfg, cache, authenticator)
-	webHandler := web.NewWebHandler(store, cfg, authenticator, eng)
+	webHandler := web.NewWebHandler(store, cfg, authenticator, eng, cache)
 	if authenticator != nil {
 		authenticator.SetForbiddenHandler(http.HandlerFunc(webHandler.Forbidden))
 	}

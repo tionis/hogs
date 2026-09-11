@@ -36,6 +36,7 @@ type WebHandler struct {
 	Config            *config.Config
 	Auth              *auth.Authenticator
 	Engine            *engine.Engine
+	Cache             *query.ServerStatusCache
 	AgentConnected    func(int) bool
 	AgentNodeInfo     func(string) (agent.NodeSummary, bool)
 	AgentNodeUpdate   func(string, string, string, string) error
@@ -43,8 +44,8 @@ type WebHandler struct {
 }
 
 // NewWebHandler creates a new WebHandler.
-func NewWebHandler(store *database.Store, cfg *config.Config, auth *auth.Authenticator, eng *engine.Engine) *WebHandler {
-	return &WebHandler{Store: store, Config: cfg, Auth: auth, Engine: eng}
+func NewWebHandler(store *database.Store, cfg *config.Config, auth *auth.Authenticator, eng *engine.Engine, cache *query.ServerStatusCache) *WebHandler {
+	return &WebHandler{Store: store, Config: cfg, Auth: auth, Engine: eng, Cache: cache}
 }
 
 type BackgroundURLs struct {
@@ -2248,6 +2249,19 @@ func (h *WebHandler) AuditLog(w http.ResponseWriter, r *http.Request) {
 	buf.WriteTo(w)
 }
 
+// dashboardServerOnline reports whether a server should count as online on the
+// dashboard. Presentation state is an intent, not a live observation, so use
+// the latest status from the agent/protocol cache and fall back to the intent
+// only until the first observation arrives.
+func dashboardServerOnline(cache *query.ServerStatusCache, server database.Server) bool {
+	if cache != nil {
+		if status, observed := cache.Get(server.ManagementID); observed {
+			return status.Online
+		}
+	}
+	return server.State == "online" || server.State == "auto"
+}
+
 func (h *WebHandler) Dashboard(w http.ResponseWriter, r *http.Request) {
 	servers, err := h.Store.ListServers()
 	if err != nil {
@@ -2264,14 +2278,21 @@ func (h *WebHandler) Dashboard(w http.ResponseWriter, r *http.Request) {
 	gameTypes := make(map[string]int)
 	for _, s := range servers {
 		switch s.State {
-		case "online":
-			onlineServers++
-		case "offline":
-			offlineServers++
 		case "maintenance":
 			maintenanceServers++
 		case "planned":
 			plannedServers++
+		case "offline":
+			offlineServers++
+		default:
+			// Classify by the latest live observation. A server whose unit is
+			// down (or whose protocol query fails) must not be reported as
+			// online just because its presentation state says "online".
+			if dashboardServerOnline(h.Cache, s) {
+				onlineServers++
+			} else {
+				offlineServers++
+			}
 		}
 		gameTypes[s.GameType]++
 	}

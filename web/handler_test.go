@@ -50,7 +50,7 @@ func testWebHandler(t *testing.T) (*WebHandler, *database.Store, *auth.Authentic
 
 	authenticator := auth.NewTestAuthenticator(store, "test-session-secret-for-tests-only")
 
-	return NewWebHandler(store, cfg, authenticator, eng), store, authenticator
+	return NewWebHandler(store, cfg, authenticator, eng, cache), store, authenticator
 }
 
 func grantPublicView(t *testing.T, store *database.Store, serverName string) {
@@ -138,6 +138,28 @@ func TestDashboardRenders(t *testing.T) {
 	}
 	if contains(body, "/admin/cron") || contains(body, "/admin/backups") {
 		t.Fatal("dashboard still links server-scoped automation or backups as instance administration")
+	}
+}
+
+func TestDashboardServerOnlineUsesLiveObservation(t *testing.T) {
+	cache := query.NewServerStatusCache()
+	server := database.Server{ManagementID: "srv-1", State: "online"}
+
+	if !dashboardServerOnline(cache, server) {
+		t.Fatal("desired-online server without an observation should count as online")
+	}
+	cache.Set("srv-1", &query.ServerStatus{Online: false})
+	if dashboardServerOnline(cache, server) {
+		t.Fatal("offline live observation must override desired-online state")
+	}
+	cache.Set("srv-1", &query.ServerStatus{Online: true})
+	if !dashboardServerOnline(cache, server) {
+		t.Fatal("online live observation should count as online")
+	}
+
+	hidden := database.Server{ManagementID: "srv-2", State: "offline"}
+	if dashboardServerOnline(cache, hidden) {
+		t.Fatal("hidden server without an observation should not count as online")
 	}
 }
 
