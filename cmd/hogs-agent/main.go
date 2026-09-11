@@ -64,6 +64,9 @@ func playerStatus(server *ServerConfig, driver gametypes.Driver) (players, maxPl
 	if server.GameType == "satisfactory" {
 		return satisfactoryPlayerStatus(server)
 	}
+	if server.GameType == "valheim" {
+		return valheimPlayerStatus(server)
+	}
 	if server.Console.Type != "rcon" || driver.PlayerStatusCommand == "" || driver.ParsePlayerStatus == nil {
 		return 0, 0, false
 	}
@@ -372,7 +375,33 @@ func executeCommand(server *ServerConfig, command string) (string, error) {
 		return strings.TrimSpace(string(out)), err
 	}
 
+	if !podmanContainerExists(containerName) {
+		return "", &commandError{
+			code:    "unsupported",
+			message: fmt.Sprintf("server %s exposes no command interface (native unit without RCON or container console)", unit),
+		}
+	}
+
 	return "", fmt.Errorf("container %s is not running", containerName)
+}
+
+// commandError carries a machine-readable code so the API can map
+// unsupported backends to 501 instead of a generic gateway failure.
+type commandError struct {
+	code    string
+	message string
+}
+
+func (e *commandError) Error() string { return e.message }
+
+// podmanContainerExists distinguishes native systemd units from stopped
+// quadlet containers so their errors stay accurate.
+func podmanContainerExists(containerName string) bool {
+	out, err := exec.Command("podman", "ps", "-a", "--filter", "name="+containerName, "--format", "{{.Names}}").Output()
+	if err != nil {
+		return false
+	}
+	return strings.TrimSpace(string(out)) != ""
 }
 
 func executeRCON(console ConsoleConfig, command string) (string, error) {

@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -194,6 +195,13 @@ func handleCommand(w http.ResponseWriter, r *http.Request, server *ServerConfig)
 	defer lock.Unlock()
 	output, err := executeCommand(server, request.Command)
 	if err != nil {
+		var unsupported *commandError
+		if errors.As(err, &unsupported) && unsupported.code == "unsupported" {
+			writeJSONResponse(w, http.StatusNotImplemented, map[string]interface{}{
+				"success": false, "error": unsupported.message, "code": "unsupported",
+			})
+			return
+		}
 		writeAPIError(w, http.StatusBadGateway, err)
 		return
 	}

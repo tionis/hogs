@@ -66,6 +66,13 @@ line` header). Admin changes are restart-gated like whitelist changes.
 HOGS-owned admin entries are added and revoked automatically; manual
 entries are preserved and counted.
 
+Private Valheim servers do not service Steam queries, so A2S player
+counts are unavailable there. The agent instead derives occupancy from
+the periodic `Connections N` journal line; absent lines keep the count
+unknown rather than reporting zero. Valheim exposes no remote command
+interface, so console commands on native units fail with an explicit
+unsupported error instead of a misleading container message.
+
 Satisfactory and StarRupture currently provide join-password admission rather
 than a native per-player allowlist. Their embedded drivers therefore do not
 advertise whitelist support. Password management is a separate server-secret
