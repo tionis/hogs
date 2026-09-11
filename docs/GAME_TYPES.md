@@ -51,7 +51,13 @@ Valheim has no dedicated-server command for editing or reloading its allowlist.
 Its embedded driver safely reads and atomically updates `permittedlist.txt`
 while the server is either running or stopped. Changes saved while it runs are
 reported as pending until the next restart. Identities are the case-sensitive
-Platform User IDs emitted by Valheim, not display names.
+Platform User IDs emitted by Valheim, not display names. Since Valheim 1.0
+those carry short platform prefixes exactly as shown in the in-game player
+list (F2): `V_<SteamID64>` for Steam, `X_...` for Xbox. Bare IDs and the old
+`Steam_` form no longer match, so linked Steam identities reconcile as
+`V_<SteamID64>`. HOGS-managed `Steam_` entries self-migrate on the next
+reconcile (stale entry removed, `V_` entry added, still restart-gated);
+manual entries must be re-entered by an administrator.
 
 Satisfactory and StarRupture currently provide join-password admission rather
 than a native per-player allowlist. Their embedded drivers therefore do not

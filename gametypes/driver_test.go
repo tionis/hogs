@@ -133,9 +133,13 @@ func TestValheimFileBackedWhitelistDriver(t *testing.T) {
 		t.Fatalf("unexpected Valheim whitelist driver: %#v", driver)
 	}
 	for _, identity := range []string{
+		"V_76561198000000000",
+		"X_2533274800000000",
+		"PlayFab_ABCDEF0123456789",
+		// Legacy pre-1.0 entries still decode so existing files remain
+		// readable, even though current servers only honor V_/X_ IDs.
 		"Steam_76561198000000000",
 		"Xbox_2533274800000000",
-		"PlayFab_ABCDEF0123456789",
 	} {
 		if !driver.IdentityValid(identity) {
 			t.Errorf("valid Valheim platform ID %q was rejected", identity)
@@ -153,16 +157,28 @@ func TestValheimFileBackedWhitelistDriver(t *testing.T) {
 	}
 
 	fileBackend := driver.Whitelist.File
-	entries, err := fileBackend.Decode([]byte("// List permitted players ID ONE per line\r\nSteam_123\r\nXbox_456\r\nSteam_123\r\n"))
-	if err != nil || len(entries) != 2 || entries[0].Name != "Steam_123" || entries[1].Name != "Xbox_456" {
+	entries, err := fileBackend.Decode([]byte("// List permitted players ID ONE per line\r\nV_123\r\nX_456\r\nV_123\r\n"))
+	if err != nil || len(entries) != 2 || entries[0].Name != "V_123" || entries[1].Name != "X_456" {
 		t.Fatalf("decoded permitted list=%#v err=%v", entries, err)
 	}
 	encoded, err := fileBackend.Encode(entries)
-	if err != nil || string(encoded) != "// List permitted players ID ONE per line\nSteam_123\nXbox_456\n" {
+	if err != nil || string(encoded) != "// List permitted players ID ONE per line\nV_123\nX_456\n" {
 		t.Fatalf("encoded permitted list=%q err=%v", encoded, err)
 	}
-	if _, err := fileBackend.Decode([]byte("Steam_123\nnot a platform id\n")); err == nil {
+	if _, err := fileBackend.Decode([]byte("V_123\nnot a platform id\n")); err == nil {
 		t.Fatal("invalid Valheim permitted-list entry was accepted")
+	}
+}
+
+func TestValheimSteamIdentityReconcilesAsVPrefixedID(t *testing.T) {
+	driver, ok := Embedded("valheim")
+	if !ok {
+		t.Fatal("Valheim embedded driver is not registered")
+	}
+	resolved, valid := driver.AuthentikIdentity("viking", "76561198000000000")
+	if !valid || resolved.Username != "V_76561198000000000" ||
+		resolved.ExternalID != "76561198000000000" {
+		t.Fatalf("linked Steam identity resolved to %#v valid=%v", resolved, valid)
 	}
 }
 

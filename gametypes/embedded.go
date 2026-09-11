@@ -315,8 +315,12 @@ func init() {
 		IdentityLabel:         "Platform User ID",
 		IdentityAccountLabel:  "Steam",
 		IdentityProvider:      "steam",
+		// Since Valheim 1.0 the server only honors short platform prefixes
+		// exactly as shown in the in-game player list (F2): V_ for Steam,
+		// X_ for Xbox. Bare SteamID64 values and the old Steam_ form no
+		// longer match, so linked Steam identities reconcile as V_<SteamID64>.
 		IdentityFromProvider: func(_ string, subject string) ResolvedIdentity {
-			return ResolvedIdentity{Username: "Steam_" + subject, ExternalID: subject}
+			return ResolvedIdentity{Username: "V_" + subject, ExternalID: subject}
 		},
 		Whitelist: &WhitelistDriver{
 			File: &FileWhitelistDriver{
