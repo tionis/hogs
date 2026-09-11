@@ -564,17 +564,34 @@ func NewStore(dataSourceName string) (*Store, error) {
 }
 
 func sqliteDSNWithForeignKeys(dataSourceName string) string {
-	if strings.Contains(dataSourceName, "_foreign_keys=") || strings.Contains(dataSourceName, "_fk=") {
-		return dataSourceName
-	}
 	if dataSourceName == ":memory:" {
-		return "file::memory:?cache=shared&_foreign_keys=on"
+		return "file::memory:?cache=shared&_foreign_keys=on&_busy_timeout=5000"
+	}
+	// SQLite's default rollback journal with no busy timeout fails
+	// immediately with SQLITE_BUSY under any concurrent access, which the
+	// application previously surfaced as spurious session and request
+	// errors. WAL plus a busy timeout lets readers and a single writer
+	// proceed without failing fast. Callers can override any parameter by
+	// supplying it in the DSN.
+	required := []struct{ key, value string }{
+		{"_foreign_keys", "on"},
+		{"_busy_timeout", "5000"},
+		{"_journal_mode", "WAL"},
 	}
 	separator := "?"
 	if strings.Contains(dataSourceName, "?") {
 		separator = "&"
 	}
-	return dataSourceName + separator + "_foreign_keys=on"
+	var missing []string
+	for _, parameter := range required {
+		if !strings.Contains(dataSourceName, parameter.key+"=") {
+			missing = append(missing, parameter.key+"="+parameter.value)
+		}
+	}
+	if len(missing) == 0 {
+		return dataSourceName
+	}
+	return dataSourceName + separator + strings.Join(missing, "&")
 }
 
 func runMigrations(dataSourceName string) error {

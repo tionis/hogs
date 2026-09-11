@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/golang-migrate/migrate/v4"
@@ -11,6 +12,28 @@ import (
 	"github.com/golang-migrate/migrate/v4/source/iofs"
 	_ "github.com/mattn/go-sqlite3"
 )
+
+func TestSQLiteDSNConfiguresConcurrency(t *testing.T) {
+	dsn := sqliteDSNWithForeignKeys(t.TempDir() + "/hogs.db")
+	for _, want := range []string{"_foreign_keys=on", "_busy_timeout=5000", "_journal_mode=WAL"} {
+		if !strings.Contains(dsn, want) {
+			t.Fatalf("dsn %q missing %q", dsn, want)
+		}
+	}
+
+	memory := sqliteDSNWithForeignKeys(":memory:")
+	if !strings.Contains(memory, "_busy_timeout=5000") || strings.Contains(memory, "_journal_mode=WAL") {
+		t.Fatalf("memory dsn=%q", memory)
+	}
+
+	override := sqliteDSNWithForeignKeys("file:/tmp/example.db?_busy_timeout=1")
+	if !strings.Contains(override, "_busy_timeout=1") || strings.Contains(override, "_busy_timeout=5000") {
+		t.Fatalf("caller override was not preserved: %q", override)
+	}
+	if !strings.Contains(override, "_journal_mode=WAL") || !strings.Contains(override, "_foreign_keys=on") {
+		t.Fatalf("caller override dropped other defaults: %q", override)
+	}
+}
 
 func testStore(t *testing.T) *Store {
 	t.Helper()

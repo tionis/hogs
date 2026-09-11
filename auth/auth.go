@@ -275,7 +275,14 @@ func (a *Authenticator) getSession(r *http.Request) *database.Session {
 	}
 
 	dbSession, err := a.Store.GetSession(sessionID)
-	if err != nil || dbSession == nil {
+	if err != nil {
+		// A transient database error (for example SQLITE_BUSY before the
+		// busy timeout was configured) must not be treated as a signed-out
+		// visitor, and must not delete a valid session.
+		log.Printf("session lookup failed; leaving session intact: %v", err)
+		return nil
+	}
+	if dbSession == nil {
 		log.Printf("unknown session id; forcing fresh login")
 		return nil
 	}
@@ -289,7 +296,11 @@ func (a *Authenticator) getSession(r *http.Request) *database.Session {
 
 	// Verify the user is still active
 	user, err := a.Store.GetUserByUsername(dbSession.UserUsername)
-	if err != nil || user == nil || !user.Active {
+	if err != nil {
+		log.Printf("user lookup failed during session validation; leaving session intact: %v", err)
+		return nil
+	}
+	if user == nil || !user.Active {
 		a.Store.DeleteSession(sessionID)
 		log.Printf("session for inactive or deleted user; forcing fresh login")
 		return nil

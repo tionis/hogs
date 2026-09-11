@@ -7,11 +7,90 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/tionis/hogs/auth"
 	"github.com/tionis/hogs/config"
 	"github.com/tionis/hogs/database"
 )
+
+func sessionTestHandler(t *testing.T) (*Handler, *database.Store) {
+	t.Helper()
+	store, err := database.NewStore(t.TempDir() + "/hogs.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { store.DB.Close() })
+	handler := NewHandler(
+		store,
+		&config.Config{OIDCAdminGroup: "Mage", OIDCUserGroup: "Player"},
+		auth.NewTestAuthenticator(store, "test-secret"),
+	)
+	return handler, store
+}
+
+func seedSessionUser(t *testing.T, store *database.Store) *database.User {
+	t.Helper()
+	user, err := store.CreateUser("sync-me", "user")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpdateUserSCIMIdentity(user.ID, "sync-me", "stable-subject", "Sync Me", true); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	if err := store.CreateSession(&database.Session{
+		SessionID:    "session-sync",
+		UserSub:      "stable-subject",
+		UserUsername: "sync-me",
+		UserRole:     "user",
+		CreatedAt:    now.Format(time.RFC3339),
+		ExpiresAt:    now.Add(time.Hour).Format(time.RFC3339),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return user
+}
+
+func replaceUserRequest(t *testing.T, user *database.User, active bool) *http.Request {
+	t.Helper()
+	request := scimRequest(t, http.MethodPut, "/scim/v2/Users/"+fmt.Sprint(user.ID), map[string]interface{}{
+		"userName":    "sync-me",
+		"externalId":  "stable-subject",
+		"displayName": "Sync Me",
+		"active":      active,
+	})
+	return mux.SetURLVars(request, map[string]string{"id": fmt.Sprint(user.ID)})
+}
+
+func TestReplaceUserKeepsSessionWhenAuthorizationUnchanged(t *testing.T) {
+	handler, store := sessionTestHandler(t)
+	user := seedSessionUser(t, store)
+
+	recorder := httptest.NewRecorder()
+	handler.ReplaceUser(recorder, replaceUserRequest(t, user, true))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("replace status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if session, err := store.GetSession("session-sync"); err != nil || session == nil {
+		t.Fatalf("unchanged SCIM synchronization revoked the session: session=%v err=%v", session, err)
+	}
+}
+
+func TestReplaceUserRevokesSessionWhenActiveChanges(t *testing.T) {
+	handler, store := sessionTestHandler(t)
+	user := seedSessionUser(t, store)
+
+	recorder := httptest.NewRecorder()
+	handler.ReplaceUser(recorder, replaceUserRequest(t, user, false))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("replace status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if session, err := store.GetSession("session-sync"); err != nil || session != nil {
+		t.Fatalf("deactivation did not revoke the session: session=%v err=%v", session, err)
+	}
+}
 
 func testHandler(t *testing.T) (*Handler, *database.Store) {
 	t.Helper()

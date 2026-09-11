@@ -235,7 +235,7 @@ func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	user.Active = active
 
 	if req.Groups != nil {
-		if err := h.syncUserGroups(user.ID, req.Groups); err != nil {
+		if _, err := h.syncUserGroups(user.ID, req.Groups); err != nil {
 			scimError(w, 400, "invalidValue", err.Error())
 			return
 		}
@@ -262,6 +262,8 @@ func (h *Handler) ReplaceUser(w http.ResponseWriter, r *http.Request) {
 		scimError(w, 404, "NotFound", "User not found")
 		return
 	}
+	previousActive := user.Active
+	previousRole := user.Role
 
 	var req scimUserRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -305,15 +307,23 @@ func (h *Handler) ReplaceUser(w http.ResponseWriter, r *http.Request) {
 	user.PreferredUsername = req.UserName
 	user.Active = active
 
+	membershipChanged := false
 	if req.Groups != nil {
-		if err := h.syncUserGroups(user.ID, req.Groups); err != nil {
+		var err error
+		membershipChanged, err = h.syncUserGroups(user.ID, req.Groups)
+		if err != nil {
 			scimError(w, 400, "invalidValue", err.Error())
 			return
 		}
 		h.recalcUserRole(user)
 	}
 
-	h.triggerSessionInvalidation(user)
+	// Authentik replaces every user on each full SCIM synchronization. Only
+	// revoke sessions when the identity's effective authorization actually
+	// changed, otherwise a routine sync logs the user out.
+	if active != previousActive || user.Role != previousRole || membershipChanged {
+		h.triggerSessionInvalidation(user)
+	}
 
 	scimJSON(w, 200, h.userToSCIM(*user))
 }
@@ -348,13 +358,18 @@ func (h *Handler) PatchUser(w http.ResponseWriter, r *http.Request) {
 	displayName := user.DisplayName
 	active := user.Active
 	gameIdentities := map[string]scimGameIdentity(nil)
+	currentGroups, _ := h.Store.GetSCIMGroupsForUser(user.ID)
+	memberSet := make(map[int]bool, len(currentGroups))
+	for _, group := range currentGroups {
+		memberSet[group.ID] = true
+	}
 
 	for _, op := range req.Operations {
 		switch strings.ToLower(op.Op) {
 		case "replace":
 			switch strings.ToLower(op.Path) {
 			case "active":
-				if value, ok := op.Value.(bool); ok {
+				if value, ok := op.Value.(bool); ok && value != active {
 					active = value
 					needsSessionInvalidate = true
 				}
@@ -383,7 +398,7 @@ func (h *Handler) PatchUser(w http.ResponseWriter, r *http.Request) {
 				}
 				if op.Path == "" && op.Value != nil {
 					if m, ok := op.Value.(map[string]interface{}); ok {
-						if value, ok := m["active"].(bool); ok {
+						if value, ok := m["active"].(bool); ok && value != active {
 							active = value
 							needsSessionInvalidate = true
 						}
@@ -413,8 +428,14 @@ func (h *Handler) PatchUser(w http.ResponseWriter, r *http.Request) {
 						if gmap, ok := ref.(map[string]interface{}); ok {
 							if val, ok := gmap["value"].(string); ok {
 								gid, _ := strconv.Atoi(val)
-								h.Store.AddSCIMGroupMember(gid, user.ID)
-								needsSessionInvalidate = true
+								if gid > 0 && !memberSet[gid] {
+									if err := h.Store.AddSCIMGroupMember(gid, user.ID); err != nil {
+										scimError(w, 400, "invalidValue", err.Error())
+										return
+									}
+									memberSet[gid] = true
+									needsSessionInvalidate = true
+								}
 							}
 						}
 					}
@@ -425,8 +446,12 @@ func (h *Handler) PatchUser(w http.ResponseWriter, r *http.Request) {
 				active = false
 				needsSessionInvalidate = true
 			} else if value, ok := scimPathValue(op.Path, "groups"); ok {
-				if gid, err := strconv.Atoi(value); err == nil {
-					h.Store.RemoveSCIMGroupMember(gid, user.ID)
+				if gid, err := strconv.Atoi(value); err == nil && memberSet[gid] {
+					if err := h.Store.RemoveSCIMGroupMember(gid, user.ID); err != nil {
+						scimError(w, 400, "invalidValue", err.Error())
+						return
+					}
+					delete(memberSet, gid)
 					needsSessionInvalidate = true
 				}
 			}
@@ -840,10 +865,13 @@ func (h *Handler) DeleteGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	for _, m := range members {
-		h.recalcUserRole(&m)
-		h.triggerSessionInvalidation(&m)
+	userIDs := make([]int, 0, len(members))
+	for _, member := range members {
+		userIDs = append(userIDs, member.ID)
 	}
+	// Deleting a group only revokes sessions for members whose effective
+	// role actually changed.
+	h.recalculateUsers(userIDs)
 
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -987,34 +1015,52 @@ func (h *Handler) roleFromGroupNames(names []string) string {
 	return "user"
 }
 
-func (h *Handler) syncUserGroups(userID int, groupRefs []scimGroupRef) error {
+func (h *Handler) syncUserGroups(userID int, groupRefs []scimGroupRef) (bool, error) {
 	var groupIDs []int
 	for _, ref := range groupRefs {
 		gid, err := strconv.Atoi(ref.Value)
 		if err != nil || gid <= 0 {
-			return fmt.Errorf("invalid group reference %q", ref.Value)
+			return false, fmt.Errorf("invalid group reference %q", ref.Value)
 		}
 		groupIDs = append(groupIDs, gid)
 	}
 	current, err := h.Store.GetSCIMGroupsForUser(userID)
 	if err != nil {
-		return err
+		return false, err
+	}
+	currentSet := make(map[int]bool, len(current))
+	for _, group := range current {
+		currentSet[group.ID] = true
 	}
 	desired := make(map[int]bool, len(groupIDs))
+	changed := false
 	for _, gid := range groupIDs {
 		desired[gid] = true
+		if !currentSet[gid] {
+			changed = true
+		}
+	}
+	for _, group := range current {
+		if !desired[group.ID] {
+			changed = true
+		}
+	}
+	if !changed {
+		return false, nil
+	}
+	for _, gid := range groupIDs {
 		if err := h.Store.AddSCIMGroupMember(gid, userID); err != nil {
-			return err
+			return false, err
 		}
 	}
 	for _, group := range current {
 		if !desired[group.ID] {
 			if err := h.Store.RemoveSCIMGroupMember(group.ID, userID); err != nil {
-				return err
+				return false, err
 			}
 		}
 	}
-	return nil
+	return true, nil
 }
 
 func (h *Handler) memberIDs(refs []scimMemberRef) ([]int, error) {
@@ -1065,8 +1111,13 @@ func (h *Handler) recalculateUsers(userIDs []int) {
 		if err != nil || user == nil {
 			continue
 		}
+		previousRole := user.Role
 		h.recalcUserRole(user)
-		h.triggerSessionInvalidation(user)
+		// A membership replacement that does not change the effective role
+		// must not revoke the user's sessions.
+		if user.Role != previousRole {
+			h.triggerSessionInvalidation(user)
+		}
 	}
 }
 
