@@ -1,5 +1,8 @@
 {{define "server_automation"}}
 <h2 class="h4">Automation Rules</h2>
+{{if .FormError}}
+<div class="alert alert-danger" role="alert">{{.FormError}}</div>
+{{end}}
 <div class="alert alert-info">
   Player-based rules fail closed: stale telemetry, an unreachable worker, or a game integration that cannot report
   players never counts as an empty server. Server and instance constraints are checked again immediately before an action.

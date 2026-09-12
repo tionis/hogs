@@ -537,6 +537,7 @@ func (h *WebHandler) renderServerPage(w http.ResponseWriter, r *http.Request, pa
 		CanRevealJoinPassword       bool
 		Page                        string
 		FilesPage                   bool
+		FormError                   string
 	}{
 		Server:                      server,
 		Authenticated:               isAuthenticated,
@@ -570,6 +571,7 @@ func (h *WebHandler) renderServerPage(w http.ResponseWriter, r *http.Request, pa
 		AutomationLogs:              map[int][]database.CronJobLog{},
 		Page:                        page,
 		FilesPage:                   page == "files",
+		FormError:                   strings.TrimSpace(r.URL.Query().Get("error")),
 		IdentityCaseSensitive:       driver.IdentityCaseSensitive,
 		IdentityLabel:               driver.IdentityFieldLabel(),
 		JoinAccountType:             driver.IdentityAccountType(),
@@ -1904,6 +1906,7 @@ func (h *WebHandler) CommandManager(w http.ResponseWriter, r *http.Request) {
 		SiteName       string
 		UserUsername   string
 		BackgroundURLs BackgroundURLs
+		FormError      string
 	}{
 		Server:         server,
 		CommandSchemas: schemas,
@@ -1912,6 +1915,7 @@ func (h *WebHandler) CommandManager(w http.ResponseWriter, r *http.Request) {
 		SiteName:       h.siteName(),
 		UserUsername:   h.Auth.GetUsername(r),
 		BackgroundURLs: h.pickBackgrounds([]string{"home"}),
+		FormError:      strings.TrimSpace(r.URL.Query().Get("error")),
 	}
 
 	tmpl, err := template.New("base.html").Funcs(sharedFuncMap(h.Store)).ParseFS(templateFS, "templates/base.html", "templates/commands.html")
@@ -1941,6 +1945,7 @@ func (h *WebHandler) ConstraintManager(w http.ResponseWriter, r *http.Request) {
 		SiteName       string
 		UserUsername   string
 		BackgroundURLs BackgroundURLs
+		FormError      string
 	}{
 		Constraints:    constraints,
 		Authenticated:  true,
@@ -1948,6 +1953,7 @@ func (h *WebHandler) ConstraintManager(w http.ResponseWriter, r *http.Request) {
 		SiteName:       h.siteName(),
 		UserUsername:   h.Auth.GetUsername(r),
 		BackgroundURLs: h.pickBackgrounds([]string{"home"}),
+		FormError:      strings.TrimSpace(r.URL.Query().Get("error")),
 	}
 
 	tmpl, err := template.New("base.html").Funcs(sharedFuncMap(h.Store)).ParseFS(templateFS, "templates/base.html", "templates/constraints.html")

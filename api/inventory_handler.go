@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
-	"github.com/robfig/cron/v3"
 	"github.com/tionis/hogs/access"
 	"github.com/tionis/hogs/auth"
 	"github.com/tionis/hogs/database"
@@ -26,12 +25,15 @@ const InventoryAPIVersion = "hogs.tionis.dev/v1alpha2"
 var inventoryServerIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`)
 
 type InventoryManifest struct {
-	APIVersion    string                  `json:"apiVersion"`
-	Generation    string                  `json:"generation"`
-	Nodes         []InventoryNode         `json:"nodes"`
-	Servers       []InventoryServer       `json:"servers"`
-	Constraints   []InventoryConstraint   `json:"constraints"`
-	Schedules     []InventorySchedule     `json:"schedules"`
+	APIVersion  string                `json:"apiVersion"`
+	Generation  string                `json:"generation"`
+	Nodes       []InventoryNode       `json:"nodes"`
+	Servers     []InventoryServer     `json:"servers"`
+	Constraints []InventoryConstraint `json:"constraints"`
+	// Deprecated: automation rules (cron_jobs) are owned by the HOGS GUI. The
+	// field is accepted for wire compatibility with older manifests and is
+	// never validated, diffed, applied, or pruned.
+	Schedules     []InventorySchedule     `json:"schedules,omitempty"`
 	Templates     []InventoryTemplate     `json:"templates"`
 	Webhooks      []InventoryWebhook      `json:"webhooks"`
 	Notifications []InventoryNotification `json:"notifications"`
@@ -117,6 +119,8 @@ type InventoryConstraint struct {
 	Enabled     bool   `json:"enabled"`
 }
 
+// InventorySchedule is deprecated. Automation rules are owned by the HOGS GUI;
+// the field is accepted for wire compatibility and ignored.
 type InventorySchedule struct {
 	Name             string          `json:"name"`
 	Schedule         string          `json:"schedule"`
@@ -571,18 +575,6 @@ func validateManifest(m *InventoryManifest) error {
 			}
 		}
 	}
-	for _, schedule := range m.Schedules {
-		if !servers[schedule.ServerID] {
-			return fmt.Errorf("schedule %q references unknown server ID %q", schedule.Name, schedule.ServerID)
-		}
-		if err := validateRawJSON("schedule "+schedule.Name+" params", schedule.Params); err != nil {
-			return err
-		}
-		parser := cron.NewParser(cron.Second | cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
-		if _, err := parser.Parse(schedule.Schedule); err != nil {
-			return fmt.Errorf("schedule %q has invalid six-field cron expression: %w", schedule.Name, err)
-		}
-	}
 	for _, strategy := range m.Constraints {
 		if strategy.Mode != "" && strategy.Mode != "require" && strategy.Mode != "exempt" {
 			return fmt.Errorf("constraint %q has unsupported mode %q", strategy.Name, strategy.Mode)
@@ -627,7 +619,7 @@ func validateTopLevelNames(m *InventoryManifest) error {
 		name   string
 		values []string
 	}{
-		{"constraint", constraintNames(m.Constraints)}, {"schedule", scheduleNames(m.Schedules)},
+		{"constraint", constraintNames(m.Constraints)},
 		{"template", templateNames(m.Templates)}, {"webhook", webhookNames(m.Webhooks)},
 		{"notification", notificationNames(m.Notifications)},
 	}
@@ -676,9 +668,6 @@ func normalizeManifest(m *InventoryManifest) {
 			m.Constraints[i].Mode = "require"
 		}
 	}
-	if m.Schedules == nil {
-		m.Schedules = []InventorySchedule{}
-	}
 	if m.Templates == nil {
 		m.Templates = []InventoryTemplate{}
 	}
@@ -714,7 +703,6 @@ func normalizeManifest(m *InventoryManifest) {
 		sort.Slice(m.Servers[i].Commands, func(a, b int) bool { return m.Servers[i].Commands[a].Name < m.Servers[i].Commands[b].Name })
 	}
 	sort.Slice(m.Constraints, func(i, j int) bool { return m.Constraints[i].Name < m.Constraints[j].Name })
-	sort.Slice(m.Schedules, func(i, j int) bool { return m.Schedules[i].Name < m.Schedules[j].Name })
 	sort.Slice(m.Templates, func(i, j int) bool { return m.Templates[i].Name < m.Templates[j].Name })
 	sort.Slice(m.Webhooks, func(i, j int) bool { return m.Webhooks[i].Name < m.Webhooks[j].Name })
 	sort.Slice(m.Notifications, func(i, j int) bool { return m.Notifications[i].Name < m.Notifications[j].Name })
@@ -733,7 +721,7 @@ func (h *InventoryHandler) loadState() (InventoryManifest, string, string, strin
 	var generation, digest, raw, appliedAt, actor string
 	err := h.Store.DB.QueryRow("SELECT generation, digest, manifest, applied_at, actor FROM inventory_state WHERE singleton = 1").Scan(&generation, &digest, &raw, &appliedAt, &actor)
 	if err == sql.ErrNoRows {
-		m := InventoryManifest{APIVersion: InventoryAPIVersion, Nodes: []InventoryNode{}, Servers: []InventoryServer{}, Constraints: []InventoryConstraint{}, Schedules: []InventorySchedule{}, Templates: []InventoryTemplate{}, Webhooks: []InventoryWebhook{}, Notifications: []InventoryNotification{}, Settings: map[string]string{}}
+		m := InventoryManifest{APIVersion: InventoryAPIVersion, Nodes: []InventoryNode{}, Servers: []InventoryServer{}, Constraints: []InventoryConstraint{}, Templates: []InventoryTemplate{}, Webhooks: []InventoryWebhook{}, Notifications: []InventoryNotification{}, Settings: map[string]string{}}
 		return m, "", "", "", nil
 	}
 	if err != nil {
@@ -784,8 +772,6 @@ func (h *InventoryHandler) firstAdoptionDeletes(currentDigest string, desired In
 	}{
 		{"nodes", "agents", "name"},
 		{"servers", "servers", "management_id"},
-		{"constraints", "constraints", "name"},
-		{"schedules", "cron_jobs", "name"},
 		{"templates", "server_templates", "name"},
 		{"webhooks", "webhooks", "name"},
 		{"notifications", "notification_channels", "name"},
@@ -816,6 +802,22 @@ func (h *InventoryHandler) firstAdoptionDeletes(currentDigest string, desired In
 	return changes, nil
 }
 
+// inventoryServerReconcileView is the subset of a server that Gandalf owns
+// continuously. Presentation, policy, tag, command, and access state are
+// seeded once and intentionally excluded, so edits made in the HOGS GUI do not
+// surface as reconciliation drift.
+func inventoryServerReconcileView(server InventoryServer) InventoryServer {
+	server.MapLifecycle = ""
+	server.State = ""
+	server.ShowMOTD = false
+	server.Metadata = nil
+	server.Tags = nil
+	server.Policy = InventoryServerPolicy{}
+	server.Commands = nil
+	server.AccessGrants = nil
+	return server
+}
+
 func inventoryResources(m InventoryManifest) map[string]string {
 	result := make(map[string]string)
 	add := func(key string, value interface{}) { b, _ := json.Marshal(value); result[key] = string(b) }
@@ -823,13 +825,10 @@ func inventoryResources(m InventoryManifest) map[string]string {
 		add("nodes/"+v.Name, v)
 	}
 	for _, v := range m.Servers {
-		add("servers/"+v.ID, v)
+		add("servers/"+v.ID, inventoryServerReconcileView(v))
 	}
 	for _, v := range m.Constraints {
 		add("constraints/"+v.Name, v)
-	}
-	for _, v := range m.Schedules {
-		add("schedules/"+v.Name, v)
 	}
 	for _, v := range m.Templates {
 		add("templates/"+v.Name, v)
@@ -935,13 +934,6 @@ func constraintNames(v []InventoryConstraint) []string {
 	}
 	return out
 }
-func scheduleNames(v []InventorySchedule) []string {
-	out := make([]string, len(v))
-	for i := range v {
-		out[i] = v[i].Name
-	}
-	return out
-}
 func templateNames(v []InventoryTemplate) []string {
 	out := make([]string, len(v))
 	for i := range v {
@@ -1033,10 +1025,7 @@ func (h *InventoryHandler) applyManifest(manifest, fullManifest, previous Invent
 		  AND tag NOT IN (SELECT DISTINCT game_type FROM servers WHERE game_type <> '')`); err != nil {
 		return err
 	}
-	if err := applyConstraints(tx, manifest.Constraints); err != nil {
-		return err
-	}
-	if err := applySchedules(tx, manifest.Schedules); err != nil {
+	if err := applyConstraints(tx, manifest.Constraints, previous.Constraints); err != nil {
 		return err
 	}
 	if err := applyTemplates(tx, manifest.Templates); err != nil {
@@ -1099,6 +1088,11 @@ func applyNodes(tx *sql.Tx, nodes []InventoryNode) error {
 	return deleteMissing(tx, "agents", "name", keep)
 }
 
+// applyServers reconciles the hosting-owned part of each server continuously
+// and seeds presentation, policy, command, tag, and access state only when the
+// server is first created. Operational state edited in the HOGS GUI (tags,
+// access grants, management policy, commands) therefore survives later
+// reconciliations.
 func applyServers(tx *sql.Tx, servers []InventoryServer) error {
 	keep := make([]string, 0, len(servers))
 	for _, server := range servers {
@@ -1107,6 +1101,13 @@ func applyServers(tx *sql.Tx, servers []InventoryServer) error {
 			VALUES(?,?,'Players','','#666666',0,'generic',1)`, server.GameType, server.GameType); err != nil {
 			return err
 		}
+		var existingID int
+		existsErr := tx.QueryRow("SELECT id FROM servers WHERE management_id=?", server.ID).Scan(&existingID)
+		if existsErr != nil && existsErr != sql.ErrNoRows {
+			return existsErr
+		}
+		existing := existsErr == nil
+
 		metadataValues := make(map[string]string, len(server.Metadata)+1)
 		for key, value := range server.Metadata {
 			metadataValues[key] = value
@@ -1122,7 +1123,7 @@ func applyServers(tx *sql.Tx, servers []InventoryServer) error {
 			state = "online"
 		}
 		_, err := tx.Exec(`INSERT INTO servers(management_id,name,address,description,map_url,mod_url,state,game_type,show_motd,metadata) VALUES(?,?,?,?,?,?,?,?,?,?)
-			ON CONFLICT(management_id) DO UPDATE SET name=excluded.name,address=excluded.address,description=excluded.description,map_url=excluded.map_url,mod_url=excluded.mod_url,state=excluded.state,game_type=excluded.game_type,show_motd=excluded.show_motd,metadata=excluded.metadata`,
+			ON CONFLICT(management_id) DO UPDATE SET name=excluded.name,address=excluded.address,description=excluded.description,map_url=excluded.map_url,mod_url=excluded.mod_url,game_type=excluded.game_type`,
 			server.ID, server.Name, server.Address, server.Description, server.MapURL, server.ModURL, state, server.GameType, show, string(metadata))
 		if err != nil {
 			return err
@@ -1141,12 +1142,21 @@ func applyServers(tx *sql.Tx, servers []InventoryServer) error {
 			if server.Backend.Type == "agent" {
 				externalID = "agent:" + server.ID
 			}
-			_, err := tx.Exec(`INSERT INTO pterodactyl_servers(server_id,ptero_server_id,ptero_identifier,allowed_actions,acl_rule,node) VALUES(?,?,?,?,?,?)
-				ON CONFLICT(server_id) DO UPDATE SET ptero_server_id=excluded.ptero_server_id,ptero_identifier=excluded.ptero_identifier,allowed_actions=excluded.allowed_actions,acl_rule=excluded.acl_rule,node=excluded.node`,
-				serverID, externalID, server.Backend.Identifier, string(allowed), server.Policy.ACLRule, server.Backend.Node)
-			if err != nil {
+			if _, err := tx.Exec(`INSERT INTO pterodactyl_servers(server_id,ptero_server_id,ptero_identifier,allowed_actions,acl_rule,node) VALUES(?,?,?,?,?,?)
+				ON CONFLICT(server_id) DO UPDATE SET ptero_server_id=excluded.ptero_server_id,ptero_identifier=excluded.ptero_identifier,node=excluded.node`,
+				serverID, externalID, server.Backend.Identifier, string(allowed), server.Policy.ACLRule, server.Backend.Node); err != nil {
 				return err
 			}
+		}
+		operators, _ := json.Marshal(server.Policy.Operators)
+		writablePaths, _ := json.Marshal(server.Policy.WritablePaths)
+		if _, err := tx.Exec(`INSERT INTO server_management(server_id,unit_name,data_path,operators,console_enabled,rcon_enabled,start_enabled,stop_enabled,backup_enabled,restore_enabled,writable_paths)
+			VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(server_id) DO UPDATE SET unit_name=excluded.unit_name,data_path=excluded.data_path`,
+			serverID, server.Unit, server.DataPath, string(operators), boolInt(server.Policy.Console), boolInt(server.Policy.RCON), boolInt(server.Policy.Start), boolInt(server.Policy.Stop), boolInt(server.Policy.Backup), boolInt(server.Policy.Restore), string(writablePaths)); err != nil {
+			return err
+		}
+		if existing {
+			continue
 		}
 		if _, err := tx.Exec("DELETE FROM server_tags WHERE server_id=?", serverID); err != nil {
 			return err
@@ -1171,14 +1181,6 @@ func applyServers(tx *sql.Tx, servers []InventoryServer) error {
 			if _, err := tx.Exec("INSERT INTO command_schemas(server_id,name,display_name,template,params,acl_rule,enabled) VALUES(?,?,?,?,?,?,?)", serverID, command.Name, command.DisplayName, command.Template, string(params), command.ACLRule, enabled); err != nil {
 				return err
 			}
-		}
-		operators, _ := json.Marshal(server.Policy.Operators)
-		writablePaths, _ := json.Marshal(server.Policy.WritablePaths)
-		_, err = tx.Exec(`INSERT INTO server_management(server_id,unit_name,data_path,operators,console_enabled,rcon_enabled,start_enabled,stop_enabled,backup_enabled,restore_enabled,writable_paths)
-			VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(server_id) DO UPDATE SET unit_name=excluded.unit_name,data_path=excluded.data_path,operators=excluded.operators,console_enabled=excluded.console_enabled,rcon_enabled=excluded.rcon_enabled,start_enabled=excluded.start_enabled,stop_enabled=excluded.stop_enabled,backup_enabled=excluded.backup_enabled,restore_enabled=excluded.restore_enabled,writable_paths=excluded.writable_paths`,
-			serverID, server.Unit, server.DataPath, string(operators), boolInt(server.Policy.Console), boolInt(server.Policy.RCON), boolInt(server.Policy.Start), boolInt(server.Policy.Stop), boolInt(server.Policy.Backup), boolInt(server.Policy.Restore), string(writablePaths))
-		if err != nil {
-			return err
 		}
 		if _, err := tx.Exec("DELETE FROM server_access_grants WHERE server_id=?", serverID); err != nil {
 			return err
@@ -1205,68 +1207,35 @@ func boolInt(value bool) int {
 	return 0
 }
 
-func applyConstraints(tx *sql.Tx, values []InventoryConstraint) error {
-	keep := []string{}
+// applyConstraints reconciles Gandalf-managed instance constraints and removes
+// only constraints that Gandalf declared in the previous manifest. Constraints
+// added through the HOGS GUI are preserved.
+func applyConstraints(tx *sql.Tx, values, previous []InventoryConstraint) error {
+	keep := make(map[string]bool, len(values))
 	for _, v := range values {
-		keep = append(keep, v.Name)
+		keep[v.Name] = true
 		enabled := 0
 		if v.Enabled {
 			enabled = 1
 		}
-		_, err := tx.Exec(`INSERT INTO constraints(server_id,name,description,condition,mode,strategy,priority,enabled)
+		if _, err := tx.Exec(`INSERT INTO constraints(server_id,name,description,condition,mode,strategy,priority,enabled)
 			VALUES(NULL,?,?,?,?,?,?,?)
 			ON CONFLICT(name) DO UPDATE SET server_id=NULL,description=excluded.description,
 			condition=excluded.condition,mode=excluded.mode,strategy=excluded.strategy,
 			priority=excluded.priority,enabled=excluded.enabled`,
-			v.Name, v.Description, v.Condition, v.Mode, v.Strategy, v.Priority, enabled)
-		if err != nil {
+			v.Name, v.Description, v.Condition, v.Mode, v.Strategy, v.Priority, enabled); err != nil {
 			return err
 		}
 	}
-	if len(keep) == 0 {
-		_, err := tx.Exec("DELETE FROM constraints WHERE server_id IS NULL")
-		return err
-	}
-	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(keep)), ",")
-	args := make([]interface{}, len(keep))
-	for i := range keep {
-		args[i] = keep[i]
-	}
-	_, err := tx.Exec("DELETE FROM constraints WHERE server_id IS NULL AND name NOT IN ("+placeholders+")", args...)
-	return err
-}
-func applySchedules(tx *sql.Tx, values []InventorySchedule) error {
-	keep := []string{}
-	for _, v := range values {
-		keep = append(keep, v.Name)
-		enabled := 0
-		if v.Enabled {
-			enabled = 1
+	for _, old := range previous {
+		if keep[old.Name] {
+			continue
 		}
-		params := v.Params
-		if len(params) == 0 {
-			params = json.RawMessage("{}")
-		}
-		condition := strings.TrimSpace(v.Condition)
-		if condition == "" {
-			condition = "true"
-		}
-		var serverID int
-		if err := tx.QueryRow("SELECT id FROM servers WHERE management_id=?", v.ServerID).Scan(&serverID); err != nil {
-			return err
-		}
-		_, err := tx.Exec(`INSERT INTO cron_jobs(name,schedule,server_id,action,params,acl_rule,enabled,condition,stability_seconds,cooldown_seconds) VALUES(?,?,?,?,?,?,?,?,?,?)
-			ON CONFLICT(name) DO UPDATE SET schedule=excluded.schedule,server_id=excluded.server_id,
-			action=excluded.action,params=excluded.params,acl_rule=excluded.acl_rule,enabled=excluded.enabled,
-			condition=excluded.condition,stability_seconds=excluded.stability_seconds,
-			cooldown_seconds=excluded.cooldown_seconds`,
-			v.Name, v.Schedule, serverID, v.Action, string(params), v.ACLRule, enabled,
-			condition, v.StabilitySeconds, v.CooldownSeconds)
-		if err != nil {
+		if _, err := tx.Exec("DELETE FROM constraints WHERE server_id IS NULL AND name=?", old.Name); err != nil {
 			return err
 		}
 	}
-	return deleteMissing(tx, "cron_jobs", "name", keep)
+	return nil
 }
 func applyTemplates(tx *sql.Tx, values []InventoryTemplate) error {
 	keep := []string{}

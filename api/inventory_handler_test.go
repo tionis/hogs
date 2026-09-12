@@ -46,7 +46,6 @@ func testManifest() InventoryManifest {
 			},
 		}},
 		Constraints:   []InventoryConstraint{{Name: "one_game", Condition: "true", Strategy: "deny", Priority: 10, Enabled: true}},
-		Schedules:     []InventorySchedule{{Name: "nightly_restart", Schedule: "0 0 4 * * *", ServerID: "cog", Action: "restart", Params: json.RawMessage(`{}`), Enabled: true}},
 		Templates:     []InventoryTemplate{{Name: "minecraft", GameType: "minecraft", DefaultSettings: json.RawMessage(`{}`), DefaultCommands: json.RawMessage(`[]`), DefaultTags: json.RawMessage(`["minecraft"]`)}},
 		Webhooks:      []InventoryWebhook{{Name: "audit", URL: "https://hooks.example.test/hogs", Secret: "webhook-secret", Events: json.RawMessage(`["*"]`), Enabled: true}},
 		Notifications: []InventoryNotification{{Name: "ops", Type: "ntfy", URL: "ntfy://token@example.test/topic", Events: json.RawMessage(`["server_down"]`), Enabled: true}},
@@ -150,6 +149,14 @@ func TestInventoryRenamePreservesImmutableServerIdentity(t *testing.T) {
 	if before == nil {
 		t.Fatal("server was not created with its inventory ID")
 	}
+	// Automation rules are GUI-owned; a GUI-style rule must follow the stable
+	// server ID across a rename.
+	if err := store.CreateCronJob(&database.CronJob{
+		Name: "nightly_restart", Schedule: "0 0 4 * * *", ServerID: before.ID,
+		Action: "restart", Params: json.RawMessage(`{}`), Enabled: true, Condition: "true",
+	}); err != nil {
+		t.Fatalf("create gui automation: %v", err)
+	}
 
 	manifest.Generation = "git:rename"
 	manifest.Servers[0].Name = "Renamed Cog Server"
@@ -170,9 +177,8 @@ func TestInventoryRenamePreservesImmutableServerIdentity(t *testing.T) {
 		t.Fatalf("worker routing changed after rename: %#v", link)
 	}
 	jobs, err := store.ListCronJobs()
-	if err != nil || len(jobs) != 1 || jobs[0].ServerID != after.ID ||
-		jobs[0].ServerName != "Renamed Cog Server" {
-		t.Fatalf("scheduled action did not follow renamed server: jobs=%#v err=%v", jobs, err)
+	if err != nil || len(jobs) != 1 || jobs[0].ServerID != after.ID {
+		t.Fatalf("gui automation did not follow renamed server: jobs=%#v err=%v", jobs, err)
 	}
 }
 
@@ -260,7 +266,6 @@ func TestInventoryPruneRequiresConfirmation(t *testing.T) {
 	}
 
 	manifest.Servers = []InventoryServer{}
-	manifest.Schedules = []InventorySchedule{}
 	manifest.Generation = "git:def456"
 	blocked := httptest.NewRecorder()
 	handler.Apply(blocked, requestInventory(t, http.MethodPut, "/api/v1/inventory", manifest))
@@ -307,5 +312,81 @@ func TestInventoryValidationRejectsUnknownNode(t *testing.T) {
 	handler.Plan(recorder, requestInventory(t, http.MethodPost, "/api/v1/inventory/plan", manifest))
 	if recorder.Code != http.StatusBadRequest {
 		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestInventorySeedsOnceAndPreservesGuiManagedState(t *testing.T) {
+	handler, store := testInventoryHandler(t)
+	manifest := testManifest()
+	first := httptest.NewRecorder()
+	handler.Apply(first, requestInventory(t, http.MethodPut, "/api/v1/inventory", manifest))
+	if first.Code != http.StatusOK {
+		t.Fatalf("initial apply failed: %s", first.Body.String())
+	}
+	server, err := store.GetServerByName("cog")
+	if err != nil || server == nil {
+		t.Fatalf("server: %v", err)
+	}
+
+	// Operator edits made through the HOGS GUI after the initial seed.
+	if err := store.SetServerTags(server.ID, []string{"gui-only"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetServerAccessGrant(&database.ServerAccessGrant{
+		ServerID: server.ID, SubjectType: "group", Subject: "gui-admins",
+		Effect: "allow", Capabilities: []string{"console.read"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateConstraint(&database.Constraint{
+		Name: "gui-window", Condition: "true", Mode: "require", Strategy: "deny", Priority: 1, Enabled: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateCronJob(&database.CronJob{
+		Name: "gui_restart", Schedule: "0 0 5 * * *", ServerID: server.ID,
+		Action: "restart", Params: json.RawMessage(`{}`), Enabled: true, Condition: "true",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Gandalf then changes seed-only values (tags, operators) plus a
+	// hosting-owned description and re-applies.
+	manifest.Generation = "git:changed"
+	manifest.Servers[0].Tags = []string{"gandalf-tag"}
+	manifest.Servers[0].Policy.Operators = []string{"gandalf-operators"}
+	manifest.Servers[0].AccessGrants = []InventoryAccessGrant{}
+	manifest.Servers[0].Description = "Hosting description updated"
+	reapply := httptest.NewRecorder()
+	handler.Apply(reapply, requestInventory(t, http.MethodPut, "/api/v1/inventory", manifest))
+	if reapply.Code != http.StatusOK {
+		t.Fatalf("reapply failed: %s", reapply.Body.String())
+	}
+
+	tags, err := store.GetServerTags(server.ID)
+	if err != nil || len(tags) != 1 || tags[0] != "gui-only" {
+		t.Fatalf("GUI tags were overwritten: %#v err=%v", tags, err)
+	}
+	after, _ := store.GetServerByManagementID("cog")
+	if after == nil || after.Description != "Hosting description updated" {
+		t.Fatalf("hosting description was not reconciled: %#v", after)
+	}
+	decision, err := store.EvaluateServerAccess(server.ID, "someone", []string{"gui-admins"}, "console.read")
+	if err != nil || !decision.Allowed {
+		t.Fatalf("GUI access grant was removed: %#v err=%v", decision, err)
+	}
+	constraints, err := store.ListConstraints()
+	guiConstraint := false
+	for _, constraint := range constraints {
+		if constraint.Name == "gui-window" {
+			guiConstraint = true
+		}
+	}
+	if err != nil || !guiConstraint {
+		t.Fatalf("GUI constraint was pruned: %#v err=%v", constraints, err)
+	}
+	jobs, err := store.ListCronJobs()
+	if err != nil || len(jobs) != 1 || jobs[0].Name != "gui_restart" {
+		t.Fatalf("GUI automation was pruned: %#v err=%v", jobs, err)
 	}
 }

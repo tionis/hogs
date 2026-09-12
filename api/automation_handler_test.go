@@ -199,3 +199,54 @@ func TestBulkACL(t *testing.T) {
 		t.Errorf("Delta ACL = %q, want admin rule", link2.ACLRule)
 	}
 }
+
+func TestAutomationNamesAreServerScopedAndErrorsRedirect(t *testing.T) {
+	handler, store := testAutomationHandler(t)
+	for _, name := range []string{"Alpha", "Beta"} {
+		if err := store.CreateServer(&database.Server{Name: name, GameType: "generic", State: "online"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	authenticator := auth.NewTestAuthenticator(store, "automation-name-test-secret")
+	handler.SetAuthenticator(authenticator)
+	adminSession := managedTestRequest(t, store, authenticator, "instance-admin", "admin")
+
+	add := func(serverName string) *httptest.ResponseRecorder {
+		form := url.Values{
+			"name": {"nightly"}, "schedule": {"0 0 4 * * *"}, "action": {"restart"},
+			"condition": {"true"}, "stability_seconds": {"0"}, "cooldown_seconds": {"0"},
+			"params": {"{}"}, "enabled": {"on"},
+		}
+		req := httptest.NewRequest(http.MethodPost, "/servers/"+serverName+"/automation/add", strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req = mux.SetURLVars(req, map[string]string{"serverName": serverName})
+		for _, cookie := range adminSession.Cookies() {
+			req.AddCookie(cookie)
+		}
+		recorder := httptest.NewRecorder()
+		handler.AddCronJob(recorder, req)
+		return recorder
+	}
+
+	// The same rule name is valid on different servers.
+	add("Alpha")
+	second := add("Beta")
+	if second.Code != http.StatusFound {
+		t.Fatalf("same name on another server status=%d body=%s", second.Code, second.Body.String())
+	}
+	jobs, err := store.ListCronJobs()
+	if err != nil || len(jobs) != 2 {
+		t.Fatalf("per-server automation namespace not applied: %#v err=%v", jobs, err)
+	}
+
+	// A duplicate on the same server redirects with a friendly message and
+	// never exposes the raw database error.
+	duplicate := add("Alpha")
+	if duplicate.Code != http.StatusSeeOther {
+		t.Fatalf("duplicate status=%d body=%s", duplicate.Code, duplicate.Body.String())
+	}
+	location := duplicate.Header().Get("Location")
+	if !strings.Contains(location, "error=") || strings.Contains(location, "UNIQUE") {
+		t.Fatalf("duplicate did not redirect with a friendly error: %q", location)
+	}
+}

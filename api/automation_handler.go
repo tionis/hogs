@@ -70,6 +70,45 @@ func automationPath(server *database.Server) string {
 	return "/servers/" + url.PathEscape(server.Name) + "/automation"
 }
 
+// redirectAutomationError sends the operator back to the automation page with a
+// short, non-sensitive message. Form errors must never surface as a raw
+// plain-text database error.
+func (h *AutomationHandler) redirectAutomationError(w http.ResponseWriter, r *http.Request, server *database.Server, message string) {
+	target := "/"
+	if server != nil {
+		target = automationPath(server)
+	}
+	http.Redirect(w, r, target+"?error="+url.QueryEscape(message), http.StatusSeeOther)
+}
+
+// automationSaveError maps a persistence failure to an operator-facing message.
+func automationSaveError(err error, name string) string {
+	if strings.Contains(err.Error(), "UNIQUE") {
+		return fmt.Sprintf("An automation rule named %q already exists on this server.", name)
+	}
+	return "Could not save the automation rule. Please try again."
+}
+
+func redirectCommandManagerError(w http.ResponseWriter, r *http.Request, serverID int, message string) {
+	target := "/admin"
+	if serverID > 0 {
+		target = "/admin/commands/" + strconv.Itoa(serverID)
+	}
+	http.Redirect(w, r, target+"?error="+url.QueryEscape(message), http.StatusSeeOther)
+}
+
+func redirectConstraintError(w http.ResponseWriter, r *http.Request, message string) {
+	http.Redirect(w, r, "/admin/constraints?error="+url.QueryEscape(message), http.StatusSeeOther)
+}
+
+// saveErrorMessage maps a persistence failure to an operator-facing message.
+func saveErrorMessage(err error, subject string) string {
+	if strings.Contains(err.Error(), "UNIQUE") {
+		return fmt.Sprintf("A %s with that name already exists.", subject)
+	}
+	return fmt.Sprintf("Could not save the %s. Please try again.", subject)
+}
+
 func (h *AutomationHandler) parseAutomationRule(r *http.Request, id, serverID int) (*database.CronJob, error) {
 	name := strings.TrimSpace(r.FormValue("name"))
 	schedule := strings.TrimSpace(r.FormValue("schedule"))
@@ -136,7 +175,7 @@ func (h *AutomationHandler) AddCommandSchema(w http.ResponseWriter, r *http.Requ
 
 	serverID, err := strconv.Atoi(r.FormValue("server_id"))
 	if err != nil {
-		http.Error(w, "Invalid server ID", http.StatusBadRequest)
+		redirectCommandManagerError(w, r, 0, "Invalid server ID.")
 		return
 	}
 
@@ -148,7 +187,7 @@ func (h *AutomationHandler) AddCommandSchema(w http.ResponseWriter, r *http.Requ
 	enabled := r.FormValue("enabled") == "on"
 
 	if name == "" || displayName == "" || template == "" {
-		http.Error(w, "name, display_name, and template are required", http.StatusBadRequest)
+		redirectCommandManagerError(w, r, serverID, "Name, display name, and template are required.")
 		return
 	}
 
@@ -167,7 +206,7 @@ func (h *AutomationHandler) AddCommandSchema(w http.ResponseWriter, r *http.Requ
 	}
 
 	if err := h.Store.CreateCommandSchema(cs); err != nil {
-		http.Error(w, "Failed to create command schema: "+err.Error(), http.StatusInternalServerError)
+		redirectCommandManagerError(w, r, serverID, saveErrorMessage(err, "command schema"))
 		return
 	}
 
@@ -182,13 +221,13 @@ func (h *AutomationHandler) UpdateCommandSchema(w http.ResponseWriter, r *http.R
 
 	id, err := strconv.Atoi(r.FormValue("id"))
 	if err != nil {
-		http.Error(w, "Invalid command schema ID", http.StatusBadRequest)
+		redirectCommandManagerError(w, r, 0, "Invalid command schema ID.")
 		return
 	}
 
 	serverID, err := strconv.Atoi(r.FormValue("server_id"))
 	if err != nil {
-		http.Error(w, "Invalid server ID", http.StatusBadRequest)
+		redirectCommandManagerError(w, r, 0, "Invalid server ID.")
 		return
 	}
 
@@ -215,7 +254,7 @@ func (h *AutomationHandler) UpdateCommandSchema(w http.ResponseWriter, r *http.R
 	}
 
 	if err := h.Store.UpdateCommandSchema(cs); err != nil {
-		http.Error(w, "Failed to update command schema: "+err.Error(), http.StatusInternalServerError)
+		redirectCommandManagerError(w, r, serverID, saveErrorMessage(err, "command schema"))
 		return
 	}
 
@@ -230,18 +269,18 @@ func (h *AutomationHandler) DeleteCommandSchema(w http.ResponseWriter, r *http.R
 
 	id, err := strconv.Atoi(r.FormValue("id"))
 	if err != nil {
-		http.Error(w, "Invalid command schema ID", http.StatusBadRequest)
+		redirectCommandManagerError(w, r, 0, "Invalid command schema ID.")
 		return
 	}
+	serverID, _ := strconv.Atoi(r.FormValue("server_id"))
 
 	if err := h.Store.DeleteCommandSchema(id); err != nil {
-		http.Error(w, "Failed to delete command schema", http.StatusInternalServerError)
+		redirectCommandManagerError(w, r, serverID, "Could not delete the command schema. Please try again.")
 		return
 	}
 
-	serverIDStr := r.FormValue("server_id")
-	if serverIDStr != "" {
-		http.Redirect(w, r, "/admin/commands/"+serverIDStr, http.StatusFound)
+	if serverID > 0 {
+		http.Redirect(w, r, "/admin/commands/"+strconv.Itoa(serverID), http.StatusFound)
 		return
 	}
 	http.Redirect(w, r, "/admin", http.StatusFound)
@@ -262,7 +301,7 @@ func (h *AutomationHandler) AddConstraint(w http.ResponseWriter, r *http.Request
 	enabled := r.FormValue("enabled") == "on"
 
 	if name == "" || condition == "" {
-		http.Error(w, "name and condition are required", http.StatusBadRequest)
+		redirectConstraintError(w, r, "Name and condition are required.")
 		return
 	}
 	if strategy == "" {
@@ -272,7 +311,7 @@ func (h *AutomationHandler) AddConstraint(w http.ResponseWriter, r *http.Request
 		mode = "require"
 	}
 	if mode != "require" && mode != "exempt" {
-		http.Error(w, "mode must be require or exempt", http.StatusBadRequest)
+		redirectConstraintError(w, r, "Mode must be require or exempt.")
 		return
 	}
 
@@ -287,7 +326,7 @@ func (h *AutomationHandler) AddConstraint(w http.ResponseWriter, r *http.Request
 	}
 
 	if err := h.Store.CreateConstraint(c); err != nil {
-		http.Error(w, "Failed to create constraint: "+err.Error(), http.StatusInternalServerError)
+		redirectConstraintError(w, r, saveErrorMessage(err, "constraint"))
 		return
 	}
 
@@ -302,12 +341,12 @@ func (h *AutomationHandler) UpdateConstraint(w http.ResponseWriter, r *http.Requ
 
 	id, err := strconv.Atoi(r.FormValue("id"))
 	if err != nil {
-		http.Error(w, "Invalid constraint ID", http.StatusBadRequest)
+		redirectConstraintError(w, r, "Invalid constraint ID.")
 		return
 	}
 	existing, err := h.Store.GetConstraint(id)
 	if err != nil || existing == nil || existing.ServerID != nil {
-		http.Error(w, "Instance constraint not found", http.StatusNotFound)
+		redirectConstraintError(w, r, "Instance constraint not found.")
 		return
 	}
 
@@ -326,7 +365,7 @@ func (h *AutomationHandler) UpdateConstraint(w http.ResponseWriter, r *http.Requ
 		mode = "require"
 	}
 	if mode != "require" && mode != "exempt" {
-		http.Error(w, "mode must be require or exempt", http.StatusBadRequest)
+		redirectConstraintError(w, r, "Mode must be require or exempt.")
 		return
 	}
 
@@ -342,7 +381,7 @@ func (h *AutomationHandler) UpdateConstraint(w http.ResponseWriter, r *http.Requ
 	}
 
 	if err := h.Store.UpdateConstraint(c); err != nil {
-		http.Error(w, "Failed to update constraint: "+err.Error(), http.StatusInternalServerError)
+		redirectConstraintError(w, r, saveErrorMessage(err, "constraint"))
 		return
 	}
 
@@ -357,17 +396,17 @@ func (h *AutomationHandler) DeleteConstraint(w http.ResponseWriter, r *http.Requ
 
 	id, err := strconv.Atoi(r.FormValue("id"))
 	if err != nil {
-		http.Error(w, "Invalid constraint ID", http.StatusBadRequest)
+		redirectConstraintError(w, r, "Invalid constraint ID.")
 		return
 	}
 	existing, err := h.Store.GetConstraint(id)
 	if err != nil || existing == nil || existing.ServerID != nil {
-		http.Error(w, "Instance constraint not found", http.StatusNotFound)
+		redirectConstraintError(w, r, "Instance constraint not found.")
 		return
 	}
 
 	if err := h.Store.DeleteConstraint(id); err != nil {
-		http.Error(w, "Failed to delete constraint", http.StatusInternalServerError)
+		redirectConstraintError(w, r, "Could not delete the constraint. Please try again.")
 		return
 	}
 
@@ -387,17 +426,17 @@ func (h *AutomationHandler) AddCronJob(w http.ResponseWriter, r *http.Request) {
 	}
 	j, err := h.parseAutomationRule(r, 0, server.ID)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		h.redirectAutomationError(w, r, server, err.Error())
 		return
 	}
 
 	if err := h.Store.CreateCronJob(j); err != nil {
-		http.Error(w, "Failed to create cron job: "+err.Error(), http.StatusInternalServerError)
+		h.redirectAutomationError(w, r, server, automationSaveError(err, j.Name))
 		return
 	}
 	if h.AfterScheduleChange != nil {
 		if err := h.AfterScheduleChange(); err != nil {
-			http.Error(w, "Rule saved but scheduler reload failed: "+err.Error(), http.StatusInternalServerError)
+			h.redirectAutomationError(w, r, server, "The rule was saved, but reloading the scheduler failed. Check the logs.")
 			return
 		}
 	}
@@ -429,7 +468,7 @@ func (h *AutomationHandler) UpdateCronJob(w http.ResponseWriter, r *http.Request
 	}
 	j, err := h.parseAutomationRule(r, id, server.ID)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		h.redirectAutomationError(w, r, server, err.Error())
 		return
 	}
 	j.LastActionAt = existing.LastActionAt
@@ -437,12 +476,12 @@ func (h *AutomationHandler) UpdateCronJob(w http.ResponseWriter, r *http.Request
 	j.NextRun = existing.NextRun
 
 	if err := h.Store.UpdateCronJob(j); err != nil {
-		http.Error(w, "Failed to update cron job: "+err.Error(), http.StatusInternalServerError)
+		h.redirectAutomationError(w, r, server, automationSaveError(err, j.Name))
 		return
 	}
 	if h.AfterScheduleChange != nil {
 		if err := h.AfterScheduleChange(); err != nil {
-			http.Error(w, "Rule saved but scheduler reload failed: "+err.Error(), http.StatusInternalServerError)
+			h.redirectAutomationError(w, r, server, "The rule was saved, but reloading the scheduler failed. Check the logs.")
 			return
 		}
 	}
@@ -473,12 +512,12 @@ func (h *AutomationHandler) DeleteCronJob(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if err := h.Store.DeleteCronJob(id); err != nil {
-		http.Error(w, "Failed to delete cron job", http.StatusInternalServerError)
+		h.redirectAutomationError(w, r, server, "Could not delete the automation rule. Please try again.")
 		return
 	}
 	if h.AfterScheduleChange != nil {
 		if err := h.AfterScheduleChange(); err != nil {
-			http.Error(w, "Rule deleted but scheduler reload failed: "+err.Error(), http.StatusInternalServerError)
+			h.redirectAutomationError(w, r, server, "The rule was deleted, but reloading the scheduler failed. Check the logs.")
 			return
 		}
 	}

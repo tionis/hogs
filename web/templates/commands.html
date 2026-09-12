@@ -1,6 +1,9 @@
 {{define "title"}}Command Schemas{{end}}
 
 {{define "content"}}
+{{if .FormError}}
+<div class="alert alert-danger" role="alert">{{.FormError}}</div>
+{{end}}
 <nav aria-label="breadcrumb">
   <ol class="breadcrumb">
     <li class="breadcrumb-item"><a href="/admin">Admin</a></li>

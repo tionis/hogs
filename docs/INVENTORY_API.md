@@ -37,11 +37,20 @@ deployed separately and are not part of this API.
 | `GET` | `/api/v1/inventory/events?after=<cursor>` | Poll immutable reconciliation events. |
 | `PUT` | `/api/v1/servers/{serverName}/secret-fields` | Set or remove managed secret fields imperatively. |
 
-The manifest is authoritative for nodes, servers and their backends and policy,
-commands, constraints, schedules, templates, webhooks, notification channels,
-and settings. Omitting one of those existing resources requests its deletion.
-SCIM remains authoritative for users and roles. API keys are deliberately
-outside the manifest so a bad apply cannot remove the reconciliation identity.
+The manifest is authoritative for infrastructure-owned state: node identity,
+server identity and placement (`id`, `name`, `address`, `description`,
+`gameType`, `mapUrl`, `modUrl`, `unit`, `dataPath`, backend, and backend
+`secretFields`), safety constraints, templates, webhooks, notification
+channels, and settings. Omitting one of those existing resources requests its
+deletion.
+
+Presentation, tags, command schemas, access grants, and per-server management
+policy are **seeded only when a server is first created**; manage them in the
+HOGS GUI afterwards so reconciliation cannot overwrite operator changes.
+Automation rules (cron jobs) are GUI-owned and never reconciled: the
+`schedules` field is accepted for compatibility and ignored. SCIM remains
+authoritative for users and roles. API keys are deliberately outside the
+manifest so a bad apply cannot remove the reconciliation identity.
 
 ## Apply protocol
 
@@ -56,8 +65,8 @@ outside the manifest so a bad apply cannot remove the reconciliation identity.
 `If-Match` prevents applying a plan against changed state and returns `412` on
 a mismatch. An unconfirmed destructive apply returns `409`. Applying an
 identical manifest is safe and produces no resource changes.
-The database update is one transaction. Enabled schedules are reloaded after
-commit without restarting HOGS.
+The database update is one transaction. Enabled automations are reloaded
+without restarting HOGS.
 
 On first adoption, the plan also inventories resources created by older
 interactive HOGS versions. Any such resource omitted from the first manifest
@@ -131,7 +140,6 @@ commit. HOGS also returns a canonical SHA-256 digest.
     }
   ],
   "constraints": [],
-  "schedules": [],
   "templates": [],
   "webhooks": [],
   "notifications": [],
@@ -145,18 +153,20 @@ HOGS to explain map failures without incorrectly claiming that every map
 requires its game server to be running.
 
 An agent backend requires a known node plus `unit` and an absolute `dataPath`.
-Writable paths must be absolute descendants of that data path. Automation
-schedules use six-field cron expressions
-(`second minute hour day-of-month month day-of-week`). They may additionally
-set `condition`, `stabilitySeconds`, and `cooldownSeconds`; omitted conditions
-default to `true`. For example, an idle shutdown rule can use
-`condition: "server.Running && activity.Fresh && activity.PlayersKnown && activity.Players == 0"`
-with `stabilitySeconds: 900`. Unknown or stale occupancy therefore fails closed.
-A schedule references a server through `serverId`, never through its display
-name. A node agent's local allowlist must contain matching immutable server
-IDs, units, and data paths as documented in [the agent contract](AGENT.md).
+Writable paths must be absolute descendants of that data path. These policy
+fields are seeded on server creation and are GUI-owned afterwards.
+A node agent's local allowlist must contain matching immutable server IDs,
+units, and data paths as documented in [the agent contract](AGENT.md).
 A Pterodactyl backend uses `type: "pterodactyl"` and requires `externalId`; a
 display-only server uses `type: "none"`.
+
+Automation rules are created and edited only through the HOGS GUI. They use
+six-field cron expressions (`second minute hour day-of-month month day-of-week`)
+with optional `condition`, `stabilitySeconds`, and `cooldownSeconds`; an idle
+shutdown rule can use
+`condition: "server.Running && activity.Fresh && activity.PlayersKnown && activity.Players == 0"`
+with `stabilitySeconds: 900`, so unknown or stale occupancy fails closed. Rules
+are namespaced per server.
 
 `desiredCapabilities` is policy intent. Agent reachability and capabilities are
 observed through the configured node transport and are never overwritten by the
