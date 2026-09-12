@@ -887,6 +887,12 @@ func (h *WebHandler) auditServerFieldReveal(server *database.Server, user *engin
 }
 
 // Admin renders the admin dashboard.
+// redirectFormError sends the operator back to an admin page with a short,
+// non-sensitive message instead of a plain-text internal error.
+func redirectFormError(w http.ResponseWriter, r *http.Request, path, message string) {
+	http.Redirect(w, r, path+"?error="+url.QueryEscape(message), http.StatusSeeOther)
+}
+
 func (h *WebHandler) Admin(w http.ResponseWriter, r *http.Request) {
 	servers, err := h.Store.ListServers()
 	if err != nil {
@@ -908,6 +914,7 @@ func (h *WebHandler) Admin(w http.ResponseWriter, r *http.Request) {
 		SiteName        string
 		UserUsername    string
 		BackgroundURLs  BackgroundURLs
+		FormError       string
 	}{
 		Servers:         servers,
 		ServerTemplates: templates,
@@ -917,6 +924,7 @@ func (h *WebHandler) Admin(w http.ResponseWriter, r *http.Request) {
 		SiteName:        h.siteName(),
 		UserUsername:    h.Auth.GetUsername(r),
 		BackgroundURLs:  h.pickBackgrounds([]string{"home"}),
+		FormError:       strings.TrimSpace(r.URL.Query().Get("error")),
 	}
 
 	tmpl, err := template.New("base.html").Funcs(sharedFuncMap(h.Store)).ParseFS(templateFS, "templates/base.html", "templates/admin.html")
@@ -936,27 +944,27 @@ func (h *WebHandler) Admin(w http.ResponseWriter, r *http.Request) {
 // HandleServerCreate handles the creation of a new server.
 func (h *WebHandler) HandleServerCreate(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Invalid form data", http.StatusBadRequest)
+		redirectFormError(w, r, "/admin", "Invalid form data.")
 		return
 	}
 
 	gameType := normalizeGameType(r.FormValue("game_type"))
 	if !validGameType(gameType) {
-		http.Error(w, "Game type must be a lowercase slug using letters, numbers, dashes, or underscores", http.StatusBadRequest)
+		redirectFormError(w, r, "/admin", "Game type must be a lowercase slug using letters, numbers, dashes, or underscores.")
 		return
 	}
 	if err := h.ensureGameType(gameType, false); err != nil {
-		http.Error(w, err.Error(), http.StatusConflict)
+		redirectFormError(w, r, "/admin", err.Error())
 		return
 	}
 	state, validState := normalizePresentationState(r.FormValue("state"))
 	if !validState {
-		http.Error(w, "Invalid presentation state", http.StatusBadRequest)
+		redirectFormError(w, r, "/admin", "Invalid presentation state.")
 		return
 	}
 	name := strings.TrimSpace(r.FormValue("name"))
 	if !validServerDisplayName(name) {
-		http.Error(w, "Server name must contain 1-120 printable characters", http.StatusBadRequest)
+		redirectFormError(w, r, "/admin", "Server name must contain 1-120 printable characters.")
 		return
 	}
 	server := &database.Server{
@@ -972,17 +980,17 @@ func (h *WebHandler) HandleServerCreate(w http.ResponseWriter, r *http.Request) 
 	}
 	fields, err := h.parseServerFields(r)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		redirectFormError(w, r, "/admin", err.Error())
 		return
 	}
 
 	if err := h.Store.CreateServer(server); err != nil {
-		http.Error(w, "Failed to create server: "+err.Error(), http.StatusInternalServerError)
+		redirectFormError(w, r, "/admin", "Could not create the server. Please try again.")
 		return
 	}
 	if err := h.Store.ReplaceServerFields(server.ID, fields); err != nil {
 		_ = h.Store.DeleteServer(server.ID)
-		http.Error(w, "Failed to save server fields: "+err.Error(), http.StatusBadRequest)
+		redirectFormError(w, r, "/admin", "Could not save server fields. Please try again.")
 		return
 	}
 
@@ -1037,26 +1045,27 @@ func (h *WebHandler) HandleServerUpdate(w http.ResponseWriter, r *http.Request) 
 
 	gameType := normalizeGameType(r.FormValue("game_type"))
 	if !validGameType(gameType) {
-		http.Error(w, "Game type must be a lowercase slug using letters, numbers, dashes, or underscores", http.StatusBadRequest)
+		redirectFormError(w, r, "/admin", "Game type must be a lowercase slug using letters, numbers, dashes, or underscores.")
 		return
 	}
 	current, currentErr := h.Store.GetServer(id)
 	if currentErr != nil || current == nil {
-		http.Error(w, "Server not found", http.StatusNotFound)
+		redirectFormError(w, r, "/admin", "Server not found.")
 		return
 	}
+	settingsPath := "/servers/" + url.PathEscape(current.Name) + "/settings"
 	if err := h.ensureGameType(gameType, current.GameType == gameType); err != nil {
-		http.Error(w, err.Error(), http.StatusConflict)
+		redirectFormError(w, r, settingsPath, err.Error())
 		return
 	}
 	state, validState := normalizePresentationState(r.FormValue("state"))
 	if !validState {
-		http.Error(w, "Invalid presentation state", http.StatusBadRequest)
+		redirectFormError(w, r, settingsPath, "Invalid presentation state.")
 		return
 	}
 	name := strings.TrimSpace(r.FormValue("name"))
 	if !validServerDisplayName(name) {
-		http.Error(w, "Server name must contain 1-120 printable characters", http.StatusBadRequest)
+		redirectFormError(w, r, settingsPath, "Server name must contain 1-120 printable characters.")
 		return
 	}
 	server := &database.Server{
@@ -1073,35 +1082,35 @@ func (h *WebHandler) HandleServerUpdate(w http.ResponseWriter, r *http.Request) 
 	}
 	fields, err := h.parseServerFields(r)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		redirectFormError(w, r, settingsPath, err.Error())
 		return
 	}
 	fields, err = mergeJoinPasswordField(r, current.Fields, fields)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		redirectFormError(w, r, settingsPath, err.Error())
 		return
 	}
 	joinEnforcement, err := database.NormalizeJoinEnforcementMode(r.FormValue("join_enforcement"))
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		redirectFormError(w, r, settingsPath, err.Error())
 		return
 	}
 	if joinEnforcement == database.JoinEnforcementWhitelist &&
 		!h.Store.ResolveGameDriver(gameType).SupportsWhitelist() {
-		http.Error(w, "This game type does not support managed whitelisting", http.StatusBadRequest)
+		redirectFormError(w, r, settingsPath, "This game type does not support managed whitelisting.")
 		return
 	}
 
 	if err := h.Store.UpdateServer(server); err != nil {
-		http.Error(w, "Failed to update server: "+err.Error(), http.StatusInternalServerError)
+		redirectFormError(w, r, settingsPath, "Could not update the server. Please try again.")
 		return
 	}
 	if err := h.Store.ReplaceServerFields(server.ID, fields); err != nil {
-		http.Error(w, "Failed to save server fields: "+err.Error(), http.StatusBadRequest)
+		redirectFormError(w, r, settingsPath, "Could not save server fields. Please try again.")
 		return
 	}
 	if err := h.Store.SetServerJoinEnforcementMode(server.ID, joinEnforcement); err != nil {
-		http.Error(w, "Failed to save join access settings: "+err.Error(), http.StatusInternalServerError)
+		redirectFormError(w, r, settingsPath, "Could not save join access settings. Please try again.")
 		return
 	}
 	if h.AfterAccessChange != nil {
@@ -1279,12 +1288,12 @@ func (h *WebHandler) HandleServerDelete(w http.ResponseWriter, r *http.Request) 
 
 	id, err := strconv.Atoi(r.FormValue("id"))
 	if err != nil {
-		http.Error(w, "Invalid server ID", http.StatusBadRequest)
+		redirectFormError(w, r, "/admin", "Invalid server ID.")
 		return
 	}
 
 	if err := h.Store.DeleteServer(id); err != nil {
-		http.Error(w, "Failed to delete server: "+err.Error(), http.StatusInternalServerError)
+		redirectFormError(w, r, "/admin", "Could not delete the server. Please try again.")
 		return
 	}
 	if err := h.Store.PruneUnusedBackgroundGameTags(); err != nil {
@@ -1330,6 +1339,7 @@ func (h *WebHandler) BackgroundManager(w http.ResponseWriter, r *http.Request) {
 		SiteName       string
 		UserUsername   string
 		BackgroundURLs BackgroundURLs
+		FormError      string
 	}{
 		Backgrounds:    backgrounds,
 		AvailableTags:  availableTags,
@@ -1338,6 +1348,7 @@ func (h *WebHandler) BackgroundManager(w http.ResponseWriter, r *http.Request) {
 		SiteName:       h.siteName(),
 		UserUsername:   h.Auth.GetUsername(r),
 		BackgroundURLs: h.pickBackgrounds([]string{"home"}),
+		FormError:      strings.TrimSpace(r.URL.Query().Get("error")),
 	}
 
 	var buf bytes.Buffer
@@ -1357,7 +1368,7 @@ func (h *WebHandler) BackgroundManager(w http.ResponseWriter, r *http.Request) {
 func (h *WebHandler) Settings(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {
 		if err := r.ParseForm(); err != nil {
-			http.Error(w, "Invalid form data", http.StatusBadRequest)
+			redirectFormError(w, r, "/admin/settings", "Invalid form data.")
 			return
 		}
 		siteName := r.FormValue("site_name")
@@ -1365,7 +1376,7 @@ func (h *WebHandler) Settings(w http.ResponseWriter, r *http.Request) {
 			siteName = "HOGS"
 		}
 		if err := h.Store.SetSetting("site_name", siteName); err != nil {
-			http.Error(w, "Failed to save settings", http.StatusInternalServerError)
+			redirectFormError(w, r, "/admin/settings", "Could not save settings. Please try again.")
 			return
 		}
 		http.Redirect(w, r, "/admin/settings", http.StatusFound)
@@ -1383,12 +1394,14 @@ func (h *WebHandler) Settings(w http.ResponseWriter, r *http.Request) {
 		UserRole       string
 		UserUsername   string
 		BackgroundURLs BackgroundURLs
+		FormError      string
 	}{
 		SiteName:       siteName,
 		Authenticated:  true,
 		UserRole:       "admin",
 		UserUsername:   h.Auth.GetUsername(r),
 		BackgroundURLs: h.pickBackgrounds([]string{"home"}),
+		FormError:      strings.TrimSpace(r.URL.Query().Get("error")),
 	}
 
 	tmpl, err := template.New("base.html").Funcs(sharedFuncMap(h.Store)).ParseFS(templateFS, "templates/base.html", "templates/settings.html")
@@ -1442,6 +1455,7 @@ func (h *WebHandler) Users(w http.ResponseWriter, r *http.Request) {
 		SiteName       string
 		UserUsername   string
 		BackgroundURLs BackgroundURLs
+		FormError      string
 	}{
 		Users:          usersWithGroups,
 		Authenticated:  true,
@@ -1449,6 +1463,7 @@ func (h *WebHandler) Users(w http.ResponseWriter, r *http.Request) {
 		SiteName:       h.siteName(),
 		UserUsername:   h.Auth.GetUsername(r),
 		BackgroundURLs: h.pickBackgrounds([]string{"home"}),
+		FormError:      strings.TrimSpace(r.URL.Query().Get("error")),
 	}
 
 	tmpl, err := template.New("base.html").Funcs(sharedFuncMap(h.Store)).ParseFS(templateFS, "templates/base.html", "templates/users.html")
@@ -1478,10 +1493,12 @@ func (h *WebHandler) GameTypes(w http.ResponseWriter, r *http.Request) {
 		SiteName       string
 		UserUsername   string
 		BackgroundURLs BackgroundURLs
+		FormError      string
 	}{
 		GameTypes: gameTypes, Authenticated: true, UserRole: "admin",
 		SiteName: h.siteName(), UserUsername: h.Auth.GetUsername(r),
 		BackgroundURLs: h.pickBackgrounds([]string{"home"}),
+		FormError:      strings.TrimSpace(r.URL.Query().Get("error")),
 	}
 	tmpl, err := template.New("base.html").Funcs(sharedFuncMap(h.Store)).ParseFS(
 		templateFS, "templates/base.html", "templates/game_types.html")
@@ -1499,7 +1516,7 @@ func (h *WebHandler) GameTypes(w http.ResponseWriter, r *http.Request) {
 
 func (h *WebHandler) HandleGameTypeSet(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Invalid form data", http.StatusBadRequest)
+		redirectFormError(w, r, "/admin/game-types", "Invalid form data.")
 		return
 	}
 	slug := normalizeGameType(r.FormValue("slug"))
@@ -1510,12 +1527,12 @@ func (h *WebHandler) HandleGameTypeSet(w http.ResponseWriter, r *http.Request) {
 	if !validGameType(slug) || displayName == "" || len(displayName) > 64 ||
 		playerNoun == "" || len(playerNoun) > 32 || len(icon) > 8 ||
 		!gameTypeColorPattern.MatchString(accentColor) {
-		http.Error(w, "Invalid game type fields", http.StatusBadRequest)
+		redirectFormError(w, r, "/admin/game-types", "Invalid game type fields.")
 		return
 	}
 	existing, err := h.Store.GetGameType(slug)
 	if err != nil {
-		http.Error(w, "Failed to load game type", http.StatusInternalServerError)
+		redirectFormError(w, r, "/admin/game-types", "Could not load the game type. Please try again.")
 		return
 	}
 	item := &database.GameType{
@@ -1529,7 +1546,7 @@ func (h *WebHandler) HandleGameTypeSet(w http.ResponseWriter, r *http.Request) {
 		item.Enabled = !existing.Builtin || r.FormValue("enabled") == "on"
 	}
 	if err := h.Store.SetGameType(item); err != nil {
-		http.Error(w, "Failed to save game type", http.StatusInternalServerError)
+		redirectFormError(w, r, "/admin/game-types", "Could not save the game type. Please try again.")
 		return
 	}
 	http.Redirect(w, r, "/admin/game-types", http.StatusFound)
@@ -1537,12 +1554,12 @@ func (h *WebHandler) HandleGameTypeSet(w http.ResponseWriter, r *http.Request) {
 
 func (h *WebHandler) HandleGameTypeDelete(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Invalid form data", http.StatusBadRequest)
+		redirectFormError(w, r, "/admin/game-types", "Invalid form data.")
 		return
 	}
 	slug := normalizeGameType(r.FormValue("slug"))
 	if err := h.Store.DeleteGameType(slug); err != nil {
-		http.Error(w, err.Error(), http.StatusConflict)
+		redirectFormError(w, r, "/admin/game-types", err.Error())
 		return
 	}
 	http.Redirect(w, r, "/admin/game-types", http.StatusFound)
@@ -1550,39 +1567,40 @@ func (h *WebHandler) HandleGameTypeDelete(w http.ResponseWriter, r *http.Request
 
 func (h *WebHandler) HandleAccessGrantSet(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Invalid form data", http.StatusBadRequest)
+		redirectFormError(w, r, "/admin", "Invalid form data.")
 		return
 	}
 	serverID, err := strconv.Atoi(r.FormValue("server_id"))
 	if err != nil {
-		http.Error(w, "Invalid server ID", http.StatusBadRequest)
+		redirectFormError(w, r, "/admin", "Invalid server ID.")
 		return
 	}
 	server, err := h.Store.GetServer(serverID)
 	if err != nil || server == nil {
-		http.Error(w, "Server not found", http.StatusNotFound)
+		redirectFormError(w, r, "/admin", "Server not found.")
 		return
 	}
 	if !h.canManageServerAccess(r, serverID) {
 		http.Error(w, "Server access management permission required", http.StatusForbidden)
 		return
 	}
+	accessPath := "/servers/" + url.PathEscape(server.Name) + "/access"
 	subjectType := r.FormValue("subject_type")
 	subject := strings.TrimSpace(r.FormValue("subject"))
 	effect := r.FormValue("effect")
 	if subjectType != "user" && subjectType != "group" && subjectType != "authenticated" && subjectType != "everyone" {
-		http.Error(w, "Subject type must be user, group, authenticated, or everyone", http.StatusBadRequest)
+		redirectFormError(w, r, accessPath, "Subject type must be user, group, authenticated, or everyone.")
 		return
 	}
 	if subjectType == "authenticated" || subjectType == "everyone" {
 		subject = "*"
 	}
 	if subject == "" {
-		http.Error(w, "Subject is required", http.StatusBadRequest)
+		redirectFormError(w, r, accessPath, "Subject is required.")
 		return
 	}
 	if effect != "allow" && effect != "deny" {
-		http.Error(w, "Effect must be allow or deny", http.StatusBadRequest)
+		redirectFormError(w, r, accessPath, "Effect must be allow or deny.")
 		return
 	}
 	var capabilities []string
@@ -1592,13 +1610,13 @@ func (h *WebHandler) HandleAccessGrantSet(w http.ResponseWriter, r *http.Request
 		}
 	}
 	if len(capabilities) == 0 {
-		http.Error(w, "At least one capability is required", http.StatusBadRequest)
+		redirectFormError(w, r, accessPath, "At least one capability is required.")
 		return
 	}
 	if err := h.Store.SetServerAccessGrant(&database.ServerAccessGrant{
 		ServerID: serverID, SubjectType: subjectType, Subject: subject, Effect: effect, Capabilities: capabilities,
 	}); err != nil {
-		http.Error(w, "Failed to save access grant", http.StatusInternalServerError)
+		redirectFormError(w, r, accessPath, "Could not save the access grant. Please try again.")
 		return
 	}
 	if h.AfterAccessChange != nil {
@@ -1609,18 +1627,18 @@ func (h *WebHandler) HandleAccessGrantSet(w http.ResponseWriter, r *http.Request
 
 func (h *WebHandler) HandleAccessGrantDelete(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Invalid form data", http.StatusBadRequest)
+		redirectFormError(w, r, "/admin", "Invalid form data.")
 		return
 	}
 	serverID, serverErr := strconv.Atoi(r.FormValue("server_id"))
 	grantID, grantErr := strconv.Atoi(r.FormValue("grant_id"))
 	if serverErr != nil || grantErr != nil {
-		http.Error(w, "Invalid access grant", http.StatusBadRequest)
+		redirectFormError(w, r, "/admin", "Invalid access grant.")
 		return
 	}
 	server, err := h.Store.GetServer(serverID)
 	if err != nil || server == nil {
-		http.Error(w, "Server not found", http.StatusNotFound)
+		redirectFormError(w, r, "/admin", "Server not found.")
 		return
 	}
 	if !h.canManageServerAccess(r, serverID) {
@@ -1628,7 +1646,7 @@ func (h *WebHandler) HandleAccessGrantDelete(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	if err := h.Store.DeleteServerAccessGrant(grantID, serverID); err != nil {
-		http.Error(w, "Failed to delete access grant", http.StatusInternalServerError)
+		redirectFormError(w, r, "/servers/"+url.PathEscape(server.Name)+"/access", "Could not delete the access grant. Please try again.")
 		return
 	}
 	if h.AfterAccessChange != nil {
@@ -1656,20 +1674,21 @@ func (h *WebHandler) HandleServerConstraintSet(w http.ResponseWriter, r *http.Re
 		http.Error(w, "Server access management permission required", http.StatusForbidden)
 		return
 	}
+	accessPath := "/servers/" + url.PathEscape(server.Name) + "/access"
 	priority, err := strconv.Atoi(r.FormValue("priority"))
 	if err != nil || priority > h.Config.ServerConstraintMaxPriority {
-		http.Error(w, fmt.Sprintf("Server constraint priority must not exceed %d", h.Config.ServerConstraintMaxPriority), http.StatusBadRequest)
+		redirectFormError(w, r, accessPath, fmt.Sprintf("Server constraint priority must not exceed %d.", h.Config.ServerConstraintMaxPriority))
 		return
 	}
 	mode := r.FormValue("mode")
 	if mode != "require" && mode != "exempt" {
-		http.Error(w, "Mode must be require or exempt", http.StatusBadRequest)
+		redirectFormError(w, r, accessPath, "Mode must be require or exempt.")
 		return
 	}
 	name := strings.TrimSpace(r.FormValue("name"))
 	condition := strings.TrimSpace(r.FormValue("condition"))
 	if name == "" || condition == "" {
-		http.Error(w, "Name and condition are required", http.StatusBadRequest)
+		redirectFormError(w, r, accessPath, "Name and condition are required.")
 		return
 	}
 	constraint := &database.Constraint{
@@ -1685,12 +1704,12 @@ func (h *WebHandler) HandleServerConstraintSet(w http.ResponseWriter, r *http.Re
 	if idText := r.FormValue("id"); idText != "" {
 		constraint.ID, err = strconv.Atoi(idText)
 		if err != nil {
-			http.Error(w, "Invalid constraint ID", http.StatusBadRequest)
+			redirectFormError(w, r, accessPath, "Invalid constraint ID.")
 			return
 		}
 		existing, getErr := h.Store.GetConstraint(constraint.ID)
 		if getErr != nil || existing == nil || existing.ServerID == nil || *existing.ServerID != serverID {
-			http.Error(w, "Server constraint not found", http.StatusNotFound)
+			redirectFormError(w, r, accessPath, "Server constraint not found.")
 			return
 		}
 		err = h.Store.UpdateConstraint(constraint)
@@ -1698,7 +1717,7 @@ func (h *WebHandler) HandleServerConstraintSet(w http.ResponseWriter, r *http.Re
 		err = h.Store.CreateConstraint(constraint)
 	}
 	if err != nil {
-		http.Error(w, "Failed to save server constraint: "+err.Error(), http.StatusConflict)
+		redirectFormError(w, r, accessPath, "Could not save the server constraint. Please try again.")
 		return
 	}
 	http.Redirect(w, r, "/servers/"+server.Name+"/access#server-constraints", http.StatusFound)
@@ -1706,18 +1725,18 @@ func (h *WebHandler) HandleServerConstraintSet(w http.ResponseWriter, r *http.Re
 
 func (h *WebHandler) HandleServerConstraintDelete(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Invalid form data", http.StatusBadRequest)
+		redirectFormError(w, r, "/admin", "Invalid form data.")
 		return
 	}
 	serverID, serverErr := strconv.Atoi(r.FormValue("server_id"))
 	constraintID, constraintErr := strconv.Atoi(r.FormValue("constraint_id"))
 	if serverErr != nil || constraintErr != nil {
-		http.Error(w, "Invalid server constraint", http.StatusBadRequest)
+		redirectFormError(w, r, "/admin", "Invalid server constraint.")
 		return
 	}
 	server, err := h.Store.GetServer(serverID)
 	if err != nil || server == nil {
-		http.Error(w, "Server not found", http.StatusNotFound)
+		redirectFormError(w, r, "/admin", "Server not found.")
 		return
 	}
 	if !h.canManageServerAccess(r, serverID) {
@@ -1725,7 +1744,7 @@ func (h *WebHandler) HandleServerConstraintDelete(w http.ResponseWriter, r *http
 		return
 	}
 	if err := h.Store.DeleteServerConstraint(constraintID, serverID); err != nil {
-		http.Error(w, "Failed to delete server constraint", http.StatusInternalServerError)
+		redirectFormError(w, r, "/servers/"+url.PathEscape(server.Name)+"/access", "Could not delete the server constraint. Please try again.")
 		return
 	}
 	http.Redirect(w, r, "/servers/"+server.Name+"/access#server-constraints", http.StatusFound)

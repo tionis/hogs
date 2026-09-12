@@ -230,8 +230,9 @@ func TestServerAccessManagerConstraintPriorityCeiling(t *testing.T) {
 		return recorder
 	}
 
-	if recorder := submit("100"); recorder.Code != http.StatusBadRequest {
-		t.Fatalf("priority above ceiling status=%d body=%s", recorder.Code, recorder.Body.String())
+	if recorder := submit("100"); recorder.Code != http.StatusSeeOther ||
+		!strings.Contains(recorder.Header().Get("Location"), "error=") {
+		t.Fatalf("priority above ceiling status=%d location=%q", recorder.Code, recorder.Header().Get("Location"))
 	}
 	if recorder := submit("99"); recorder.Code != http.StatusFound {
 		t.Fatalf("priority at ceiling status=%d body=%s", recorder.Code, recorder.Body.String())

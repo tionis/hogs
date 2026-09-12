@@ -2,6 +2,9 @@
 {{define "title"}}{{.Server.Name}} - {{if eq .Page "dashboard"}}Dashboard{{else}}{{.Page}}{{end}}{{end}}
 
 {{define "content"}}
+{{if .FormError}}
+<div class="alert alert-danger" role="alert">{{.FormError}}</div>
+{{end}}
 <nav aria-label="breadcrumb">
   <ol class="breadcrumb">
     <li class="breadcrumb-item"><a href="/">Home</a></li>

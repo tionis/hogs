@@ -650,15 +650,21 @@ func (h *ServerHandler) ServeBackgroundFile(w http.ResponseWriter, r *http.Reque
 	http.ServeFile(w, r, cleanTarget)
 }
 
+// redirectBackgroundFormError returns the operator to the background manager
+// with a short, non-sensitive message instead of a plain-text error.
+func redirectBackgroundFormError(w http.ResponseWriter, r *http.Request, message string) {
+	http.Redirect(w, r, "/admin/backgrounds?error="+url.QueryEscape(message), http.StatusSeeOther)
+}
+
 func (h *ServerHandler) UploadBackground(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
-		http.Error(w, "Failed to parse form", http.StatusBadRequest)
+		redirectBackgroundFormError(w, r, "Invalid form data.")
 		return
 	}
 
 	file, header, err := r.FormFile("file")
 	if err != nil {
-		http.Error(w, "Missing file", http.StatusBadRequest)
+		redirectBackgroundFormError(w, r, "Select a file to upload.")
 		return
 	}
 	defer file.Close()
@@ -666,18 +672,18 @@ func (h *ServerHandler) UploadBackground(w http.ResponseWriter, r *http.Request)
 	allowedExts := map[string]bool{".jpg": true, ".jpeg": true, ".png": true, ".gif": true, ".webp": true, ".svg": true}
 	ext := strings.ToLower(filepath.Ext(header.Filename))
 	if !allowedExts[ext] {
-		http.Error(w, "Only image files are allowed", http.StatusBadRequest)
+		redirectBackgroundFormError(w, r, "Only image files are allowed.")
 		return
 	}
 
 	fileData, err := io.ReadAll(file)
 	if err != nil {
-		http.Error(w, "Failed to read file", http.StatusInternalServerError)
+		redirectBackgroundFormError(w, r, "Could not read the uploaded file.")
 		return
 	}
 
 	if len(fileData) > 32<<20 {
-		http.Error(w, "File too large", http.StatusBadRequest)
+		redirectBackgroundFormError(w, r, "File is larger than 32 MiB.")
 		return
 	}
 
@@ -688,7 +694,7 @@ func (h *ServerHandler) UploadBackground(w http.ResponseWriter, r *http.Request)
 
 	bgDir := filepath.Join(h.Config.GameDataPath, "backgrounds")
 	if err := os.MkdirAll(bgDir, 0755); err != nil {
-		http.Error(w, "Failed to create backgrounds directory", http.StatusInternalServerError)
+		redirectBackgroundFormError(w, r, "Could not create the backgrounds directory.")
 		return
 	}
 
@@ -696,7 +702,7 @@ func (h *ServerHandler) UploadBackground(w http.ResponseWriter, r *http.Request)
 	dst := filepath.Join(bgDir, filename)
 
 	if err := os.WriteFile(dst, fileData, 0644); err != nil {
-		http.Error(w, "Failed to save file", http.StatusInternalServerError)
+		redirectBackgroundFormError(w, r, "Could not save the uploaded file.")
 		return
 	}
 
@@ -708,7 +714,7 @@ func (h *ServerHandler) UploadBackground(w http.ResponseWriter, r *http.Request)
 
 	if err := h.Store.CreateBackground(bg); err != nil {
 		os.Remove(dst)
-		http.Error(w, "Failed to save background metadata", http.StatusInternalServerError)
+		redirectBackgroundFormError(w, r, "Could not save background metadata.")
 		return
 	}
 
@@ -717,20 +723,20 @@ func (h *ServerHandler) UploadBackground(w http.ResponseWriter, r *http.Request)
 
 func (h *ServerHandler) DeleteBackground(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Invalid form data", http.StatusBadRequest)
+		redirectBackgroundFormError(w, r, "Invalid form data.")
 		return
 	}
 
 	idStr := r.FormValue("id")
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
-		http.Error(w, "Invalid ID", http.StatusBadRequest)
+		redirectBackgroundFormError(w, r, "Invalid background ID.")
 		return
 	}
 
 	bgs, err := h.Store.ListBackgrounds()
 	if err != nil {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		redirectBackgroundFormError(w, r, "Could not load backgrounds. Please try again.")
 		return
 	}
 
@@ -743,7 +749,7 @@ func (h *ServerHandler) DeleteBackground(w http.ResponseWriter, r *http.Request)
 	}
 
 	if err := h.Store.DeleteBackground(id); err != nil {
-		http.Error(w, "Failed to delete background", http.StatusInternalServerError)
+		redirectBackgroundFormError(w, r, "Could not delete the background. Please try again.")
 		return
 	}
 
@@ -756,7 +762,7 @@ func (h *ServerHandler) DeleteBackground(w http.ResponseWriter, r *http.Request)
 
 func (h *ServerHandler) BulkUpdateBackgrounds(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Invalid form data", http.StatusBadRequest)
+		redirectBackgroundFormError(w, r, "Invalid form data.")
 		return
 	}
 
@@ -777,7 +783,7 @@ func (h *ServerHandler) BulkUpdateBackgrounds(w http.ResponseWriter, r *http.Req
 		}
 
 		if err := h.Store.UpdateBackground(bg); err != nil {
-			http.Error(w, "Failed to update background", http.StatusInternalServerError)
+			redirectBackgroundFormError(w, r, "Could not update a background. Please try again.")
 			return
 		}
 	}
