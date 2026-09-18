@@ -15,7 +15,12 @@ import (
 
 func TestSQLiteDSNConfiguresConcurrency(t *testing.T) {
 	dsn := sqliteDSNWithForeignKeys(t.TempDir() + "/hogs.db")
-	for _, want := range []string{"_foreign_keys=on", "_busy_timeout=5000", "_journal_mode=WAL"} {
+	for _, want := range []string{
+		"_foreign_keys=on",
+		"_busy_timeout=5000",
+		"_journal_mode=WAL",
+		"_txlock=immediate",
+	} {
 		if !strings.Contains(dsn, want) {
 			t.Fatalf("dsn %q missing %q", dsn, want)
 		}
@@ -30,8 +35,16 @@ func TestSQLiteDSNConfiguresConcurrency(t *testing.T) {
 	if !strings.Contains(override, "_busy_timeout=1") || strings.Contains(override, "_busy_timeout=5000") {
 		t.Fatalf("caller override was not preserved: %q", override)
 	}
-	if !strings.Contains(override, "_journal_mode=WAL") || !strings.Contains(override, "_foreign_keys=on") {
+	if !strings.Contains(override, "_journal_mode=WAL") ||
+		!strings.Contains(override, "_foreign_keys=on") ||
+		!strings.Contains(override, "_txlock=immediate") {
 		t.Fatalf("caller override dropped other defaults: %q", override)
+	}
+
+	txlockOverride := sqliteDSNWithForeignKeys("file:/tmp/example.db?_txlock=exclusive")
+	if !strings.Contains(txlockOverride, "_txlock=exclusive") ||
+		strings.Contains(txlockOverride, "_txlock=immediate") {
+		t.Fatalf("caller transaction-lock override was not preserved: %q", txlockOverride)
 	}
 }
 

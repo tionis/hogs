@@ -568,15 +568,17 @@ func sqliteDSNWithForeignKeys(dataSourceName string) string {
 		return "file::memory:?cache=shared&_foreign_keys=on&_busy_timeout=5000"
 	}
 	// SQLite's default rollback journal with no busy timeout fails
-	// immediately with SQLITE_BUSY under any concurrent access, which the
-	// application previously surfaced as spurious session and request
-	// errors. WAL plus a busy timeout lets readers and a single writer
-	// proceed without failing fast. Callers can override any parameter by
-	// supplying it in the DSN.
+	// immediately with SQLITE_BUSY under any concurrent access. WAL plus a
+	// busy timeout lets readers and one writer proceed, but a deferred
+	// transaction that reads before writing can still fail fast with
+	// SQLITE_BUSY_SNAPSHOT after another connection commits. Immediate
+	// transactions take the write lock up front so the busy timeout applies.
+	// Callers can override any parameter by supplying it in the DSN.
 	required := []struct{ key, value string }{
 		{"_foreign_keys", "on"},
 		{"_busy_timeout", "5000"},
 		{"_journal_mode", "WAL"},
+		{"_txlock", "immediate"},
 	}
 	separator := "?"
 	if strings.Contains(dataSourceName, "?") {
