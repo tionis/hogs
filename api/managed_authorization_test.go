@@ -291,3 +291,22 @@ func TestLegacyWhitelistEndpointRejectsCallerSuppliedUsername(t *testing.T) {
 		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 }
+
+func TestManagedServerUpdateRequiresPolicyAndGrant(t *testing.T) {
+	store, authenticator, eng := managedAuthorizationFixture(t, []string{"game-moderators"}, `true`)
+	server, _ := store.GetServerByName("managed-test")
+	admin := managedTestRequest(t, store, authenticator, "admin@example.test", "admin")
+	if _, _, status, err := authorizeManagedCapability(store, eng, authenticator, admin, "managed-test", managedServerUpdate); err == nil || status != http.StatusForbidden {
+		t.Fatalf("update without deployment policy status=%d err=%v, want forbidden", status, err)
+	}
+	if _, err := store.DB.Exec(`UPDATE server_management SET update_enabled=1 WHERE server_id=?`, server.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, status, err := authorizeManagedCapability(store, eng, authenticator, admin, "managed-test", managedServerUpdate); err != nil || status != http.StatusOK {
+		t.Fatalf("admin update status=%d err=%v", status, err)
+	}
+	moderator := managedTestRequest(t, store, authenticator, "moderator@example.test", "user", "game-moderators")
+	if _, _, status, err := authorizeManagedCapability(store, eng, authenticator, moderator, "managed-test", managedServerUpdate); err == nil || status != http.StatusForbidden {
+		t.Fatalf("ungranted update status=%d err=%v, want forbidden", status, err)
+	}
+}

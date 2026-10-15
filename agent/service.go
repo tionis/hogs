@@ -343,6 +343,14 @@ func (s *AgentService) BackupRestore(serverName, snapshot, confirmServerID strin
 	})
 }
 
+func (s *AgentService) Update(serverName, confirmServerID string) (*GenericResultData, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Minute)
+	defer cancel()
+	return s.operation(ctx, serverName, http.MethodPost, "update", map[string]string{
+		"confirmServerId": confirmServerID,
+	})
+}
+
 func (s *AgentService) BackupList(serverName string) (*GenericResultData, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

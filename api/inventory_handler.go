@@ -97,7 +97,10 @@ type InventoryServerPolicy struct {
 	Stop           bool     `json:"stop"`
 	Backup         bool     `json:"backup"`
 	Restore        bool     `json:"restore"`
-	WritablePaths  []string `json:"writablePaths"`
+	// Update is hosting-owned: it mirrors whether the node agent provisions an
+	// update unit for this server, so reconciliation keeps it current.
+	Update        bool     `json:"update"`
+	WritablePaths []string `json:"writablePaths"`
 }
 
 type InventoryCommand struct {
@@ -1150,9 +1153,9 @@ func applyServers(tx *sql.Tx, servers []InventoryServer) error {
 		}
 		operators, _ := json.Marshal(server.Policy.Operators)
 		writablePaths, _ := json.Marshal(server.Policy.WritablePaths)
-		if _, err := tx.Exec(`INSERT INTO server_management(server_id,unit_name,data_path,operators,console_enabled,rcon_enabled,start_enabled,stop_enabled,backup_enabled,restore_enabled,writable_paths)
-			VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(server_id) DO UPDATE SET unit_name=excluded.unit_name,data_path=excluded.data_path`,
-			serverID, server.Unit, server.DataPath, string(operators), boolInt(server.Policy.Console), boolInt(server.Policy.RCON), boolInt(server.Policy.Start), boolInt(server.Policy.Stop), boolInt(server.Policy.Backup), boolInt(server.Policy.Restore), string(writablePaths)); err != nil {
+		if _, err := tx.Exec(`INSERT INTO server_management(server_id,unit_name,data_path,operators,console_enabled,rcon_enabled,start_enabled,stop_enabled,backup_enabled,restore_enabled,update_enabled,writable_paths)
+			VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(server_id) DO UPDATE SET unit_name=excluded.unit_name,data_path=excluded.data_path,update_enabled=excluded.update_enabled`,
+			serverID, server.Unit, server.DataPath, string(operators), boolInt(server.Policy.Console), boolInt(server.Policy.RCON), boolInt(server.Policy.Start), boolInt(server.Policy.Stop), boolInt(server.Policy.Backup), boolInt(server.Policy.Restore), boolInt(server.Policy.Update), string(writablePaths)); err != nil {
 			return err
 		}
 		if existing {

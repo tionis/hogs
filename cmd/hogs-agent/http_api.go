@@ -39,6 +39,7 @@ func agentAPI() http.Handler {
 	mux.HandleFunc("GET /v1/servers/{serverID}/backups", withServer(handleBackupList))
 	mux.HandleFunc("POST /v1/servers/{serverID}/backups", withServer(handleBackupCreate))
 	mux.HandleFunc("POST /v1/servers/{serverID}/restore", withServer(handleBackupRestore))
+	mux.HandleFunc("POST /v1/servers/{serverID}/update", withServer(handleUpdate))
 	authenticated := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
 		if origin != "" {
@@ -394,6 +395,22 @@ func handleBackupRestore(w http.ResponseWriter, r *http.Request, server *ServerC
 		return
 	}
 	writeOperationResult(w, restoreSnapshot(r.PathValue("serverID"), server, request.Snapshot, request.ConfirmServerID))
+}
+
+func handleUpdate(w http.ResponseWriter, r *http.Request, server *ServerConfig) {
+	var request struct {
+		ConfirmServerID string `json:"confirmServerId"`
+	}
+	if !decodeJSON(w, r, &request) {
+		return
+	}
+	if server.Update.Unit == "" {
+		writeJSONResponse(w, http.StatusNotImplemented, map[string]interface{}{
+			"success": false, "error": "server has no update unit configured", "code": "unsupported",
+		})
+		return
+	}
+	writeOperationResult(w, updateServer(r.PathValue("serverID"), server, request.ConfirmServerID))
 }
 
 func decodeJSON(w http.ResponseWriter, r *http.Request, destination interface{}) bool {

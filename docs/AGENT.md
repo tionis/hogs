@@ -213,6 +213,47 @@ The worker never accepts an arbitrary restore target. This prevents a panel
 request from restoring outside the locally allowlisted server data directory or
 from creating restic's absolute-path tree inside the live directory.
 
+## Game updates
+
+A server may name a host-provisioned oneshot unit that updates its game
+payload, for example a SteamCMD `app_update`:
+
+```yaml
+servers:
+  valheim:
+    unit: valheim.service
+    data_dir: /srv/valheim/data
+    backup:
+      environment_file: /etc/restic/env
+    update:
+      unit: valheim-update.service
+```
+
+The agent never runs installer commands itself; it only starts this exact
+unit, which must be a separate `.service` and requires a backup profile.
+`POST /v1/servers/{serverID}/update` must repeat the immutable server ID as
+confirmation. The worker then:
+
+1. serializes the update against lifecycle, command, whitelist, backup,
+   restore, and mutating file operations for that server;
+2. stops a running game unit and waits until it is inactive;
+3. creates a pre-update safety snapshot of `data_dir` tagged
+   `hogs-pre-update` and aborts (restarting the server) if that fails;
+4. runs `systemctl start` on the update unit, which waits for a oneshot unit
+   to exit, and collects that invocation's journal tail; and
+5. returns the game unit to its previous running or stopped state and, for a
+   running server, waits for game readiness as after a restore.
+
+The response carries the safety snapshot ID and the update output whether the
+update succeeded or failed. The snapshot protects game data rather than the
+install tree: many games cannot open a world after it was saved by a newer
+version, so restoring the snapshot together with the previous game build is
+the rollback path. Hosts should declare `Conflicts=` and `After=` on the game
+unit in the update unit, so a manual run outside HOGS also stops the server
+before the payload changes. HOGS shows the
+update action only when the inventory enables `policy.update` and the user
+holds `server.update`.
+
 Game-driver operations use dedicated endpoints rather than general file access.
 For Minecraft and Factorio, `GET` and `POST
 /v1/servers/{serverID}/whitelist` use RCON while the unit is running and

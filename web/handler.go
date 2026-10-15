@@ -530,6 +530,7 @@ func (h *WebHandler) renderServerPage(w http.ResponseWriter, r *http.Request, pa
 		BackupList                  bool
 		BackupCreate                bool
 		BackupRestore               bool
+		ServerUpdate                bool
 		AutomationManage            bool
 		AutomationJobs              []database.CronJob
 		AutomationLogs              map[int][]database.CronJobLog
@@ -612,6 +613,7 @@ func (h *WebHandler) renderServerPage(w http.ResponseWriter, r *http.Request, pa
 		backupListDecision := database.ServerAccessDecision{Allowed: userRole == "admin"}
 		backupCreateDecision := database.ServerAccessDecision{Allowed: userRole == "admin"}
 		backupRestoreDecision := database.ServerAccessDecision{Allowed: userRole == "admin"}
+		serverUpdateDecision := database.ServerAccessDecision{Allowed: userRole == "admin"}
 		secretReadDecision := database.ServerAccessDecision{Allowed: userRole == "admin"}
 		automationDecision := database.ServerAccessDecision{Allowed: userRole == "admin"}
 		if userRole != "admin" {
@@ -619,6 +621,7 @@ func (h *WebHandler) renderServerPage(w http.ResponseWriter, r *http.Request, pa
 			backupListDecision, _ = h.Store.EvaluateServerAccess(server.ID, userEnv.Username, userEnv.Groups, access.BackupList)
 			backupCreateDecision, _ = h.Store.EvaluateServerAccess(server.ID, userEnv.Username, userEnv.Groups, access.BackupCreate)
 			backupRestoreDecision, _ = h.Store.EvaluateServerAccess(server.ID, userEnv.Username, userEnv.Groups, access.BackupRestore)
+			serverUpdateDecision, _ = h.Store.EvaluateServerAccess(server.ID, userEnv.Username, userEnv.Groups, access.ServerUpdate)
 			secretReadDecision, _ = h.Store.EvaluateServerAccess(server.ID, userEnv.Username, userEnv.Groups, access.SecretRead)
 			automationDecision, _ = h.Store.EvaluateServerAccess(server.ID, userEnv.Username, userEnv.Groups, access.AutomationManage)
 		}
@@ -635,6 +638,7 @@ func (h *WebHandler) renderServerPage(w http.ResponseWriter, r *http.Request, pa
 		data.BackupList = backupListDecision.Allowed
 		data.BackupCreate = backupCreateDecision.Allowed
 		data.BackupRestore = backupRestoreDecision.Allowed
+		data.ServerUpdate = serverUpdateDecision.Allowed
 		data.CanRevealSecrets = secretReadDecision.Allowed
 		data.CanRevealJoinPassword = data.ServerJoin && !whitelistEnabled
 		data.AutomationManage = automationDecision.Allowed
@@ -644,6 +648,9 @@ func (h *WebHandler) renderServerPage(w http.ResponseWriter, r *http.Request, pa
 		management, _ := h.Store.GetServerManagement(server.ID)
 		if management == nil || !management.RestoreEnabled {
 			data.BackupRestore = false
+		}
+		if management == nil || !management.UpdateEnabled {
+			data.ServerUpdate = false
 		}
 		// Free-form console commands need a real command interface
 		// (RCON). Native units without one fail every send, so the input
@@ -702,6 +709,7 @@ func (h *WebHandler) renderServerPage(w http.ResponseWriter, r *http.Request, pa
 		}
 	}
 	data.AllowedActions = allowedActions
+	data.ShowServerActions = data.ServerUpdate
 	for _, action := range allowedActions {
 		if action == "start" || action == "stop" || action == "restart" {
 			data.ShowServerActions = true

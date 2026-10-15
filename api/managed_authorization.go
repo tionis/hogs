@@ -22,6 +22,7 @@ const (
 	managedBackupList    managedCapability = access.BackupList
 	managedBackupCreate  managedCapability = access.BackupCreate
 	managedBackupRestore managedCapability = access.BackupRestore
+	managedServerUpdate  managedCapability = access.ServerUpdate
 	managedStatus        managedCapability = access.Status
 )
 
@@ -93,6 +94,10 @@ func authorizeManagedCapability(store *database.Store, eng *engine.Engine, authe
 	case managedBackupRestore:
 		if !management.RestoreEnabled {
 			return nil, nil, http.StatusForbidden, fmt.Errorf("restore access is disabled")
+		}
+	case managedServerUpdate:
+		if !management.UpdateEnabled {
+			return nil, nil, http.StatusForbidden, fmt.Errorf("server updates are disabled")
 		}
 	case managedStatus:
 		// Status is available for every managed server, subject to operator and ACL checks below.

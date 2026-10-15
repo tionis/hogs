@@ -1336,3 +1336,43 @@ func containsAt(s, substr string) bool {
 	}
 	return false
 }
+
+func TestServerUpdateRequiresPolicyAndTypedConfirmation(t *testing.T) {
+	handler, store, authenticator := testWebHandler(t)
+	if err := store.CreateServer(&database.Server{Name: "UpdateSrv", GameType: "valheim", State: "online"}); err != nil {
+		t.Fatal(err)
+	}
+	server, _ := store.GetServerByName("UpdateSrv")
+	if _, err := store.DB.Exec(`INSERT INTO server_management(
+		server_id,unit_name,data_path,backup_enabled,update_enabled
+	) VALUES(?,?,?,?,?)`, server.ID, "update.service", "/srv/update", 1, 1); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/UpdateSrv", nil)
+	req = mux.SetURLVars(req, map[string]string{"serverName": "UpdateSrv"})
+	req.AddCookie(createTestSession(t, store, authenticator, "admin@test.com", "admin"))
+	recorder := httptest.NewRecorder()
+	handler.ServerDetail(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("dashboard status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	body := recorder.Body.String()
+	for _, expected := range []string{
+		"Update game server", "server-update-modal", "create a safety snapshot",
+		"confirmServerId", server.ManagementID, "/update",
+	} {
+		if !contains(body, expected) {
+			t.Errorf("update UI missing %q", expected)
+		}
+	}
+
+	if _, err := store.DB.Exec("UPDATE server_management SET update_enabled=0 WHERE server_id=?", server.ID); err != nil {
+		t.Fatal(err)
+	}
+	disabledRecorder := httptest.NewRecorder()
+	handler.ServerDetail(disabledRecorder, req)
+	if contains(disabledRecorder.Body.String(), "server-update-modal") {
+		t.Fatal("update controls rendered while deployment policy disabled updates")
+	}
+}

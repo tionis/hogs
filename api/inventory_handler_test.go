@@ -390,3 +390,31 @@ func TestInventorySeedsOnceAndPreservesGuiManagedState(t *testing.T) {
 		t.Fatalf("GUI automation was pruned: %#v err=%v", jobs, err)
 	}
 }
+
+func TestInventoryReconcilesHostingOwnedUpdatePolicy(t *testing.T) {
+	handler, store := testInventoryHandler(t)
+	manifest := testManifest()
+	manifest.Servers[0].Policy.Update = true
+	first := httptest.NewRecorder()
+	handler.Apply(first, requestInventory(t, http.MethodPut, "/api/v1/inventory", manifest))
+	if first.Code != http.StatusOK {
+		t.Fatalf("initial apply failed: %s", first.Body.String())
+	}
+	server, _ := store.GetServerByName("cog")
+	management, err := store.GetServerManagement(server.ID)
+	if err != nil || management == nil || !management.UpdateEnabled {
+		t.Fatalf("update policy was not seeded: %#v err=%v", management, err)
+	}
+
+	manifest.Generation = "git:no-update"
+	manifest.Servers[0].Policy.Update = false
+	reapply := httptest.NewRecorder()
+	handler.Apply(reapply, requestInventory(t, http.MethodPut, "/api/v1/inventory", manifest))
+	if reapply.Code != http.StatusOK {
+		t.Fatalf("reapply failed: %s", reapply.Body.String())
+	}
+	management, err = store.GetServerManagement(server.ID)
+	if err != nil || management == nil || management.UpdateEnabled {
+		t.Fatalf("update policy was not reconciled on an existing server: %#v err=%v", management, err)
+	}
+}

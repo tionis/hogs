@@ -126,6 +126,14 @@ type ServerConfig struct {
 	Console      ConsoleConfig `yaml:"console"`
 	Backup       BackupConfig  `yaml:"backup"`
 	Gateway      GatewayConfig `yaml:"gateway"`
+	Update       UpdateConfig  `yaml:"update"`
+}
+
+// UpdateConfig names a host-provisioned oneshot unit that updates the game
+// payload (for example a SteamCMD app_update). The agent only ever starts this
+// exact unit; it never runs installer commands itself.
+type UpdateConfig struct {
+	Unit string `yaml:"unit"`
 }
 
 type ConsoleConfig struct {
@@ -268,6 +276,23 @@ func validateConfig(cfg AgentConfig) error {
 		if err := validateGatewayConfig(name, server); err != nil {
 			return err
 		}
+		if err := validateUpdateConfig(name, server); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateUpdateConfig(name string, server ServerConfig) error {
+	unit := server.Update.Unit
+	if unit == "" {
+		return nil
+	}
+	if strings.Contains(unit, "/") || !strings.HasSuffix(unit, ".service") || unit == server.Unit {
+		return fmt.Errorf("server %q update.unit must be a separate .service unit name", name)
+	}
+	if server.Backup.EnvironmentFile == "" {
+		return fmt.Errorf("server %q update requires a backup profile for the pre-update safety snapshot", name)
 	}
 	return nil
 }
@@ -286,6 +311,7 @@ func agentCapabilities() []string {
 	hasWhitelist := false
 	hasBackup := false
 	hasGateway := false
+	hasUpdate := false
 	for _, server := range agentConfig.Servers {
 		if driver, ok := gametypes.Embedded(server.GameType); ok && driver.SupportsWhitelist() {
 			hasWhitelist = true
@@ -296,6 +322,9 @@ func agentCapabilities() []string {
 		if server.Gateway.Type != "" {
 			hasGateway = true
 		}
+		if server.Update.Unit != "" {
+			hasUpdate = true
+		}
 	}
 	if hasWhitelist {
 		capabilities = append(capabilities, "whitelist")
@@ -305,6 +334,9 @@ func agentCapabilities() []string {
 	}
 	if hasGateway {
 		capabilities = append(capabilities, "gateway")
+	}
+	if hasUpdate {
+		capabilities = append(capabilities, "update")
 	}
 	return capabilities
 }

@@ -699,6 +699,56 @@ func (h *AgentHandler) AgentBackupRestore(w http.ResponseWriter, r *http.Request
 	json.NewEncoder(w).Encode(result)
 }
 
+func (h *AgentHandler) AgentUpdate(w http.ResponseWriter, r *http.Request) {
+	serverName := mux.Vars(r)["serverName"]
+	server, user, status, err := authorizeManagedCapability(h.Store, h.Engine, h.Auth, r, serverName, managedServerUpdate)
+	if err != nil {
+		http.Error(w, err.Error(), status)
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1 MB limit
+
+	var req struct {
+		ConfirmServerID string `json:"confirmServerId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+	if req.ConfirmServerID != server.ManagementID {
+		http.Error(w, "confirmation must match the immutable server ID", http.StatusBadRequest)
+		return
+	}
+
+	result, err := h.Service.Update(serverName, req.ConfirmServerID)
+	if err != nil {
+		if h.Engine != nil {
+			h.Engine.LogAction(server.Name, string(managedServerUpdate), user.Username, "failed", err.Error(), "web", nil)
+		}
+		if result != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_ = json.NewEncoder(w).Encode(result)
+		} else {
+			http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		}
+		return
+	}
+	if h.Engine != nil {
+		details := map[string]string{}
+		if data, ok := result.Data.(map[string]interface{}); ok {
+			if snapshot, ok := data["safetySnapshotId"].(string); ok {
+				details["safetySnapshot"] = snapshot
+			}
+		}
+		h.Engine.LogAction(server.Name, string(managedServerUpdate), user.Username, "success", "server update completed", "web", details)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
+}
+
 func (h *AgentHandler) AgentBackupList(w http.ResponseWriter, r *http.Request) {
 	serverName := mux.Vars(r)["serverName"]
 	if _, _, status, err := authorizeManagedCapability(h.Store, h.Engine, h.Auth, r, serverName, managedBackupList); err != nil {

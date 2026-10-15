@@ -31,7 +31,7 @@ deployment compatibility fields and no longer authorize interactive access. A
 grant cannot enable an action disabled by deployment policy.
 
 Capabilities are explicit and independently grantable: `view`, `status`,
-`start`, `stop`, `restart`, `command`, `console.read`, `console.write`,
+`start`, `stop`, `restart`, `server.update`, `command`, `console.read`, `console.write`,
 `file.read`, `file.write`, `server.join`, `whitelist.manage`, `backup.list`,
 `backup.create`, `backup.restore`, `automation.manage`, `secret.read`, and
 `access.manage`.

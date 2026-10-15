@@ -1070,18 +1070,19 @@ type ServerManagement struct {
 	StopEnabled    bool
 	BackupEnabled  bool
 	RestoreEnabled bool
+	UpdateEnabled  bool
 	WritablePaths  []string
 }
 
 func (s *Store) GetServerManagement(serverID int) (*ServerManagement, error) {
-	row := s.DB.QueryRow(`SELECT server_id,unit_name,data_path,operators,console_enabled,rcon_enabled,start_enabled,stop_enabled,backup_enabled,restore_enabled,writable_paths
+	row := s.DB.QueryRow(`SELECT server_id,unit_name,data_path,operators,console_enabled,rcon_enabled,start_enabled,stop_enabled,backup_enabled,restore_enabled,update_enabled,writable_paths
 		FROM server_management WHERE server_id = ?`, serverID)
 	var management ServerManagement
 	var operatorsJSON, writablePathsJSON string
-	var consoleEnabled, rconEnabled, startEnabled, stopEnabled, backupEnabled, restoreEnabled int
+	var consoleEnabled, rconEnabled, startEnabled, stopEnabled, backupEnabled, restoreEnabled, updateEnabled int
 	if err := row.Scan(&management.ServerID, &management.UnitName, &management.DataPath, &operatorsJSON,
 		&consoleEnabled, &rconEnabled, &startEnabled, &stopEnabled, &backupEnabled, &restoreEnabled,
-		&writablePathsJSON); err != nil {
+		&updateEnabled, &writablePathsJSON); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
@@ -1099,6 +1100,7 @@ func (s *Store) GetServerManagement(serverID int) (*ServerManagement, error) {
 	management.StopEnabled = stopEnabled != 0
 	management.BackupEnabled = backupEnabled != 0
 	management.RestoreEnabled = restoreEnabled != 0
+	management.UpdateEnabled = updateEnabled != 0
 	return &management, nil
 }
 

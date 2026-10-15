@@ -452,6 +452,7 @@ func main() {
 		router.Handle("/api/agents/{serverName}/backup/create", authenticator.RequireRole("admin", "user")(http.HandlerFunc(agentHandler.AgentBackupCreate))).Methods("POST")
 		router.Handle("/api/agents/{serverName}/backup/restore", authenticator.RequireRole("admin")(http.HandlerFunc(agentHandler.AgentBackupRestore))).Methods("POST")
 		router.Handle("/api/agents/{serverName}/backup/list", authenticator.RequireRole("admin", "user")(http.HandlerFunc(agentHandler.AgentBackupList))).Methods("POST")
+		router.Handle("/api/agents/{serverName}/update", authenticator.RequireRole("admin", "user")(http.HandlerFunc(agentHandler.AgentUpdate))).Methods("POST")
 		router.Handle("/api/agents/{serverName}/backup/init", authenticator.RequireRole("admin")(http.HandlerFunc(agentHandler.AgentBackupInit))).Methods("POST")
 	}
 

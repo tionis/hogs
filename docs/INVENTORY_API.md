@@ -39,8 +39,8 @@ deployed separately and are not part of this API.
 
 The manifest is authoritative for infrastructure-owned state: node identity,
 server identity and placement (`id`, `name`, `address`, `description`,
-`gameType`, `mapUrl`, `modUrl`, `unit`, `dataPath`, backend, and backend
-`secretFields`), safety constraints, templates, webhooks, notification
+`gameType`, `mapUrl`, `modUrl`, `unit`, `dataPath`, backend, backend
+`secretFields`, and `policy.update`), safety constraints, templates, webhooks, notification
 channels, and settings. Omitting one of those existing resources requests its
 deletion.
 
@@ -120,6 +120,7 @@ commit. HOGS also returns a canonical SHA-256 digest.
         "stop": true,
         "backup": true,
         "restore": true,
+        "update": false,
         "writablePaths": ["/srv/cog/config", "/srv/cog/world"]
       },
       "commands": [],
@@ -154,7 +155,10 @@ requires its game server to be running.
 
 An agent backend requires a known node plus `unit` and an absolute `dataPath`.
 Writable paths must be absolute descendants of that data path. These policy
-fields are seeded on server creation and are GUI-owned afterwards.
+fields are seeded on server creation and are GUI-owned afterwards, except
+`update`: it mirrors whether the node agent provisions an update unit for the
+server, so it is reconciled on every apply. Who may run an update is still
+decided by `server.update` access grants.
 A node agent's local allowlist must contain matching immutable server IDs,
 units, and data paths as documented in [the agent contract](AGENT.md).
 A Pterodactyl backend uses `type: "pterodactyl"` and requires `externalId`; a

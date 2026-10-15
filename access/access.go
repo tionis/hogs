@@ -26,6 +26,7 @@ const (
 	BackupList       = "backup.list"
 	BackupCreate     = "backup.create"
 	BackupRestore    = "backup.restore"
+	ServerUpdate     = "server.update"
 	AutomationManage = "automation.manage"
 	SecretRead       = "secret.read"
 	AccessManage     = "access.manage"
@@ -37,6 +38,7 @@ var Capabilities = []Capability{
 	{Name: Start, Label: "Start", Description: "Start the game server.", Category: "Lifecycle"},
 	{Name: Stop, Label: "Stop", Description: "Stop the game server when operational constraints allow it.", Category: "Lifecycle"},
 	{Name: Restart, Label: "Restart", Description: "Restart the game server when operational constraints allow it.", Category: "Lifecycle"},
+	{Name: ServerUpdate, Label: "Update server", Description: "Run the host-provisioned game update after a safety snapshot when deployment policy enables updates.", Category: "Lifecycle"},
 	{Name: Command, Label: "Approved commands", Description: "Run commands explicitly configured for this server.", Category: "Console"},
 	{Name: ConsoleRead, Label: "Read console", Description: "Read persisted and live console output.", Category: "Console"},
 	{Name: ConsoleWrite, Label: "Write console", Description: "Send arbitrary game-console input.", Category: "Console"},

@@ -478,6 +478,7 @@
            {{if inList "start" .AllowedActions}}<button type="button" class="btn btn-success btn-sm" onclick="runServerAction('start', this)">Start</button>{{end}}
            {{if inList "stop" .AllowedActions}}<button type="button" class="btn btn-danger btn-sm" onclick="runServerAction('stop', this)">Stop</button>{{end}}
            {{if inList "restart" .AllowedActions}}<button type="button" class="btn btn-warning btn-sm" onclick="runServerAction('restart', this)">Restart</button>{{end}}
+           {{if .ServerUpdate}}<button type="button" class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#server-update-modal">Update…</button>{{end}}
          </div>
          <div id="server-action-feedback" class="small mb-3" role="status"></div>
          {{if .PteroCommands}}
@@ -491,6 +492,38 @@
          {{end}}
          {{end}}
          {{end}}
+       </div>
+     </div>
+     {{end}}
+
+     {{if .ServerUpdate}}
+     <div class="modal fade" id="server-update-modal" tabindex="-1" aria-labelledby="server-update-title" aria-hidden="true">
+       <div class="modal-dialog modal-lg">
+         <div class="modal-content">
+           <div class="modal-header">
+             <h2 class="modal-title fs-5" id="server-update-title">Update game server</h2>
+             <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+           </div>
+           <div class="modal-body">
+             <div class="alert alert-warning">
+               <strong>Players may need a matching game version to join afterwards.</strong>
+               HOGS will stop a running server, create a safety snapshot of its data,
+               run the host's update job, and return the server to its previous running
+               or stopped state. A world opened by a newer version may not load in an
+               older one, so the safety snapshot is the way back.
+             </div>
+             <label for="server-update-confirmation" class="form-label">
+               Type <code>{{.Server.ManagementID}}</code> to confirm
+             </label>
+             <input class="form-control font-monospace" id="server-update-confirmation" autocomplete="off" spellcheck="false">
+             <div class="alert alert-danger mt-3 mb-0 d-none" id="server-update-error" role="alert"></div>
+             <pre class="mt-3 mb-0 p-2 border rounded small d-none" id="server-update-output" style="max-height:20rem;overflow:auto;white-space:pre-wrap;"></pre>
+           </div>
+           <div class="modal-footer">
+             <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+             <button type="button" class="btn btn-primary" id="server-update-submit" disabled>Update server</button>
+           </div>
+         </div>
        </div>
      </div>
      {{end}}
@@ -619,6 +652,58 @@ async function runServerAction(action, button) {
         button.textContent = original;
     }
 }
+
+{{if .ServerUpdate}}
+(function() {
+    const confirmation = document.getElementById('server-update-confirmation');
+    const submit = document.getElementById('server-update-submit');
+    const errorBox = document.getElementById('server-update-error');
+    const outputBox = document.getElementById('server-update-output');
+    const expected = '{{.Server.ManagementID}}';
+    if (!confirmation || !submit) return;
+    confirmation.addEventListener('input', () => {
+        submit.disabled = confirmation.value !== expected;
+    });
+    submit.addEventListener('click', async () => {
+        if (confirmation.value !== expected) return;
+        submit.disabled = true;
+        submit.textContent = 'Updating…';
+        errorBox.classList.add('d-none');
+        outputBox.classList.add('d-none');
+        try {
+            const response = await fetch('/api/agents/' + encodeURIComponent('{{.Server.Name}}') + '/update', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json', 'X-CSRF-Token': getCsrfToken()},
+                body: JSON.stringify({confirmServerId: expected})
+            });
+            const contentType = response.headers.get('content-type') || '';
+            const result = contentType.includes('application/json')
+                ? await response.json()
+                : {success: false, error: (await response.text()).trim()};
+            const data = result.data || {};
+            if (data.output) {
+                outputBox.textContent = data.output;
+                outputBox.classList.remove('d-none');
+            }
+            if (!response.ok || result.success === false) {
+                const safety = data.safetySnapshotId ? ` Safety snapshot: ${data.safetySnapshotId}.` : '';
+                throw new Error((result.error || `HTTP ${response.status}`) + safety);
+            }
+            const feedback = document.getElementById('server-action-feedback');
+            feedback.className = 'small mb-3 text-success';
+            feedback.textContent = `Update completed. Safety snapshot: ${data.safetySnapshotId || 'created'}.`
+                + (data.warning ? ` ${data.warning}.` : '');
+            confirmation.value = '';
+        } catch (error) {
+            errorBox.textContent = error.message;
+            errorBox.classList.remove('d-none');
+        } finally {
+            submit.textContent = 'Update server';
+            submit.disabled = confirmation.value !== expected;
+        }
+    });
+})();
+{{end}}
 
 function getCsrfToken() {
     const match = document.cookie.match(/hogs-csrf=([^;]+)/);
