@@ -21,11 +21,14 @@ var (
 
 // runUpdateUnit starts the allowlisted oneshot update unit and waits for it to
 // finish. systemctl start blocks until a Type=oneshot unit has exited, and
-// reports a failed run as a non-zero exit. The journal tail of exactly this
-// invocation is returned in both cases so HOGS can show what happened.
+// reports a failed run as a non-zero exit. The unit's journal lines written
+// after a cursor taken just before the start are returned in both cases so
+// HOGS can show what happened; a finished oneshot unit no longer reports its
+// InvocationID, so the cursor is what scopes the output to this run.
 func runUpdateUnit(unit string) (string, error) {
+	cursor := updateJournalCursor(unit)
 	startOutput, startErr := exec.Command("systemctl", "start", unit).CombinedOutput()
-	output := updateUnitOutput(unit)
+	output := updateUnitOutput(unit, cursor)
 	if startErr != nil {
 		if output == "" {
 			output = strings.TrimSpace(string(startOutput))
@@ -35,13 +38,29 @@ func runUpdateUnit(unit string) (string, error) {
 	return output, nil
 }
 
-func updateUnitOutput(unit string) string {
-	invocation, err := exec.Command("systemctl", "show", unit, "--property=InvocationID", "--value").Output()
-	if err != nil || strings.TrimSpace(string(invocation)) == "" {
+func updateJournalCursor(unit string) string {
+	out, err := exec.Command("journalctl", "-u", unit, "-n", "0", "--show-cursor", "--no-pager").Output()
+	if err != nil {
 		return ""
 	}
-	journal, err := exec.Command("journalctl", "_SYSTEMD_INVOCATION_ID="+strings.TrimSpace(string(invocation)),
-		"--no-pager", "--no-hostname", "-o", "cat", "-n", fmt.Sprint(updateOutputLines)).Output()
+	return parseJournalCursor(string(out))
+}
+
+func parseJournalCursor(output string) string {
+	for _, line := range strings.Split(output, "\n") {
+		if cursor, found := strings.CutPrefix(strings.TrimSpace(line), "-- cursor: "); found {
+			return strings.TrimSpace(cursor)
+		}
+	}
+	return ""
+}
+
+func updateUnitOutput(unit, cursor string) string {
+	args := []string{"-u", unit, "--no-pager", "--no-hostname", "-o", "cat", "-n", fmt.Sprint(updateOutputLines)}
+	if cursor != "" {
+		args = append(args, "--after-cursor="+cursor)
+	}
+	journal, err := exec.Command("journalctl", args...).Output()
 	if err != nil {
 		return ""
 	}

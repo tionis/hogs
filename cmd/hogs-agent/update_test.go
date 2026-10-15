@@ -163,3 +163,13 @@ func TestValidateUpdateConfig(t *testing.T) {
 		}
 	}
 }
+
+func TestParseJournalCursor(t *testing.T) {
+	output := "-- No entries --\n-- cursor: s=abc;i=1f;b=def;m=12;t=34;x=56\n"
+	if got := parseJournalCursor(output); got != "s=abc;i=1f;b=def;m=12;t=34;x=56" {
+		t.Fatalf("cursor = %q", got)
+	}
+	if got := parseJournalCursor("-- No entries --\n"); got != "" {
+		t.Fatalf("cursor without marker = %q", got)
+	}
+}
