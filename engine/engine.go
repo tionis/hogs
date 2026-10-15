@@ -13,6 +13,7 @@ import (
 	"github.com/expr-lang/expr"
 	"github.com/tionis/hogs/config"
 	"github.com/tionis/hogs/database"
+	"github.com/tionis/hogs/events"
 	"github.com/tionis/hogs/query"
 )
 
@@ -57,6 +58,7 @@ type Engine struct {
 	Config   *config.Config
 	Cache    *query.ServerStatusCache
 	Notifier Notifier
+	Events   *events.Publisher
 }
 
 func NewEngine(store *database.Store, cfg *config.Config, cache *query.ServerStatusCache) *Engine {
@@ -561,6 +563,23 @@ func (e *Engine) LogAction(serverName, action, userUsername, result, reason, sou
 	}
 	if err := e.Store.CreateAuditLog(entry); err != nil {
 		log.Printf("Warning: failed to write audit log: %v", err)
+	}
+	if e.Events != nil {
+		serverID := serverName
+		if server, err := e.Store.GetServerByName(serverName); err == nil && server != nil && server.ManagementID != "" {
+			serverID = server.ManagementID
+		}
+		data := map[string]interface{}{
+			"server": serverID, "server_name": serverName, "action": action,
+			"actor": userUsername, "result": result, "origin": source,
+		}
+		if reason != "" {
+			data["reason"] = reason
+		}
+		if len(params) > 0 {
+			data["params"] = params
+		}
+		e.Events.Emit(events.ActionRecorded, serverID, data)
 	}
 }
 

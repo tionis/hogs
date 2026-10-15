@@ -15,7 +15,19 @@ type cacheEntry struct {
 	Timestamp time.Time
 }
 
+// StatusChangeCallback runs when a server goes online or offline, or when the
+// known player count of an online server changes.
 type StatusChangeCallback func(serverID string, oldStatus, newStatus *ServerStatus)
+
+func observationChanged(old, current *ServerStatus) bool {
+	if old == nil || current == nil {
+		return false
+	}
+	if old.Online != current.Online {
+		return true
+	}
+	return current.Online && old.PlayersKnown && current.PlayersKnown && old.Players != current.Players
+}
 
 type ServerStatusCache struct {
 	mu       sync.RWMutex
@@ -79,7 +91,7 @@ func (c *ServerStatusCache) Set(serverID string, status *ServerStatus) {
 	onChange := c.onChange
 	c.mu.Unlock()
 
-	if onChange != nil && oldEntry != nil && oldEntry.Status.Online != status.Online {
+	if onChange != nil && oldEntry != nil && observationChanged(oldEntry.Status, status) {
 		onChange(serverID, oldEntry.Status, status)
 	}
 }
@@ -118,7 +130,7 @@ func (c *ServerStatusCache) SetAgentObservation(serverID string, observation *Se
 	onChange := c.onChange
 	c.mu.Unlock()
 
-	if onChange != nil && oldEntry != nil && oldEntry.Status.Online != status.Online {
+	if onChange != nil && oldEntry != nil && observationChanged(oldEntry.Status, status) {
 		onChange(serverID, oldEntry.Status, status)
 	}
 }

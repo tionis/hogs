@@ -12,6 +12,7 @@ import (
 	hogscron "github.com/tionis/hogs/cron"
 	"github.com/tionis/hogs/database"
 	"github.com/tionis/hogs/engine"
+	"github.com/tionis/hogs/events"
 	"github.com/tionis/hogs/notify"
 	"github.com/tionis/hogs/query"
 	"github.com/tionis/hogs/scim"
@@ -132,6 +133,20 @@ func main() {
 	eng := engine.NewEngine(store, cfg, cache)
 	eng.SetNotifier(notifyService)
 
+	eventsCtx, stopEvents := context.WithCancel(context.Background())
+	defer stopEvents()
+	eventPublisher, err := events.New(store.DB, events.Config{
+		URL: cfg.EventsURL, Token: cfg.EventsToken,
+		Source: cfg.EventsSource, Instance: cfg.EventsInstance,
+	})
+	if err != nil {
+		log.Printf("Warning: event publication disabled: %v", err)
+	} else if eventPublisher != nil {
+		eng.Events = eventPublisher
+		go eventPublisher.Run(eventsCtx)
+		log.Printf("Publishing events to %s", cfg.EventsURL)
+	}
+
 	authenticator, err := auth.NewAuthenticator(cfg, store)
 	if err != nil {
 		log.Printf("Warning: OIDC authentication could not be initialized: %v", err)
@@ -243,16 +258,43 @@ func main() {
 
 	// Server status change notifications
 	cache.SetOnChange(func(managementID string, oldStatus, newStatus *query.ServerStatus) {
-		if oldStatus.Online != newStatus.Online {
-			serverName := managementID
-			if server, err := store.GetServerByManagementID(managementID); err == nil && server != nil {
-				serverName = server.Name
+		serverName := managementID
+		if server, err := store.GetServerByManagementID(managementID); err == nil && server != nil {
+			serverName = server.Name
+		}
+		if oldStatus.Online == newStatus.Online {
+			if eventPublisher != nil {
+				data := map[string]interface{}{
+					"server": managementID, "server_name": serverName,
+					"players": newStatus.Players, "previous_players": oldStatus.Players,
+					"max_players": newStatus.MaxPlayers,
+				}
+				if len(newStatus.PlayerList) > 0 {
+					names := make([]string, 0, len(newStatus.PlayerList))
+					for _, player := range newStatus.PlayerList {
+						names = append(names, player.Name)
+					}
+					data["player_names"] = names
+				}
+				eventPublisher.Emit(events.ServerOccupancy, managementID, data)
 			}
-			if newStatus.Online {
-				notifyService.Send("server_up", fmt.Sprintf("Server %s is now online (%d/%d players)", serverName, newStatus.Players, newStatus.MaxPlayers))
-			} else {
-				notifyService.Send("server_down", fmt.Sprintf("Server %s is now offline", serverName))
+			return
+		}
+		if eventPublisher != nil {
+			data := map[string]interface{}{
+				"server": managementID, "server_name": serverName, "online": newStatus.Online,
+				"players": newStatus.Players, "max_players": newStatus.MaxPlayers,
+				"players_known": newStatus.PlayersKnown,
 			}
+			if newStatus.Version != "" {
+				data["version"] = newStatus.Version
+			}
+			eventPublisher.Emit(events.ServerStatus, managementID, data)
+		}
+		if newStatus.Online {
+			notifyService.Send("server_up", fmt.Sprintf("Server %s is now online (%d/%d players)", serverName, newStatus.Players, newStatus.MaxPlayers))
+		} else {
+			notifyService.Send("server_down", fmt.Sprintf("Server %s is now offline", serverName))
 		}
 	})
 

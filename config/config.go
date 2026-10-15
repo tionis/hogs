@@ -65,7 +65,13 @@ type Config struct {
 	ServerConstraintMaxPriority int
 
 	// Agent Configuration
-	AgentEnabled      bool
+	AgentEnabled bool
+
+	// Event streams (PicoMQ). Publication is off unless URL and token are set.
+	EventsURL         string
+	EventsToken       string
+	EventsSource      string
+	EventsInstance    string
 	AgentHeartbeatSec int
 	AgentConfigPath   string
 
@@ -143,6 +149,10 @@ func LoadConfig() *Config {
 		ServerConstraintMaxPriority: mustAtoi(getEnv("HOGS_SERVER_CONSTRAINT_MAX_PRIORITY", "99")),
 
 		AgentEnabled:      getEnv("HOGS_AGENT_ENABLED", "true") == "true",
+		EventsURL:         getEnv("HOGS_EVENTS_URL", ""),
+		EventsToken:       getEnv("HOGS_EVENTS_TOKEN", ""),
+		EventsSource:      getEnv("HOGS_EVENTS_SOURCE", ""),
+		EventsInstance:    getEnv("HOGS_EVENTS_INSTANCE", ""),
 		AgentHeartbeatSec: mustAtoi(getEnv("HOGS_AGENT_HEARTBEAT_SEC", "30")),
 		AgentConfigPath:   getEnv("HOGS_AGENT_CONFIG", "/etc/hogs/agents.yaml"),
 
