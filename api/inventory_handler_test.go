@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/tionis/hogs/database"
@@ -408,6 +409,11 @@ func TestInventoryReconcilesHostingOwnedUpdatePolicy(t *testing.T) {
 
 	manifest.Generation = "git:no-update"
 	manifest.Servers[0].Policy.Update = false
+	plan := httptest.NewRecorder()
+	handler.Plan(plan, requestInventory(t, http.MethodPost, "/api/v1/inventory/plan", manifest))
+	if !strings.Contains(plan.Body.String(), `"servers/cog"`) {
+		t.Fatalf("plan did not report the hosting-owned update policy change: %s", plan.Body.String())
+	}
 	reapply := httptest.NewRecorder()
 	handler.Apply(reapply, requestInventory(t, http.MethodPut, "/api/v1/inventory", manifest))
 	if reapply.Code != http.StatusOK {

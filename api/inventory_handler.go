@@ -808,14 +808,14 @@ func (h *InventoryHandler) firstAdoptionDeletes(currentDigest string, desired In
 // inventoryServerReconcileView is the subset of a server that Gandalf owns
 // continuously. Presentation, policy, tag, command, and access state are
 // seeded once and intentionally excluded, so edits made in the HOGS GUI do not
-// surface as reconciliation drift.
+// surface as reconciliation drift. The hosting-owned update flag stays visible.
 func inventoryServerReconcileView(server InventoryServer) InventoryServer {
 	server.MapLifecycle = ""
 	server.State = ""
 	server.ShowMOTD = false
 	server.Metadata = nil
 	server.Tags = nil
-	server.Policy = InventoryServerPolicy{}
+	server.Policy = InventoryServerPolicy{Update: server.Policy.Update}
 	server.Commands = nil
 	server.AccessGrants = nil
 	return server
