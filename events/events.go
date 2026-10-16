@@ -1,6 +1,6 @@
 // Package events publishes HOGS activity as CloudEvents to PicoMQ event
 // streams (/events/hogs/...), following the event streams contract that
-// PicoMQ serves as /events/_spec.
+// PicoMQ serves as /_spec (registry tree rooted at /_registry).
 //
 // Events are written to a SQLite outbox in the same transaction that assigns
 // their per-stream producer sequence. A background flusher appends them in

@@ -1,7 +1,9 @@
 # Event streams
 
 HOGS can publish its activity as CloudEvents 1.0 to a PicoMQ server that
-follows the event streams contract served at `/events/_spec`. Publication is
+follows the streams contract served at `/_spec`; its registry,
+`/events/hogs/_registry`, is listed in `/events/_registry` below the root
+`/_registry`. Publication is
 off unless both `HOGS_EVENTS_URL` and `HOGS_EVENTS_TOKEN` are set.
 
 | Variable | Meaning |
