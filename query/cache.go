@@ -26,7 +26,30 @@ func observationChanged(old, current *ServerStatus) bool {
 	if old.Online != current.Online {
 		return true
 	}
-	return current.Online && old.PlayersKnown && current.PlayersKnown && old.Players != current.Players
+	if !current.Online || !old.PlayersKnown || !current.PlayersKnown {
+		return false
+	}
+	return old.Players != current.Players || !samePlayers(old.PlayerList, current.PlayerList)
+}
+
+func samePlayers(a, b []Player) bool {
+	if a == nil || b == nil {
+		return true // names unknown on one side: only counts decide
+	}
+	if len(a) != len(b) {
+		return false
+	}
+	seen := make(map[string]int, len(a))
+	for _, player := range a {
+		seen[player.Name]++
+	}
+	for _, player := range b {
+		if seen[player.Name] == 0 {
+			return false
+		}
+		seen[player.Name]--
+	}
+	return true
 }
 
 type ServerStatusCache struct {
@@ -109,6 +132,9 @@ func (c *ServerStatusCache) SetAgentObservation(serverID string, observation *Se
 		merged.Players = observation.Players
 		merged.MaxPlayers = observation.MaxPlayers
 		merged.PlayersKnown = observation.PlayersKnown
+		if observation.PlayerList != nil {
+			merged.PlayerList = observation.PlayerList
+		}
 		if observation.Version != "" {
 			merged.Version = observation.Version
 		}

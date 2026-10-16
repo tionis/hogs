@@ -243,3 +243,17 @@ func TestEmbeddedDriversHaveUniqueDefinitions(t *testing.T) {
 		seen[driver.Slug] = true
 	}
 }
+
+func TestPlayerNameParsers(t *testing.T) {
+	minecraft, _ := Embedded("minecraft")
+	if got := minecraft.ParsePlayerNames("There are 2 of a max of 20 players online: Alice, Bob_2"); len(got) != 2 || got[1] != "Bob_2" {
+		t.Fatalf("minecraft names = %v", got)
+	}
+	if got := minecraft.ParsePlayerNames("There are 0 of a max of 20 players online:"); got == nil || len(got) != 0 {
+		t.Fatalf("empty minecraft list = %#v", got)
+	}
+	factorio, _ := Embedded("factorio")
+	if got := factorio.ParsePlayerNames("Players (3):\n  Alice (online)\n  Bob\n  Carol (online)"); len(got) != 2 || got[0] != "Alice" || got[1] != "Carol" {
+		t.Fatalf("factorio names = %v", got)
+	}
+}

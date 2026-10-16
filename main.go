@@ -269,12 +269,18 @@ func main() {
 					"players": newStatus.Players, "previous_players": oldStatus.Players,
 					"max_players": newStatus.MaxPlayers,
 				}
-				if len(newStatus.PlayerList) > 0 {
-					names := make([]string, 0, len(newStatus.PlayerList))
-					for _, player := range newStatus.PlayerList {
+				playerNames := func(list []query.Player) []string {
+					names := make([]string, 0, len(list))
+					for _, player := range list {
 						names = append(names, player.Name)
 					}
-					data["player_names"] = names
+					return names
+				}
+				if newStatus.PlayerList != nil {
+					data["player_names"] = playerNames(newStatus.PlayerList)
+				}
+				if oldStatus.PlayerList != nil {
+					data["previous_player_names"] = playerNames(oldStatus.PlayerList)
 				}
 				eventPublisher.Emit(events.ServerOccupancy, managementID, data)
 			}

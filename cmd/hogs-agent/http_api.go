@@ -122,6 +122,7 @@ func handleHealth(w http.ResponseWriter, _ *http.Request) {
 func handleStatus(w http.ResponseWriter, r *http.Request, server *ServerConfig) {
 	active, substate, resources := getServiceStatusWithResources(server.Unit, time.Now())
 	players, maxPlayers, known := 0, 0, false
+	var names []string
 	version := ""
 	driver := gametypes.Generic(server.GameType)
 	if requested := r.URL.Query().Get("driver"); requested != "generic" {
@@ -133,12 +134,12 @@ func handleStatus(w http.ResponseWriter, r *http.Request, server *ServerConfig) 
 		}
 	}
 	if active {
-		players, maxPlayers, known = playerStatus(server, driver)
+		players, maxPlayers, known, names = playerStatus(server, driver)
 		version = serverVersion(server, driver)
 	}
 	writeJSONResponse(w, http.StatusOK, StatusReportData{
 		ServerID: r.PathValue("serverID"), Online: active, Players: players,
-		MaxPlayers: maxPlayers, PlayersKnown: known, Version: version,
+		MaxPlayers: maxPlayers, PlayersKnown: known, PlayerNames: names, Version: version,
 		Substate: substate, Resources: resources, Gateway: gatewayStatusFor(r.PathValue("serverID")),
 	})
 }

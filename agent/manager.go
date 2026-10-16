@@ -316,6 +316,7 @@ func (m *Manager) pollStatuses(ctx context.Context, store *database.Store, cache
 				Players      int             `json:"players"`
 				MaxPlayers   int             `json:"maxPlayers"`
 				PlayersKnown bool            `json:"playersKnown"`
+				PlayerNames  []string        `json:"playerNames"`
 				Version      string          `json:"version"`
 				Resources    *ResourceStatus `json:"resources"`
 				Gateway      interface{}     `json:"gateway"`
@@ -345,10 +346,17 @@ func (m *Manager) pollStatuses(ctx context.Context, store *database.Store, cache
 				extras = map[string]interface{}{}
 				extras["gateway"] = status.Gateway
 			}
+			var playerList []query.Player
+			if status.PlayerNames != nil {
+				playerList = make([]query.Player, 0, len(status.PlayerNames))
+				for _, name := range status.PlayerNames {
+					playerList = append(playerList, query.Player{Name: name})
+				}
+			}
 			cache.SetAgentObservation(server.ManagementID, &query.ServerStatus{
 				Online: status.Online, Players: status.Players, MaxPlayers: status.MaxPlayers,
-				PlayersKnown: status.PlayersKnown, Version: status.Version, LastUpdated: time.Now(),
-				Extras: extras,
+				PlayersKnown: status.PlayersKnown, PlayerList: playerList, Version: status.Version,
+				LastUpdated: time.Now(), Extras: extras,
 			})
 		}()
 	}

@@ -227,6 +227,20 @@ func init() {
 			maxPlayers, err := strconv.Atoi(matches[2])
 			return players, maxPlayers, err == nil
 		},
+		ParsePlayerNames: func(output string) []string {
+			// "There are 2 of a max of 20 players online: Alice, Bob"
+			_, players, found := strings.Cut(output, ":")
+			if !found {
+				return nil
+			}
+			names := []string{}
+			for _, player := range strings.Split(players, ",") {
+				if player = strings.TrimSpace(player); minecraftUsername.MatchString(player) {
+					names = append(names, player)
+				}
+			}
+			return names
+		},
 		ValidateIdentity:     minecraftUsername.MatchString,
 		ResolveIdentity:      resolveMinecraftIdentity,
 		IdentityLabel:        "Minecraft username",
@@ -276,6 +290,19 @@ func init() {
 				}
 			}
 			return players, 0, true
+		},
+		ParsePlayerNames: func(output string) []string {
+			// "Players (2):\n  Alice (online)\n  Bob"
+			names := []string{}
+			for _, line := range strings.Split(output, "\n") {
+				line = strings.TrimSpace(line)
+				if name, online := strings.CutSuffix(line, "(online)"); online {
+					if name = strings.TrimSpace(name); validFactorioUsername(name) {
+						names = append(names, name)
+					}
+				}
+			}
+			return names
 		},
 		ValidateIdentity:     validFactorioUsername,
 		IdentityLabel:        "Factorio username",

@@ -35,6 +35,7 @@ type StatusReportData struct {
 	Players      int             `json:"players"`
 	MaxPlayers   int             `json:"maxPlayers"`
 	PlayersKnown bool            `json:"playersKnown"`
+	PlayerNames  []string        `json:"playerNames,omitempty"`
 	Version      string          `json:"version"`
 	Resources    *ResourceStatus `json:"resources,omitempty"`
 	Gateway      *GatewayStatus  `json:"gateway,omitempty"`
@@ -60,21 +61,28 @@ var (
 	resourceSamples  = map[string]resourceCPUSample{}
 )
 
-func playerStatus(server *ServerConfig, driver gametypes.Driver) (players, maxPlayers int, known bool) {
+func playerStatus(server *ServerConfig, driver gametypes.Driver) (players, maxPlayers int, known bool, names []string) {
 	if server.GameType == "satisfactory" {
-		return satisfactoryPlayerStatus(server)
+		players, maxPlayers, known = satisfactoryPlayerStatus(server)
+		return players, maxPlayers, known, nil
 	}
 	if server.GameType == "valheim" {
-		return valheimPlayerStatus(server)
+		// The Valheim journal carries counts, not names.
+		players, maxPlayers, known = valheimPlayerStatus(server)
+		return players, maxPlayers, known, nil
 	}
 	if server.Console.Type != "rcon" || driver.PlayerStatusCommand == "" || driver.ParsePlayerStatus == nil {
-		return 0, 0, false
+		return 0, 0, false, nil
 	}
 	output, err := executeCommand(server, driver.PlayerStatusCommand)
 	if err != nil {
-		return 0, 0, false
+		return 0, 0, false, nil
 	}
-	return driver.ParsePlayerStatus(output)
+	players, maxPlayers, known = driver.ParsePlayerStatus(output)
+	if known && driver.ParsePlayerNames != nil {
+		names = driver.ParsePlayerNames(output)
+	}
+	return players, maxPlayers, known, names
 }
 
 func serverVersion(server *ServerConfig, driver gametypes.Driver) string {

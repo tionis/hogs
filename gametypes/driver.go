@@ -71,8 +71,11 @@ type Driver struct {
 	StatusProtocol string
 	Details        []DetailField
 
-	PlayerStatusCommand   string
-	ParsePlayerStatus     PlayerStatusParser
+	PlayerStatusCommand string
+	ParsePlayerStatus   PlayerStatusParser
+	// ParsePlayerNames extracts online player names from the same
+	// PlayerStatusCommand output; nil when the game reports no names.
+	ParsePlayerNames      func(output string) []string
 	VersionCommand        string
 	ValidateIdentity      IdentityValidator
 	ResolveIdentity       IdentityResolver
