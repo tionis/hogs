@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/tionis/hogs/config"
@@ -20,20 +21,33 @@ import (
 
 const sessionCookieName = "hogs-session"
 
+// Provider discovery is retried with exponential backoff between these bounds
+// when the identity provider is unreachable at startup.
+var (
+	discoveryRetryMin = 2 * time.Second
+	discoveryRetryMax = time.Minute
+)
+
+const discoveryTimeout = 10 * time.Second
+
+// oidcClient holds everything derived from the provider's discovery document.
+type oidcClient struct {
+	config         oauth2.Config
+	verifier       *oidc.IDTokenVerifier
+	logoutVerifier *oidc.IDTokenVerifier
+}
+
 type Authenticator struct {
-	Provider       *oidc.Provider
-	Config         oauth2.Config
-	Verifier       *oidc.IDTokenVerifier
-	LogoutVerifier *oidc.IDTokenVerifier
-	Store          *database.Store
-	Cfg            *config.Config
-	cookieStore    *sessions.CookieStore
-	forbidden      http.Handler
+	// client stays nil until provider discovery succeeds; the login,
+	// callback and back-channel logout handlers answer 503 until then.
+	client      atomic.Pointer[oidcClient]
+	Store       *database.Store
+	Cfg         *config.Config
+	cookieStore *sessions.CookieStore
+	forbidden   http.Handler
 }
 
 func NewAuthenticator(cfg *config.Config, store *database.Store) (*Authenticator, error) {
-	ctx := context.Background()
-
 	if cfg.SessionSecret == "" {
 		b := make([]byte, 32)
 		if _, err := rand.Read(b); err != nil {
@@ -45,19 +59,6 @@ func NewAuthenticator(cfg *config.Config, store *database.Store) (*Authenticator
 
 	if cfg.OIDCProviderURL == "" {
 		return nil, nil
-	}
-
-	provider, err := oidc.NewProvider(ctx, cfg.OIDCProviderURL)
-	if err != nil {
-		return nil, err
-	}
-
-	oidcConfig := &oidc.Config{
-		ClientID: cfg.OIDCClientID,
-	}
-
-	logoutOidcConfig := &oidc.Config{
-		ClientID: cfg.OIDCClientID,
 	}
 
 	cookieStore := sessions.NewCookieStore([]byte(cfg.SessionSecret))
@@ -74,21 +75,68 @@ func NewAuthenticator(cfg *config.Config, store *database.Store) (*Authenticator
 		Secure:   cfg.TLSCert != "",
 	}
 
-	return &Authenticator{
-		Provider: provider,
-		Config: oauth2.Config{
-			ClientID:     cfg.OIDCClientID,
-			ClientSecret: cfg.OIDCClientSecret,
-			RedirectURL:  cfg.OIDCRedirectURL,
+	a := &Authenticator{
+		Store:       store,
+		Cfg:         cfg,
+		cookieStore: cookieStore,
+	}
+
+	// The identity provider often starts alongside HOGS (for example after a
+	// host reboot), so a failed discovery must not disable login for the
+	// lifetime of the process.
+	if err := a.discover(); err != nil {
+		log.Printf("Warning: OIDC provider discovery failed, retrying in the background: %v", err)
+		go a.retryDiscovery()
+	}
+	return a, nil
+}
+
+func (a *Authenticator) discover() error {
+	ctx, cancel := context.WithTimeout(context.Background(), discoveryTimeout)
+	defer cancel()
+
+	provider, err := oidc.NewProvider(ctx, a.Cfg.OIDCProviderURL)
+	if err != nil {
+		return err
+	}
+
+	verifierConfig := &oidc.Config{ClientID: a.Cfg.OIDCClientID}
+	a.client.Store(&oidcClient{
+		config: oauth2.Config{
+			ClientID:     a.Cfg.OIDCClientID,
+			ClientSecret: a.Cfg.OIDCClientSecret,
+			RedirectURL:  a.Cfg.OIDCRedirectURL,
 			Endpoint:     provider.Endpoint(),
 			Scopes:       []string{oidc.ScopeOpenID, "profile"},
 		},
-		Verifier:       provider.Verifier(oidcConfig),
-		LogoutVerifier: provider.Verifier(logoutOidcConfig),
-		Store:          store,
-		Cfg:            cfg,
-		cookieStore:    cookieStore,
-	}, nil
+		verifier:       provider.Verifier(verifierConfig),
+		logoutVerifier: provider.Verifier(verifierConfig),
+	})
+	return nil
+}
+
+func (a *Authenticator) retryDiscovery() {
+	delay := discoveryRetryMin
+	for {
+		time.Sleep(delay)
+		err := a.discover()
+		if err == nil {
+			log.Println("OIDC provider discovery succeeded; login is available.")
+			return
+		}
+		delay = min(delay*2, discoveryRetryMax)
+		log.Printf("Warning: OIDC provider discovery failed, retrying in %s: %v", delay, err)
+	}
+}
+
+// oidcClientOrUnavailable returns the discovered OIDC client, or writes a 503
+// and returns nil while discovery is still pending.
+func (a *Authenticator) oidcClientOrUnavailable(w http.ResponseWriter) *oidcClient {
+	client := a.client.Load()
+	if client == nil {
+		http.Error(w, "Authentication provider is unavailable, try again shortly", http.StatusServiceUnavailable)
+	}
+	return client
 }
 
 func (a *Authenticator) IsSecureRequest(r *http.Request) bool {
@@ -109,6 +157,11 @@ func (a *Authenticator) saveSession(session *sessions.Session, r *http.Request, 
 }
 
 func (a *Authenticator) HandleLogin(w http.ResponseWriter, r *http.Request) {
+	client := a.oidcClientOrUnavailable(w)
+	if client == nil {
+		return
+	}
+
 	state, err := generateRandomState()
 	if err != nil {
 		http.Error(w, "Failed to generate state", http.StatusInternalServerError)
@@ -119,10 +172,15 @@ func (a *Authenticator) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	session.Values["state"] = state
 	a.saveSession(session, r, w)
 
-	http.Redirect(w, r, a.Config.AuthCodeURL(state), http.StatusFound)
+	http.Redirect(w, r, client.config.AuthCodeURL(state), http.StatusFound)
 }
 
 func (a *Authenticator) HandleCallback(w http.ResponseWriter, r *http.Request) {
+	client := a.oidcClientOrUnavailable(w)
+	if client == nil {
+		return
+	}
+
 	session, _ := a.cookieStore.Get(r, sessionCookieName)
 
 	state := r.URL.Query().Get("state")
@@ -131,7 +189,7 @@ func (a *Authenticator) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	oauth2Token, err := a.Config.Exchange(r.Context(), r.URL.Query().Get("code"))
+	oauth2Token, err := client.config.Exchange(r.Context(), r.URL.Query().Get("code"))
 	if err != nil {
 		http.Error(w, "Failed to exchange token", http.StatusInternalServerError)
 		return
@@ -143,7 +201,7 @@ func (a *Authenticator) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	idToken, err := a.Verifier.Verify(r.Context(), rawIDToken)
+	idToken, err := client.verifier.Verify(r.Context(), rawIDToken)
 	if err != nil {
 		http.Error(w, "Authentication failed", http.StatusInternalServerError)
 		return
@@ -215,6 +273,11 @@ func (a *Authenticator) HandleLogout(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *Authenticator) HandleBackChannelLogout(w http.ResponseWriter, r *http.Request) {
+	client := a.oidcClientOrUnavailable(w)
+	if client == nil {
+		return
+	}
+
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "Invalid request", http.StatusBadRequest)
 		return
@@ -226,7 +289,7 @@ func (a *Authenticator) HandleBackChannelLogout(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	idToken, err := a.LogoutVerifier.Verify(r.Context(), logoutToken)
+	idToken, err := client.logoutVerifier.Verify(r.Context(), logoutToken)
 	if err != nil {
 		log.Printf("Back-channel logout: token verification failed: %v", err)
 		http.Error(w, "Invalid logout token", http.StatusBadRequest)

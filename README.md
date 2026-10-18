@@ -129,7 +129,7 @@ The repository includes helper scripts for development/testing:
 | `PORT`                 | `8080`                          | The HTTP port to listen on.                                                 |
 | `DB_PATH`              | `./hogs.db`                     | Path to the SQLite database file. Created automatically if missing.         |
 | `GAME_DATA_PATH`       | `data/game`                     | Root directory for storing server mod/game files and backgrounds.            |
-| `OIDC_PROVIDER_URL`    | *(Empty)*                       | The OIDC Issuer URL (e.g., Keycloak realm URL). Login disabled if empty.    |
+| `OIDC_PROVIDER_URL`    | *(Empty)*                       | The OIDC Issuer URL (e.g., Keycloak realm URL). Login disabled if empty; retried in the background if unreachable at startup. |
 | `OIDC_CLIENT_ID`       | *(Empty)*                       | The Client ID registered with your IDP.                                     |
 | `OIDC_CLIENT_SECRET`   | *(Empty)*                       | The Client Secret for the application.                                      |
 | `OIDC_REDIRECT_URL`    | `.../auth/callback`             | The callback URL whitelisted in your IDP.                                   |
