@@ -393,6 +393,15 @@ func init() {
 			},
 		},
 	})
+	// Palworld admits players with a shared ServerPassword and has no
+	// per-player allowlist. The agent reads status from the node-local REST
+	// API (RCON is deprecated upstream), so no public status protocol.
+	Register(Driver{
+		Slug: "palworld", DisplayName: "Palworld", PlayerNoun: "Tamers",
+		AccentColor: "#0277bd",
+		Icon:        `<svg class="game-icon" viewBox="0 0 16 16" fill="currentColor"><circle cx="8" cy="9" r="5"/><path d="M4 5L3 1l3 3zM12 5l1-4-3 3z"/></svg>`,
+		Details:     []DetailField{{Key: "version", Label: "Server Version"}},
+	})
 	Register(Driver{
 		Slug: "starrupture", DisplayName: "Star Rupture", PlayerNoun: "Players",
 		AccentColor: "#4a148c",

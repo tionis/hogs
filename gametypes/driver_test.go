@@ -226,6 +226,20 @@ func TestWindroseUsesPasswordAdmissionAndAgentStatus(t *testing.T) {
 	}
 }
 
+func TestPalworldUsesPasswordAdmissionAndAgentStatus(t *testing.T) {
+	driver, ok := Embedded("palworld")
+	if !ok {
+		t.Fatal("Palworld embedded driver is not available")
+	}
+	if driver.DisplayName != "Palworld" || driver.PlayerNoun != "Tamers" {
+		t.Fatalf("unexpected Palworld presentation: %#v", driver)
+	}
+	if driver.StatusProtocol != "" || driver.SupportsWhitelist() || driver.IdentityProvider != "" ||
+		driver.PlayerStatusCommand != "" || driver.VersionCommand != "" {
+		t.Fatalf("Palworld advertises an unsupported protocol, command, or identity hook: %#v", driver)
+	}
+}
+
 func TestEmbeddedDriversHaveUniqueDefinitions(t *testing.T) {
 	drivers := AllEmbedded()
 	if len(drivers) < 6 {

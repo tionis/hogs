@@ -162,8 +162,8 @@ Servers are managed via the web-based Admin Dashboard at `/admin`.
     *   **Name:** Unique identifier (used in URLs and file paths).
     *   **Address:** The server address (e.g., `mc.example.com:25565`).
     *   **Game Type:** Select an embedded type such as `minecraft`,
-        `satisfactory`, `factorio`, `valheim`, `starrupture`, or `windrose`, or
-        enter a custom lowercase slug. Windrose deployment notes are in
+        `satisfactory`, `factorio`, `valheim`, `starrupture`, `windrose`, or
+        `palworld`, or enter a custom lowercase slug. Windrose deployment notes are in
         [docs/WINDROSE.md](docs/WINDROSE.md).
     *   **Presentation state:** `online` uses live worker/query state; `offline`
         hides the server from anonymous users and suppresses polling; `planned`

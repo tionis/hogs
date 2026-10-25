@@ -632,6 +632,27 @@ func TestWindroseGameTypeForwardMigration(t *testing.T) {
 	}
 }
 
+func TestPalworldGameTypeForwardMigration(t *testing.T) {
+	dbPath := t.TempDir() + "/palworld-migration.db"
+	db := migrateTestDatabaseTo(t, dbPath, 50)
+	if _, err := db.Exec("DELETE FROM game_types WHERE slug='palworld'"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	store, err := NewStore(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.DB.Close()
+	palworld, err := store.GetGameType("palworld")
+	if err != nil || palworld == nil || palworld.Kind != "embedded" || !palworld.Enabled || !palworld.Builtin {
+		t.Fatalf("migrated Palworld game type=%#v err=%v", palworld, err)
+	}
+}
+
 func TestPruneUnusedBackgroundGameTags(t *testing.T) {
 	store := testStore(t)
 	server := &Server{Name: "tag-server", GameType: "minecraft", State: "online"}

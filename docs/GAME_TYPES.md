@@ -88,6 +88,12 @@ game does not document a status-query or administrative-console protocol, so
 the embedded driver intentionally does not advertise either capability. See
 [Windrose servers](WINDROSE.md) for deployment and configuration details.
 
+Palworld also uses its native shared `ServerPassword` and has no per-player
+allowlist. Its RCON interface is deprecated upstream, so the agent reads player
+counts, names and the server version from the node-local REST API with the
+admin password from `api_token_file` (see [the agent docs](AGENT.md)). The
+driver advertises neither a public status protocol nor console commands.
+
 Verified external identity IDs are stored with linked Minecraft identities so
 future offline changes do not require another profile lookup.
 

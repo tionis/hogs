@@ -100,6 +100,30 @@ servers:
 Without the file (or when the API is unreachable) the server reports unknown
 occupancy rather than failing the whole status response.
 
+### Palworld REST API
+
+Palworld's RCON is deprecated upstream, so the agent reads occupancy, player
+names (`/v1/api/metrics`, `/v1/api/players`) and the version (`/v1/api/info`)
+from the node-local REST API. Enable it with `RESTAPIEnabled=True` and keep
+it off the internet; Pocketpair states the API is not designed for direct
+exposure. Set `api_token_file` to a root-only file holding the server's
+`AdminPassword` (sent as HTTP Basic user `admin`) and `api_url` when the API
+is not at the default `http://127.0.0.1:8212`:
+
+```yaml
+servers:
+  palworld:
+    unit: palworld.service
+    game_type: palworld
+    data_dir: /srv/palworld
+    address: palworld.example.test:8211
+    api_url: http://127.0.0.1:8212
+    api_token_file: /etc/hogs-agent/palworld-admin-password
+```
+
+Palworld admits players with a shared `ServerPassword`; manage it as a server
+secret field rather than a whitelist. Console commands are unsupported.
+
 ### On-demand Minecraft gateway
 
 A server can opt into the embedded Minecraft TCP gateway shown above. The

@@ -66,6 +66,9 @@ func playerStatus(server *ServerConfig, driver gametypes.Driver) (players, maxPl
 		players, maxPlayers, known = satisfactoryPlayerStatus(server)
 		return players, maxPlayers, known, nil
 	}
+	if server.GameType == "palworld" {
+		return palworldPlayerStatus(server)
+	}
 	if server.GameType == "valheim" {
 		// The Valheim journal carries counts, not names.
 		players, maxPlayers, known = valheimPlayerStatus(server)
@@ -86,6 +89,9 @@ func playerStatus(server *ServerConfig, driver gametypes.Driver) (players, maxPl
 }
 
 func serverVersion(server *ServerConfig, driver gametypes.Driver) string {
+	if server.GameType == "palworld" {
+		return palworldVersion(server)
+	}
 	if server.Console.Type != "rcon" || driver.VersionCommand == "" {
 		return ""
 	}
@@ -127,14 +133,18 @@ type ServerConfig struct {
 	DataDir        string `yaml:"data_dir"`
 	Address        string `yaml:"address"`
 	ExclusiveGroup string `yaml:"exclusive_group"`
-	// APITokenFile points at a node-local root-only file holding a bearer
-	// token for game APIs without RCON (currently Satisfactory). The agent
-	// reads it at query time so the token never enters configuration.
-	APITokenFile string        `yaml:"api_token_file"`
-	Console      ConsoleConfig `yaml:"console"`
-	Backup       BackupConfig  `yaml:"backup"`
-	Gateway      GatewayConfig `yaml:"gateway"`
-	Update       UpdateConfig  `yaml:"update"`
+	// APITokenFile points at a node-local root-only file holding the
+	// credential for game APIs without RCON: a bearer token for
+	// Satisfactory, the AdminPassword for Palworld. The agent reads it at
+	// query time so the credential never enters configuration.
+	APITokenFile string `yaml:"api_token_file"`
+	// APIURL is the base URL of a node-local game API whose port differs
+	// from the game port (Palworld REST, default http://127.0.0.1:8212).
+	APIURL  string        `yaml:"api_url"`
+	Console ConsoleConfig `yaml:"console"`
+	Backup  BackupConfig  `yaml:"backup"`
+	Gateway GatewayConfig `yaml:"gateway"`
+	Update  UpdateConfig  `yaml:"update"`
 }
 
 // UpdateConfig names a host-provisioned oneshot unit that updates the game
@@ -277,6 +287,15 @@ func validateConfig(cfg AgentConfig) error {
 		}
 		if server.Console.Type == "rcon" && (server.Console.Host == "" || server.Console.Port <= 0 || !filepath.IsAbs(server.Console.PasswordFile)) {
 			return fmt.Errorf("server %q has incomplete RCON configuration", name)
+		}
+		if server.APIURL != "" {
+			parsed, err := url.Parse(server.APIURL)
+			if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+				return fmt.Errorf("server %q api_url must be an absolute HTTP(S) URL", name)
+			}
+		}
+		if server.APITokenFile != "" && !filepath.IsAbs(server.APITokenFile) {
+			return fmt.Errorf("server %q api_token_file must be absolute", name)
 		}
 		if server.Backup.EnvironmentFile != "" && !filepath.IsAbs(server.Backup.EnvironmentFile) {
 			return fmt.Errorf("server %q backup environment_file must be absolute", name)
