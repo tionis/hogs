@@ -97,8 +97,11 @@ type InventoryServerPolicy struct {
 	Stop           bool     `json:"stop"`
 	Backup         bool     `json:"backup"`
 	Restore        bool     `json:"restore"`
-	// Update is hosting-owned: it mirrors whether the node agent provisions an
-	// update unit for this server, so reconciliation keeps it current.
+	// Console, RCON, Start, Stop, Backup, Restore, Update and WritablePaths
+	// are the deployment capability: they mirror what the host provisions
+	// (journal access, RCON, update unit, backup profile, data layout), so
+	// reconciliation keeps them current. No GUI edits them; access grants
+	// decide who may use an enabled capability.
 	Update        bool     `json:"update"`
 	WritablePaths []string `json:"writablePaths"`
 }
@@ -806,16 +809,22 @@ func (h *InventoryHandler) firstAdoptionDeletes(currentDigest string, desired In
 }
 
 // inventoryServerReconcileView is the subset of a server that Gandalf owns
-// continuously. Presentation, policy, tag, command, and access state are
-// seeded once and intentionally excluded, so edits made in the HOGS GUI do not
-// surface as reconciliation drift. The hosting-owned update flag stays visible.
+// continuously. Presentation, tag, command, access, and the legacy operator
+// and ACL policy fields are seeded once and intentionally excluded, so edits
+// made in the HOGS GUI do not surface as reconciliation drift. The
+// hosting-owned deployment capability stays visible.
 func inventoryServerReconcileView(server InventoryServer) InventoryServer {
 	server.MapLifecycle = ""
 	server.State = ""
 	server.ShowMOTD = false
 	server.Metadata = nil
 	server.Tags = nil
-	server.Policy = InventoryServerPolicy{Update: server.Policy.Update}
+	server.Policy = InventoryServerPolicy{
+		Console: server.Policy.Console, RCON: server.Policy.RCON,
+		Start: server.Policy.Start, Stop: server.Policy.Stop,
+		Backup: server.Policy.Backup, Restore: server.Policy.Restore,
+		Update: server.Policy.Update, WritablePaths: server.Policy.WritablePaths,
+	}
 	server.Commands = nil
 	server.AccessGrants = nil
 	return server
@@ -1091,11 +1100,11 @@ func applyNodes(tx *sql.Tx, nodes []InventoryNode) error {
 	return deleteMissing(tx, "agents", "name", keep)
 }
 
-// applyServers reconciles the hosting-owned part of each server continuously
-// and seeds presentation, policy, command, tag, and access state only when the
-// server is first created. Operational state edited in the HOGS GUI (tags,
-// access grants, management policy, commands) therefore survives later
-// reconciliations.
+// applyServers reconciles the hosting-owned part of each server, including its
+// deployment capability, continuously and seeds presentation, operator,
+// command, tag, and access state only when the server is first created.
+// Operational state edited in the HOGS GUI (tags, access grants, commands)
+// therefore survives later reconciliations.
 func applyServers(tx *sql.Tx, servers []InventoryServer) error {
 	keep := make([]string, 0, len(servers))
 	for _, server := range servers {
@@ -1154,7 +1163,10 @@ func applyServers(tx *sql.Tx, servers []InventoryServer) error {
 		operators, _ := json.Marshal(server.Policy.Operators)
 		writablePaths, _ := json.Marshal(server.Policy.WritablePaths)
 		if _, err := tx.Exec(`INSERT INTO server_management(server_id,unit_name,data_path,operators,console_enabled,rcon_enabled,start_enabled,stop_enabled,backup_enabled,restore_enabled,update_enabled,writable_paths)
-			VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(server_id) DO UPDATE SET unit_name=excluded.unit_name,data_path=excluded.data_path,update_enabled=excluded.update_enabled`,
+			VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(server_id) DO UPDATE SET unit_name=excluded.unit_name,data_path=excluded.data_path,
+				console_enabled=excluded.console_enabled,rcon_enabled=excluded.rcon_enabled,start_enabled=excluded.start_enabled,
+				stop_enabled=excluded.stop_enabled,backup_enabled=excluded.backup_enabled,restore_enabled=excluded.restore_enabled,
+				update_enabled=excluded.update_enabled,writable_paths=excluded.writable_paths`,
 			serverID, server.Unit, server.DataPath, string(operators), boolInt(server.Policy.Console), boolInt(server.Policy.RCON), boolInt(server.Policy.Start), boolInt(server.Policy.Stop), boolInt(server.Policy.Backup), boolInt(server.Policy.Restore), boolInt(server.Policy.Update), string(writablePaths)); err != nil {
 			return err
 		}

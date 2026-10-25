@@ -893,6 +893,7 @@ func TestServerDetailAndFilesHonorCapabilities(t *testing.T) {
 	if err := store.CreateAgent(&database.Agent{Name: "capability-node", NodeName: "capability-node"}); err != nil {
 		t.Fatal(err)
 	}
+	enableTestConsole(t, store, server.ID, "/srv/capabilitysrv")
 	const panelUsername = "player"
 	if err := store.SetServerAccessGrant(&database.ServerAccessGrant{
 		ServerID: server.ID, SubjectType: "user", Subject: panelUsername, Effect: "allow",
@@ -985,6 +986,45 @@ func TestServerDetailAndFilesHonorCapabilities(t *testing.T) {
 	}
 }
 
+func enableTestConsole(t *testing.T, store *database.Store, serverID int, dataPath string) {
+	t.Helper()
+	if _, err := store.DB.Exec(`INSERT INTO server_management(server_id,unit_name,data_path,operators,console_enabled,writable_paths)
+		VALUES(?,?,?,'[]',1,?)`, serverID, "test.service", dataPath, `["`+dataPath+`"]`); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestServerDetailHidesDisabledConsoleFromAdmins(t *testing.T) {
+	handler, store, authenticator := testWebHandler(t)
+	if err := store.CreateServer(&database.Server{Name: "QuietSrv", GameType: "palworld", State: "online"}); err != nil {
+		t.Fatal(err)
+	}
+	server, _ := store.GetServerByName("QuietSrv")
+	if err := store.CreatePterodactylLink(&database.PterodactylLink{
+		ServerID: server.ID, PteroServerID: "agent:QuietSrv", AllowedActions: `[]`, Node: "quiet-node",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateAgent(&database.Agent{Name: "quiet-node", NodeName: "quiet-node"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.DB.Exec(`INSERT INTO server_management(server_id,unit_name,data_path,operators,console_enabled,writable_paths)
+		VALUES(?,'quiet.service','/srv/quiet','[]',0,'[]')`, server.ID); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/QuietSrv", nil)
+	req = mux.SetURLVars(req, map[string]string{"serverName": "QuietSrv"})
+	req.AddCookie(createTestSession(t, store, authenticator, "admin@example.test", "admin"))
+	recorder := httptest.NewRecorder()
+	handler.ServerDetail(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status=%d", recorder.Code)
+	}
+	if contains(recorder.Body.String(), `/servers/QuietSrv/console`) {
+		t.Fatal("console tab shown for a server whose console is disabled")
+	}
+}
+
 func TestServerTabsAndAccessPage(t *testing.T) {
 	handler, store, authenticator := testWebHandler(t)
 	if err := store.CreateServer(&database.Server{
@@ -1002,6 +1042,7 @@ func TestServerTabsAndAccessPage(t *testing.T) {
 	if err := store.CreateAgent(&database.Agent{Name: "ordered-node", NodeName: "ordered-node"}); err != nil {
 		t.Fatal(err)
 	}
+	enableTestConsole(t, store, server.ID, "/srv/orderedsrv")
 	req := httptest.NewRequest(http.MethodGet, "/OrderedSrv", nil)
 	req = mux.SetURLVars(req, map[string]string{"serverName": "OrderedSrv"})
 	adminCookie := createTestSession(t, store, authenticator, "admin@example.test", "admin")

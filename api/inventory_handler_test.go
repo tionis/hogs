@@ -392,7 +392,7 @@ func TestInventorySeedsOnceAndPreservesGuiManagedState(t *testing.T) {
 	}
 }
 
-func TestInventoryReconcilesHostingOwnedUpdatePolicy(t *testing.T) {
+func TestInventoryReconcilesHostingOwnedDeploymentCapability(t *testing.T) {
 	handler, store := testInventoryHandler(t)
 	manifest := testManifest()
 	manifest.Servers[0].Policy.Update = true
@@ -409,6 +409,8 @@ func TestInventoryReconcilesHostingOwnedUpdatePolicy(t *testing.T) {
 
 	manifest.Generation = "git:no-update"
 	manifest.Servers[0].Policy.Update = false
+	manifest.Servers[0].Policy.Console = !manifest.Servers[0].Policy.Console
+	manifest.Servers[0].Policy.WritablePaths = []string{"/srv/cog/world"}
 	plan := httptest.NewRecorder()
 	handler.Plan(plan, requestInventory(t, http.MethodPost, "/api/v1/inventory/plan", manifest))
 	if !strings.Contains(plan.Body.String(), `"servers/cog"`) {
@@ -422,5 +424,9 @@ func TestInventoryReconcilesHostingOwnedUpdatePolicy(t *testing.T) {
 	management, err = store.GetServerManagement(server.ID)
 	if err != nil || management == nil || management.UpdateEnabled {
 		t.Fatalf("update policy was not reconciled on an existing server: %#v err=%v", management, err)
+	}
+	if management.ConsoleEnabled != manifest.Servers[0].Policy.Console ||
+		len(management.WritablePaths) != 1 || management.WritablePaths[0] != "/srv/cog/world" {
+		t.Fatalf("deployment capability was not reconciled on an existing server: %#v", management)
 	}
 }

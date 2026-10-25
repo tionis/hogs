@@ -59,9 +59,11 @@ Structured field placement and secret handling are documented in
 [server fields and secrets](SERVER_FIELDS.md).
 
 Inventory manifests carry `accessGrants` with `subjectType`, `subject`,
-`effect`, and `capabilities`. Reconciliation seeds the grants, together with
-the server policy, when it first creates a server; afterwards they are owned
-by the admin UI and reconciliation leaves them untouched. The admin UI
+`effect`, and `capabilities`. Reconciliation seeds the grants when it first
+creates a server; afterwards they are owned by the admin UI and
+reconciliation leaves them untouched. The deployment capability (console,
+RCON, start, stop, backup, restore, update, writable paths) is instead
+reconciled continuously, because it mirrors what the host provisions. The admin UI
 shows the same capability catalog and clearly distinguishes allow from deny.
 `GET /api/servers/{serverName}/effective-access` explains the current caller's
 effective decision for each capability.

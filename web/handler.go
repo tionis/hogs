@@ -672,6 +672,11 @@ func (h *WebHandler) renderServerPage(w http.ResponseWriter, r *http.Request, pa
 			data.ShowFiles, data.FileWrite = fileRead.Allowed, fileWrite.Allowed
 			data.ShowResources = status.Allowed
 		}
+		// The deployment capability gates every role: a console the server
+		// does not enable would only show a socket that is always refused.
+		if management, _ := h.Store.GetServerManagement(server.ID); management == nil || !management.ConsoleEnabled {
+			data.ShowConsole, data.ConsoleWrite = false, false
+		}
 	}
 	if page == "files" {
 		if !data.ShowFiles {
