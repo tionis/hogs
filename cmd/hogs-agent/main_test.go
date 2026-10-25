@@ -178,6 +178,9 @@ func TestRoutineRCONConnectionLineFilter(t *testing.T) {
 		{"minecraft", "[RCON Listener #2/INFO] Thread RCON Client /10.0.0.1 started"},
 		{"minecraft", "[RconClient] Thread RCON Client /10.0.0.1 shutting down"},
 		{"factorio", "8378.028 Info RemoteCommandProcessor.cpp:245: New RCON connection from IP ADDR:({127.0.0.1:60184})"},
+		{"palworld", "[2026-10-25 14:39:13] [LOG] REST accessed endpoint /v1/api/players OK"},
+		{"palworld", "[2026-10-25 14:39:13] [LOG] REST accessed endpoint /v1/api/metrics OK"},
+		{"palworld", "[2026-10-25 14:39:13] [LOG] REST accessed endpoint /v1/api/info OK"},
 	} {
 		if !isRoutineConsoleLine(test.gameType, test.line) {
 			t.Fatalf("routine RCON line was not filtered: %q", test.line)
@@ -185,6 +188,9 @@ func TestRoutineRCONConnectionLineFilter(t *testing.T) {
 	}
 	if isRoutineConsoleLine("minecraft", "[Server thread/INFO] Player joined the game") {
 		t.Fatal("normal server output was filtered")
+	}
+	if isRoutineConsoleLine("palworld", "[2026-10-25 14:40:00] [LOG] REST accessed endpoint /v1/api/save OK") {
+		t.Fatal("Palworld save request was filtered")
 	}
 }
 

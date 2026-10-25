@@ -401,6 +401,16 @@ func init() {
 		AccentColor: "#0277bd",
 		Icon:        `<svg class="game-icon" viewBox="0 0 16 16" fill="currentColor"><circle cx="8" cy="9" r="5"/><path d="M4 5L3 1l3 3zM12 5l1-4-3 3z"/></svg>`,
 		Details:     []DetailField{{Key: "version", Label: "Server Version"}},
+		// The agent polls these status endpoints every status refresh and
+		// Palworld logs each request; save, shutdown and admin calls stay.
+		IsRoutineConsoleLine: func(line string) bool {
+			_, endpoint, found := strings.Cut(line, "REST accessed endpoint /v1/api/")
+			if !found {
+				return false
+			}
+			endpoint, _, _ = strings.Cut(endpoint, " ")
+			return endpoint == "metrics" || endpoint == "players" || endpoint == "info"
+		},
 	})
 	Register(Driver{
 		Slug: "starrupture", DisplayName: "Star Rupture", PlayerNoun: "Players",
