@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/golang-migrate/migrate/v4"
 	migratesqlite "github.com/golang-migrate/migrate/v4/database/sqlite3"
@@ -598,7 +599,7 @@ func TestGameTypesAndConsoleHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, line := range []string{"server line", "> command", "response"} {
-		if err := store.AppendConsoleHistory(server.ID, "server", line, "", 2); err != nil {
+		if err := store.AppendConsoleHistory(server.ID, "server", line, "", time.Time{}, 2); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -620,19 +621,23 @@ func TestConsoleHistoryJournalCursors(t *testing.T) {
 	if cursor, err := store.LastConsoleCursor(server.ID); err != nil || cursor != "" {
 		t.Fatalf("empty transcript cursor=%q err=%v", cursor, err)
 	}
+	logged := time.Date(2025, 3, 4, 5, 6, 7, 0, time.UTC)
 	for _, entry := range []struct{ stream, line, cursor string }{
 		{"server", "first", "c1"},
 		{"server", "second", "c2"},
 		{"server", "second", "c2"}, // a second viewer recorded the same line
 		{"command", "> list", ""},
 	} {
-		if err := store.AppendConsoleHistory(server.ID, entry.stream, entry.line, entry.cursor, 10); err != nil {
+		if err := store.AppendConsoleHistory(server.ID, entry.stream, entry.line, entry.cursor, logged, 10); err != nil {
 			t.Fatal(err)
 		}
 	}
 	history, err := store.ListConsoleHistory(server.ID, 10)
 	if err != nil || len(history) != 3 {
 		t.Fatalf("history=%#v err=%v", history, err)
+	}
+	if !history[0].Time().Equal(logged) {
+		t.Fatalf("stored time=%v want the logged time %v", history[0].Time(), logged)
 	}
 	if cursor, err := store.LastConsoleCursor(server.ID); err != nil || cursor != "c2" {
 		t.Fatalf("last cursor=%q err=%v", cursor, err)

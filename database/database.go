@@ -194,6 +194,9 @@ func (s *Store) DeleteGameType(slug string) error {
 	return err
 }
 
+// consoleHistoryTimeLayout matches SQLite's CURRENT_TIMESTAMP (UTC).
+const consoleHistoryTimeLayout = "2006-01-02 15:04:05"
+
 type ConsoleHistoryEntry struct {
 	ID        int    `json:"id"`
 	ServerID  int    `json:"serverId"`
@@ -202,13 +205,23 @@ type ConsoleHistoryEntry struct {
 	CreatedAt string `json:"createdAt"`
 }
 
+// Time returns when the line was logged, or the zero time if unknown.
+func (e ConsoleHistoryEntry) Time() time.Time {
+	at, _ := time.ParseInLocation(consoleHistoryTimeLayout, e.CreatedAt, time.UTC)
+	return at
+}
+
 // AppendConsoleHistory stores one console line and trims the transcript to
 // limit lines. Server output carries its journal cursor; a line whose cursor
 // is already stored (another viewer recorded it) is skipped, so concurrent
-// consoles never duplicate the transcript.
-func (s *Store) AppendConsoleHistory(serverID int, stream, line, journalCursor string, limit int) error {
+// consoles never duplicate the transcript. at is when the line was logged
+// (the journal time for server output); the zero time means now.
+func (s *Store) AppendConsoleHistory(serverID int, stream, line, journalCursor string, at time.Time, limit int) error {
 	if limit <= 0 {
 		limit = 500
+	}
+	if at.IsZero() {
+		at = time.Now()
 	}
 	tx, err := s.DB.Begin()
 	if err != nil {
@@ -219,8 +232,8 @@ func (s *Store) AppendConsoleHistory(serverID int, stream, line, journalCursor s
 	if journalCursor != "" {
 		cursor = journalCursor
 	}
-	if _, err := tx.Exec(`INSERT OR IGNORE INTO console_history(server_id,stream,line,journal_cursor) VALUES(?,?,?,?)`,
-		serverID, stream, line, cursor); err != nil {
+	if _, err := tx.Exec(`INSERT OR IGNORE INTO console_history(server_id,stream,line,journal_cursor,created_at) VALUES(?,?,?,?,?)`,
+		serverID, stream, line, cursor, at.UTC().Format(consoleHistoryTimeLayout)); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(`DELETE FROM console_history WHERE server_id=? AND id NOT IN

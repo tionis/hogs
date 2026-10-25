@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
@@ -80,21 +81,27 @@ func (h *ConsoleHandler) ServeWS(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var writeMu sync.Mutex
-	writeLine := func(stream, line, cursor string, persist bool) error {
+	writeLine := func(stream, line, cursor string, at time.Time, persist bool) error {
+		if at.IsZero() {
+			at = time.Now()
+		}
 		if persist {
-			_ = h.Store.AppendConsoleHistory(server.ID, stream, line, cursor, consoleHistoryLimit)
+			_ = h.Store.AppendConsoleHistory(server.ID, stream, line, cursor, at, consoleHistoryLimit)
 		}
 		writeMu.Lock()
 		defer writeMu.Unlock()
-		return conn.WriteJSON(map[string]string{"type": "console", "stream": stream, "line": line})
+		return conn.WriteJSON(map[string]string{
+			"type": "console", "stream": stream, "line": line,
+			"timestamp": at.UTC().Format(time.RFC3339),
+		})
 	}
 	for _, entry := range history {
-		if writeLine(entry.Stream, entry.Line, "", false) != nil {
+		if writeLine(entry.Stream, entry.Line, "", entry.Time(), false) != nil {
 			return
 		}
 	}
 	if streamErr != nil {
-		_ = writeLine("error", "Live console unavailable: "+streamErr.Error(), "", false)
+		_ = writeLine("error", "Live console unavailable: "+streamErr.Error(), "", time.Time{}, false)
 		return
 	}
 	streamDone := make(chan struct{})
@@ -104,11 +111,12 @@ func (h *ConsoleHandler) ServeWS(w http.ResponseWriter, r *http.Request) {
 		scanner.Buffer(make([]byte, 64*1024), 1024*1024)
 		for scanner.Scan() {
 			var line struct {
-				Line   string `json:"line"`
-				Cursor string `json:"cursor"`
+				Line      string    `json:"line"`
+				Cursor    string    `json:"cursor"`
+				Timestamp time.Time `json:"timestamp"`
 			}
 			if json.Unmarshal(scanner.Bytes(), &line) == nil && line.Line != "" {
-				if writeLine("server", line.Line, line.Cursor, true) != nil {
+				if writeLine("server", line.Line, line.Cursor, line.Timestamp, true) != nil {
 					return
 				}
 			}
@@ -127,20 +135,20 @@ func (h *ConsoleHandler) ServeWS(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		if writeErr != nil {
-			_ = writeLine("error", "You have read-only console access.", "", false)
+			_ = writeLine("error", "You have read-only console access.", "", time.Time{}, false)
 			continue
 		}
-		_ = writeLine("command", "> "+request.Input, "", true)
+		_ = writeLine("command", "> "+request.Input, "", time.Time{}, true)
 		result, err := h.Service.SendCommandResult(serverName, request.Input)
 		if err != nil {
-			_ = writeLine("error", "Error: "+err.Error(), "", true)
+			_ = writeLine("error", "Error: "+err.Error(), "", time.Time{}, true)
 			continue
 		}
 		if data, ok := result.Data.(map[string]interface{}); ok {
 			if output, ok := data["output"].(string); ok {
 				for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
 					if line != "" {
-						_ = writeLine("response", line, "", true)
+						_ = writeLine("response", line, "", time.Time{}, true)
 					}
 				}
 			}
