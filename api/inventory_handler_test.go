@@ -430,3 +430,45 @@ func TestInventoryReconcilesHostingOwnedDeploymentCapability(t *testing.T) {
 		t.Fatalf("deployment capability was not reconciled on an existing server: %#v", management)
 	}
 }
+
+func TestInventoryReconcilesTheDirectFallbackAddress(t *testing.T) {
+	handler, store := testInventoryHandler(t)
+	manifest := testManifest()
+	manifest.Servers[0].Metadata["directAddress"] = "seeded.example.test:25565"
+	first := httptest.NewRecorder()
+	handler.Apply(first, requestInventory(t, http.MethodPut, "/api/v1/inventory", manifest))
+	if first.Code != http.StatusOK {
+		t.Fatalf("initial apply failed: %s", first.Body.String())
+	}
+
+	apply := func(generation, direct string) {
+		t.Helper()
+		manifest.Generation = generation
+		manifest.Servers[0].Metadata = map[string]string{"edition": "bedrock"}
+		if direct != "" {
+			manifest.Servers[0].Metadata["directAddress"] = direct
+		}
+		plan := httptest.NewRecorder()
+		handler.Plan(plan, requestInventory(t, http.MethodPost, "/api/v1/inventory/plan", manifest))
+		if !strings.Contains(plan.Body.String(), `"servers/cog"`) {
+			t.Fatalf("plan did not report the direct fallback change: %s", plan.Body.String())
+		}
+		recorder := httptest.NewRecorder()
+		handler.Apply(recorder, requestInventory(t, http.MethodPut, "/api/v1/inventory", manifest))
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("apply failed: %s", recorder.Body.String())
+		}
+	}
+
+	apply("git:moved", "moved.example.test:25565")
+	server, _ := store.GetServerByName("cog")
+	if server.Metadata["directAddress"] != "moved.example.test:25565" || server.Metadata["edition"] != "java" {
+		t.Fatalf("direct fallback was not reconciled or seeded metadata changed: %#v", server.Metadata)
+	}
+
+	apply("git:dropped", "")
+	server, _ = store.GetServerByName("cog")
+	if _, present := server.Metadata["directAddress"]; present || server.Metadata["edition"] != "java" {
+		t.Fatalf("direct fallback was not removed or seeded metadata changed: %#v", server.Metadata)
+	}
+}

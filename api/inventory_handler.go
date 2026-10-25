@@ -812,12 +812,16 @@ func (h *InventoryHandler) firstAdoptionDeletes(currentDigest string, desired In
 // continuously. Presentation, tag, command, access, and the legacy operator
 // and ACL policy fields are seeded once and intentionally excluded, so edits
 // made in the HOGS GUI do not surface as reconciliation drift. The
-// hosting-owned deployment capability stays visible.
+// hosting-owned deployment capability and connection addresses stay visible.
 func inventoryServerReconcileView(server InventoryServer) InventoryServer {
 	server.MapLifecycle = ""
 	server.State = ""
 	server.ShowMOTD = false
+	directAddress := server.Metadata["directAddress"]
 	server.Metadata = nil
+	if directAddress != "" {
+		server.Metadata = map[string]string{"directAddress": directAddress}
+	}
 	server.Tags = nil
 	server.Policy = InventoryServerPolicy{
 		Console: server.Policy.Console, RCON: server.Policy.RCON,
@@ -1101,7 +1105,8 @@ func applyNodes(tx *sql.Tx, nodes []InventoryNode) error {
 }
 
 // applyServers reconciles the hosting-owned part of each server, including its
-// deployment capability, continuously and seeds presentation, operator,
+// deployment capability and direct fallback address, continuously and seeds
+// presentation, operator,
 // command, tag, and access state only when the server is first created.
 // Operational state edited in the HOGS GUI (tags, access grants, commands)
 // therefore survives later reconciliations.
@@ -1135,8 +1140,11 @@ func applyServers(tx *sql.Tx, servers []InventoryServer) error {
 			state = "online"
 		}
 		_, err := tx.Exec(`INSERT INTO servers(management_id,name,address,description,map_url,mod_url,state,game_type,show_motd,metadata) VALUES(?,?,?,?,?,?,?,?,?,?)
-			ON CONFLICT(management_id) DO UPDATE SET name=excluded.name,address=excluded.address,description=excluded.description,map_url=excluded.map_url,mod_url=excluded.mod_url,game_type=excluded.game_type`,
-			server.ID, server.Name, server.Address, server.Description, server.MapURL, server.ModURL, state, server.GameType, show, string(metadata))
+			ON CONFLICT(management_id) DO UPDATE SET name=excluded.name,address=excluded.address,description=excluded.description,map_url=excluded.map_url,mod_url=excluded.mod_url,game_type=excluded.game_type,
+				metadata=CASE WHEN ?='' THEN json_remove(COALESCE(NULLIF(servers.metadata,''),'{}'),'$.directAddress')
+					ELSE json_set(COALESCE(NULLIF(servers.metadata,''),'{}'),'$.directAddress',?) END`,
+			server.ID, server.Name, server.Address, server.Description, server.MapURL, server.ModURL, state, server.GameType, show, string(metadata),
+			server.Metadata["directAddress"], server.Metadata["directAddress"])
 		if err != nil {
 			return err
 		}
