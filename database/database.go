@@ -202,7 +202,11 @@ type ConsoleHistoryEntry struct {
 	CreatedAt string `json:"createdAt"`
 }
 
-func (s *Store) AppendConsoleHistory(serverID int, stream, line string, limit int) error {
+// AppendConsoleHistory stores one console line and trims the transcript to
+// limit lines. Server output carries its journal cursor; a line whose cursor
+// is already stored (another viewer recorded it) is skipped, so concurrent
+// consoles never duplicate the transcript.
+func (s *Store) AppendConsoleHistory(serverID int, stream, line, journalCursor string, limit int) error {
 	if limit <= 0 {
 		limit = 500
 	}
@@ -211,8 +215,12 @@ func (s *Store) AppendConsoleHistory(serverID int, stream, line string, limit in
 		return err
 	}
 	defer tx.Rollback()
-	if _, err := tx.Exec(`INSERT INTO console_history(server_id,stream,line) VALUES(?,?,?)`,
-		serverID, stream, line); err != nil {
+	var cursor any
+	if journalCursor != "" {
+		cursor = journalCursor
+	}
+	if _, err := tx.Exec(`INSERT OR IGNORE INTO console_history(server_id,stream,line,journal_cursor) VALUES(?,?,?,?)`,
+		serverID, stream, line, cursor); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(`DELETE FROM console_history WHERE server_id=? AND id NOT IN
@@ -221,6 +229,18 @@ func (s *Store) AppendConsoleHistory(serverID int, stream, line string, limit in
 		return err
 	}
 	return tx.Commit()
+}
+
+// LastConsoleCursor returns the journal cursor of the newest stored server
+// line, or "" when the transcript holds none.
+func (s *Store) LastConsoleCursor(serverID int) (string, error) {
+	var cursor string
+	err := s.DB.QueryRow(`SELECT journal_cursor FROM console_history
+		WHERE server_id=? AND journal_cursor IS NOT NULL ORDER BY id DESC LIMIT 1`, serverID).Scan(&cursor)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return cursor, err
 }
 
 func (s *Store) ListConsoleHistory(serverID, limit int) ([]ConsoleHistoryEntry, error) {

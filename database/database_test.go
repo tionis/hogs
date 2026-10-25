@@ -598,7 +598,7 @@ func TestGameTypesAndConsoleHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, line := range []string{"server line", "> command", "response"} {
-		if err := store.AppendConsoleHistory(server.ID, "server", line, 2); err != nil {
+		if err := store.AppendConsoleHistory(server.ID, "server", line, "", 2); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -608,6 +608,34 @@ func TestGameTypesAndConsoleHistory(t *testing.T) {
 	}
 	if err := store.DeleteGameType(custom.Slug); err == nil {
 		t.Fatal("removed a game type still used by a server")
+	}
+}
+
+func TestConsoleHistoryJournalCursors(t *testing.T) {
+	store := testStore(t)
+	server := &Server{Name: "cursor-test", GameType: "minecraft", State: "online"}
+	if err := store.CreateServer(server); err != nil {
+		t.Fatal(err)
+	}
+	if cursor, err := store.LastConsoleCursor(server.ID); err != nil || cursor != "" {
+		t.Fatalf("empty transcript cursor=%q err=%v", cursor, err)
+	}
+	for _, entry := range []struct{ stream, line, cursor string }{
+		{"server", "first", "c1"},
+		{"server", "second", "c2"},
+		{"server", "second", "c2"}, // a second viewer recorded the same line
+		{"command", "> list", ""},
+	} {
+		if err := store.AppendConsoleHistory(server.ID, entry.stream, entry.line, entry.cursor, 10); err != nil {
+			t.Fatal(err)
+		}
+	}
+	history, err := store.ListConsoleHistory(server.ID, 10)
+	if err != nil || len(history) != 3 {
+		t.Fatalf("history=%#v err=%v", history, err)
+	}
+	if cursor, err := store.LastConsoleCursor(server.ID); err != nil || cursor != "c2" {
+		t.Fatalf("last cursor=%q err=%v", cursor, err)
 	}
 }
 

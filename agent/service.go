@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -357,11 +358,23 @@ func (s *AgentService) BackupList(serverName string) (*GenericResultData, error)
 	return s.operation(ctx, serverName, http.MethodGet, "backups", nil)
 }
 
-func (s *AgentService) Console(ctx context.Context, serverName string) (*http.Response, error) {
+// Console streams the server's journal. With afterCursor the agent first
+// replays what was logged after that line; otherwise it replays the last
+// backlog lines (0 starts at the live end). Older agents ignore both.
+func (s *AgentService) Console(ctx context.Context, serverName, afterCursor string, backlog int) (*http.Response, error) {
 	agentBackend, err := s.backend(serverName)
 	if err != nil {
 		return nil, err
 	}
-	return s.Manager.Stream(ctx, agentBackend.NodeName, http.MethodGet,
-		fmt.Sprintf("/v1/servers/%s/console", url.PathEscape(agentBackend.ServerID)), nil)
+	query := url.Values{}
+	if afterCursor != "" {
+		query.Set("after_cursor", afterCursor)
+	} else if backlog > 0 {
+		query.Set("backlog", strconv.Itoa(backlog))
+	}
+	endpoint := fmt.Sprintf("/v1/servers/%s/console", url.PathEscape(agentBackend.ServerID))
+	if encoded := query.Encode(); encoded != "" {
+		endpoint += "?" + encoded
+	}
+	return s.Manager.Stream(ctx, agentBackend.NodeName, http.MethodGet, endpoint, nil)
 }

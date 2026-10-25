@@ -39,6 +39,12 @@ var consoleUpgrader = websocket.Upgrader{
 	},
 }
 
+const (
+	consoleHistoryLimit = 500
+	// consoleInitialBacklog journal lines seed a transcript without a cursor.
+	consoleInitialBacklog = 200
+)
+
 func (h *ConsoleHandler) ServeWS(w http.ResponseWriter, r *http.Request) {
 	serverName := mux.Vars(r)["serverName"]
 	if h.Auth != nil && !h.Auth.IsAuthenticated(r) {
@@ -51,8 +57,16 @@ func (h *ConsoleHandler) ServeWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, _, _, writeErr := authorizeManagedCapability(h.Store, h.Engine, h.Auth, r, serverName, managedConsoleWrite)
-	history, _ := h.Store.ListConsoleHistory(server.ID, 500)
-	agentStream, streamErr := h.Service.Console(r.Context(), serverName)
+	history, _ := h.Store.ListConsoleHistory(server.ID, consoleHistoryLimit)
+	// Resume after the newest stored journal line so output logged while no
+	// console was open still reaches the transcript; a fresh transcript
+	// starts with recent journal lines.
+	lastCursor, _ := h.Store.LastConsoleCursor(server.ID)
+	backlog := 0
+	if lastCursor == "" {
+		backlog = consoleInitialBacklog
+	}
+	agentStream, streamErr := h.Service.Console(r.Context(), serverName, lastCursor, backlog)
 	conn, err := consoleUpgrader.Upgrade(w, r, nil)
 	if err != nil {
 		if agentStream != nil {
@@ -66,21 +80,21 @@ func (h *ConsoleHandler) ServeWS(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var writeMu sync.Mutex
-	writeLine := func(stream, line string, persist bool) error {
+	writeLine := func(stream, line, cursor string, persist bool) error {
 		if persist {
-			_ = h.Store.AppendConsoleHistory(server.ID, stream, line, 500)
+			_ = h.Store.AppendConsoleHistory(server.ID, stream, line, cursor, consoleHistoryLimit)
 		}
 		writeMu.Lock()
 		defer writeMu.Unlock()
 		return conn.WriteJSON(map[string]string{"type": "console", "stream": stream, "line": line})
 	}
 	for _, entry := range history {
-		if writeLine(entry.Stream, entry.Line, false) != nil {
+		if writeLine(entry.Stream, entry.Line, "", false) != nil {
 			return
 		}
 	}
 	if streamErr != nil {
-		_ = writeLine("error", "Live console unavailable: "+streamErr.Error(), false)
+		_ = writeLine("error", "Live console unavailable: "+streamErr.Error(), "", false)
 		return
 	}
 	streamDone := make(chan struct{})
@@ -90,10 +104,11 @@ func (h *ConsoleHandler) ServeWS(w http.ResponseWriter, r *http.Request) {
 		scanner.Buffer(make([]byte, 64*1024), 1024*1024)
 		for scanner.Scan() {
 			var line struct {
-				Line string `json:"line"`
+				Line   string `json:"line"`
+				Cursor string `json:"cursor"`
 			}
 			if json.Unmarshal(scanner.Bytes(), &line) == nil && line.Line != "" {
-				if writeLine("server", line.Line, true) != nil {
+				if writeLine("server", line.Line, line.Cursor, true) != nil {
 					return
 				}
 			}
@@ -112,20 +127,20 @@ func (h *ConsoleHandler) ServeWS(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		if writeErr != nil {
-			_ = writeLine("error", "You have read-only console access.", false)
+			_ = writeLine("error", "You have read-only console access.", "", false)
 			continue
 		}
-		_ = writeLine("command", "> "+request.Input, true)
+		_ = writeLine("command", "> "+request.Input, "", true)
 		result, err := h.Service.SendCommandResult(serverName, request.Input)
 		if err != nil {
-			_ = writeLine("error", "Error: "+err.Error(), true)
+			_ = writeLine("error", "Error: "+err.Error(), "", true)
 			continue
 		}
 		if data, ok := result.Data.(map[string]interface{}); ok {
 			if output, ok := data["output"].(string); ok {
 				for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
 					if line != "" {
-						_ = writeLine("response", line, true)
+						_ = writeLine("response", line, "", true)
 					}
 				}
 			}

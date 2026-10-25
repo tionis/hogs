@@ -10,7 +10,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -219,11 +218,51 @@ func handleConsole(w http.ResponseWriter, r *http.Request, server *ServerConfig)
 		writeAPIError(w, http.StatusInternalServerError, fmt.Errorf("streaming is unavailable"))
 		return
 	}
-	w.Header().Set("Content-Type", "application/x-ndjson")
-	w.Header().Set("Cache-Control", "no-store")
-	// HOGS persists the bounded console transcript. Start at the live cursor so
-	// reconnects do not duplicate the last journal lines.
-	cmd := exec.CommandContext(r.Context(), "journalctl", "-u", server.Unit, "-f", "-n", "0", "--no-hostname", "-o", "cat")
+	// HOGS persists the bounded console transcript and passes the journal
+	// cursor of its newest line, so a reconnect replays exactly what was
+	// logged while nobody watched. Without a cursor it may ask for a backlog;
+	// without either the stream starts at the live end.
+	afterCursor := r.URL.Query().Get("after_cursor")
+	if afterCursor != "" && !journalCursorPattern.MatchString(afterCursor) {
+		writeAPIError(w, http.StatusBadRequest, fmt.Errorf("invalid after_cursor"))
+		return
+	}
+	backlog := 0
+	if raw := r.URL.Query().Get("backlog"); raw != "" {
+		value, err := strconv.Atoi(raw)
+		if err != nil || value < 0 || value > consoleReplayLimit {
+			writeAPIError(w, http.StatusBadRequest, fmt.Errorf("backlog must be between 0 and %d", consoleReplayLimit))
+			return
+		}
+		backlog = value
+	}
+
+	var replay []journalEntry
+	followFrom := afterCursor
+	if afterCursor != "" || backlog > 0 {
+		entries, last, err := replayJournal(r.Context(), server.Unit, afterCursor, backlog)
+		if err != nil && afterCursor != "" && len(entries) == 0 {
+			// The stored cursor no longer resolves; fall back to recent lines.
+			followFrom = ""
+			entries, last, err = replayJournal(r.Context(), server.Unit, "", consoleFallbackBacklog)
+		}
+		if err != nil && len(entries) == 0 {
+			writeAPIError(w, http.StatusBadGateway, err)
+			return
+		}
+		replay = entries
+		if last != "" {
+			followFrom = last
+		}
+	}
+
+	args := append(journalBaseArgs(server.Unit), "-f")
+	if followFrom != "" {
+		args = append(args, "--after-cursor="+followFrom)
+	} else {
+		args = append(args, "-n", "0")
+	}
+	cmd := journalCommand(r.Context(), args...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		writeAPIError(w, http.StatusInternalServerError, err)
@@ -235,22 +274,37 @@ func handleConsole(w http.ResponseWriter, r *http.Request, server *ServerConfig)
 	}
 	defer cmd.Wait()
 	commitConsoleStream(w, flusher)
-	scanner := bufio.NewScanner(stdout)
-	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
 	encoder := json.NewEncoder(w)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if isRoutineConsoleLine(server.GameType, line) {
-			continue
+	emit := func(entry journalEntry) error {
+		if entry.Message == "" || isRoutineConsoleLine(server.GameType, entry.Message) {
+			return nil
 		}
 		if err := encoder.Encode(map[string]string{
 			"serverId":  r.PathValue("serverID"),
-			"line":      line,
-			"timestamp": time.Now().UTC().Format(time.RFC3339),
+			"line":      entry.Message,
+			"cursor":    entry.Cursor,
+			"timestamp": entry.Time.Format(time.RFC3339),
 		}); err != nil {
-			return
+			return err
 		}
 		flusher.Flush()
+		return nil
+	}
+	for _, entry := range replay {
+		if emit(entry) != nil {
+			return
+		}
+	}
+	scanner := bufio.NewScanner(stdout)
+	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
+	for scanner.Scan() {
+		entry, ok := parseJournalEntry(scanner.Bytes())
+		if !ok {
+			continue
+		}
+		if emit(entry) != nil {
+			return
+		}
 	}
 }
 

@@ -201,9 +201,16 @@ short-lived token scoped to one exact agent request. The browser then streams
 directly to or from a direct agent. A tunneled agent exposes the same API
 privately and HOGS relays the request.
 
-Console output is an NDJSON HTTP stream backed by the systemd journal.
-Commands, status queries, backups, file transfers, and console streams use
-independent requests. RCON and restic credentials remain in node-local files.
+Console output is an NDJSON HTTP stream backed by the systemd journal. Each
+line carries its journal `cursor`. HOGS stores the cursor of its newest
+transcript line and reconnects with `after_cursor`, so the agent first replays
+what was logged while no console was open (at most 500 lines) and then
+follows the journal from the newest replayed line; a cursor the journal no
+longer holds falls back to the last 200 lines. A transcript without a cursor
+asks for `backlog` lines (0 to 500); without either parameter the stream
+starts at the live end. Driver-filtered routine lines are replayed and
+followed but never emitted. Commands, status queries, backups, file
+transfers, and console streams use independent requests. RCON and restic credentials remain in node-local files.
 
 ## Transactional restores
 
