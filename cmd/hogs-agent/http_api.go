@@ -237,14 +237,17 @@ func handleConsole(w http.ResponseWriter, r *http.Request, server *ServerConfig)
 		backlog = value
 	}
 
+	visible := func(entry journalEntry) bool {
+		return entry.Message != "" && !isRoutineConsoleLine(server.GameType, entry.Message)
+	}
 	var replay []journalEntry
 	followFrom := afterCursor
 	if afterCursor != "" || backlog > 0 {
-		entries, last, err := replayJournal(r.Context(), server.Unit, afterCursor, backlog)
+		entries, last, err := replayJournal(r.Context(), server.Unit, afterCursor, backlog, visible)
 		if err != nil && afterCursor != "" && len(entries) == 0 {
 			// The stored cursor no longer resolves; fall back to recent lines.
 			followFrom = ""
-			entries, last, err = replayJournal(r.Context(), server.Unit, "", consoleFallbackBacklog)
+			entries, last, err = replayJournal(r.Context(), server.Unit, "", consoleFallbackBacklog, visible)
 		}
 		if err != nil && len(entries) == 0 {
 			writeAPIError(w, http.StatusBadGateway, err)
@@ -276,7 +279,7 @@ func handleConsole(w http.ResponseWriter, r *http.Request, server *ServerConfig)
 	commitConsoleStream(w, flusher)
 	encoder := json.NewEncoder(w)
 	emit := func(entry journalEntry) error {
-		if entry.Message == "" || isRoutineConsoleLine(server.GameType, entry.Message) {
+		if !visible(entry) {
 			return nil
 		}
 		if err := encoder.Encode(map[string]string{

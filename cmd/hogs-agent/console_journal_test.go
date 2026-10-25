@@ -109,18 +109,47 @@ func TestConsoleFallsBackWhenCursorIsStale(t *testing.T) {
 		case hasArg(args, "--after-cursor=gone"):
 			return "", "1"
 		default:
-			return journalRecord("c9", "recent"), "0"
+			// journalctl --reverse prints the newest entry first.
+			return journalRecord("c9", "recent") + journalRecord("c8", "older"), "0"
 		}
 	}}
 	journal.install(t)
 
 	recorder := serveConsole("?after_cursor=gone")
 	lines := consoleLines(t, recorder.Body.String())
-	if recorder.Code != http.StatusOK || len(lines) != 1 || lines[0]["line"] != "recent" {
+	if recorder.Code != http.StatusOK || len(lines) != 2 || lines[0]["line"] != "older" || lines[1]["line"] != "recent" {
 		t.Fatalf("status=%d lines=%v", recorder.Code, lines)
 	}
-	if len(journal.calls) != 3 || !hasArg(journal.calls[1], "200") || !hasArg(journal.calls[2], "--after-cursor=c9") {
+	if len(journal.calls) != 3 || !hasArg(journal.calls[1], "--reverse") || !hasArg(journal.calls[2], "--after-cursor=c9") {
 		t.Fatalf("calls=%v", journal.calls)
+	}
+}
+
+func TestConsoleBacklogCountsOnlyVisibleLines(t *testing.T) {
+	routine := journalRecord("r", "[LOG] REST accessed endpoint /v1/api/metrics OK")
+	journal := &fakeJournal{reply: func(args []string) (string, string) {
+		if hasArg(args, "-f") {
+			return "", "0"
+		}
+		// journalctl --reverse prints the newest entry first.
+		out := journalRecord("c9", "[LOG] REST accessed endpoint /v1/api/info OK")
+		for i := 0; i < 50; i++ {
+			out += routine
+		}
+		return out + journalRecord("c3", "started") + routine + journalRecord("c2", "loading") + journalRecord("c1", "booting"), "0"
+	}}
+	journal.install(t)
+
+	lines := consoleLines(t, serveConsole("?backlog=2").Body.String())
+	if len(lines) != 2 || lines[0]["line"] != "loading" || lines[1]["line"] != "started" {
+		t.Fatalf("lines=%v", lines)
+	}
+	if !hasArg(journal.calls[0], "--reverse") {
+		t.Fatalf("replay args=%v", journal.calls[0])
+	}
+	// Follow resumes after the newest entry read, even though it was hidden.
+	if !hasArg(journal.calls[1], "--after-cursor=c9") {
+		t.Fatalf("follow args=%v", journal.calls[1])
 	}
 }
 

@@ -67,16 +67,27 @@ func parseJournalEntry(raw []byte) (journalEntry, bool) {
 	return entry, true
 }
 
-// replayJournal returns the newest consoleReplayLimit entries after
-// afterCursor, or the last backlog entries when no cursor is given, plus the
-// cursor of the newest entry read. Follow mode resumes from that cursor so no
-// line is lost or repeated between the two journalctl invocations.
-func replayJournal(ctx context.Context, unit, afterCursor string, backlog int) ([]journalEntry, string, error) {
+// consoleReplayScanLimit bounds how many journal entries one backlog replay
+// reads while looking for lines the console shows; routine lines such as
+// status polling can outnumber them by far.
+const consoleReplayScanLimit = 20000
+
+// replayJournal returns the entries after afterCursor, or the newest backlog
+// entries when no cursor is given, keeping only entries visible accepts and at
+// most consoleReplayLimit of them, plus the cursor of the newest entry read.
+// Follow mode resumes from that cursor so no line is lost or repeated between
+// the two journalctl invocations. Hidden entries never count toward the
+// backlog, so a server whose journal is mostly routine lines still shows its
+// recent real output.
+func replayJournal(ctx context.Context, unit, afterCursor string, backlog int, visible func(journalEntry) bool) ([]journalEntry, string, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	args := journalBaseArgs(unit)
-	if afterCursor != "" {
-		args = append(args, "--after-cursor="+afterCursor)
+	reverse := afterCursor == ""
+	if reverse {
+		args = append(args, "--reverse", "-n", strconv.Itoa(consoleReplayScanLimit))
 	} else {
-		args = append(args, "-n", strconv.Itoa(backlog))
+		args = append(args, "--after-cursor="+afterCursor)
 	}
 	cmd := journalCommand(ctx, args...)
 	stdout, err := cmd.StdoutPipe()
@@ -88,6 +99,7 @@ func replayJournal(ctx context.Context, unit, afterCursor string, backlog int) (
 	}
 	var entries []journalEntry
 	last := ""
+	stopped := false
 	scanner := bufio.NewScanner(stdout)
 	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
 	for scanner.Scan() {
@@ -95,14 +107,30 @@ func replayJournal(ctx context.Context, unit, afterCursor string, backlog int) (
 		if !ok {
 			continue
 		}
-		last = entry.Cursor
+		if !reverse || last == "" {
+			last = entry.Cursor
+		}
+		if !visible(entry) {
+			continue
+		}
 		entries = append(entries, entry)
+		if reverse && len(entries) >= backlog {
+			stopped = true
+			cancel()
+			break
+		}
 		if len(entries) > consoleReplayLimit {
 			entries = entries[1:]
 		}
 	}
-	if err := cmd.Wait(); err != nil {
-		return entries, last, fmt.Errorf("read journal: %w", err)
+	waitErr := cmd.Wait()
+	if reverse {
+		for i, j := 0, len(entries)-1; i < j; i, j = i+1, j-1 {
+			entries[i], entries[j] = entries[j], entries[i]
+		}
+	}
+	if waitErr != nil && !stopped {
+		return entries, last, fmt.Errorf("read journal: %w", waitErr)
 	}
 	return entries, last, scanner.Err()
 }

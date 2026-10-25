@@ -208,8 +208,10 @@ what was logged while no console was open (at most 500 lines) and then
 follows the journal from the newest replayed line; a cursor the journal no
 longer holds falls back to the last 200 lines. A transcript without a cursor
 asks for `backlog` lines (0 to 500); without either parameter the stream
-starts at the live end. Driver-filtered routine lines are replayed and
-followed but never emitted. Commands, status queries, backups, file
+starts at the live end. Driver-filtered routine lines, such as Palworld's
+REST polling, are read but never emitted and never count toward these
+limits, so the backlog holds real output even when polling dominates the
+journal; a backlog search reads at most 20000 journal entries. Commands, status queries, backups, file
 transfers, and console streams use independent requests. RCON and restic credentials remain in node-local files.
 
 ## Transactional restores
