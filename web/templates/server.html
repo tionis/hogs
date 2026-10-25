@@ -831,7 +831,7 @@ document.addEventListener("DOMContentLoaded", function() {
         };
     }
 
-    {{if .ConsoleWrite}}window.sendConsoleInput = function() {
+    {{if and .ConsoleWrite .ConsoleCommandSupported}}window.sendConsoleInput = function() {
         if (!consoleWs || consoleWs.readyState !== WebSocket.OPEN) return;
         const input = consoleInput.value.trim();
         if (!input) return;

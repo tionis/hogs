@@ -1025,6 +1025,40 @@ func TestServerDetailHidesDisabledConsoleFromAdmins(t *testing.T) {
 	}
 }
 
+func TestReadOnlyConsoleScriptStillConnects(t *testing.T) {
+	handler, store, authenticator := testWebHandler(t)
+	if err := store.CreateServer(&database.Server{Name: "PlainSrv", GameType: "palworld", State: "online"}); err != nil {
+		t.Fatal(err)
+	}
+	server, _ := store.GetServerByName("PlainSrv")
+	if err := store.CreatePterodactylLink(&database.PterodactylLink{
+		ServerID: server.ID, PteroServerID: "agent:PlainSrv", AllowedActions: `[]`, Node: "plain-node",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateAgent(&database.Agent{Name: "plain-node", NodeName: "plain-node"}); err != nil {
+		t.Fatal(err)
+	}
+	enableTestConsole(t, store, server.ID, "/srv/plainsrv")
+	req := httptest.NewRequest(http.MethodGet, "/PlainSrv/console", nil)
+	req = mux.SetURLVars(req, map[string]string{"serverName": "PlainSrv"})
+	req.AddCookie(createTestSession(t, store, authenticator, "admin@example.test", "admin"))
+	recorder := httptest.NewRecorder()
+	handler.ServerConsole(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status=%d", recorder.Code)
+	}
+	body := recorder.Body.String()
+	// Without RCON the input is not rendered, so no script may bind to it:
+	// a null addEventListener would abort the script before it connects.
+	if contains(body, `id="console-input"`) || contains(body, "consoleInput.addEventListener") {
+		t.Fatal("console input or its handler rendered for a server without RCON")
+	}
+	if !contains(body, "connectConsole();") {
+		t.Fatal("console script does not connect")
+	}
+}
+
 func TestServerTabsAndAccessPage(t *testing.T) {
 	handler, store, authenticator := testWebHandler(t)
 	if err := store.CreateServer(&database.Server{
